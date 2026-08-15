@@ -69,13 +69,17 @@ Two passes with a human step between them.
    stripping a leading `The `, folding `&` to `and`, and removing punctuation.
 2. Canonical `name` is the most-used spelling. Every losing spelling becomes an `artist_alias`
    row.
-3. **Nine** collision groups, not seven. The seven known ones are `The Kaiser Chiefs`/`Kaiser
-   Chiefs`, `Fratellis`/`The Fratellis`, `Walk The Moon`/`Walk the Moon`, `Florence and the
-   Machine`/`Florence & the Machine`, `Kool and The Gang`/`Kool and the Gang`/`Kool & the
-   Gang`, `The Beach Boys`/`Beach Boys`, `Human League`/`The Human League`. **[E]** Two more
-   are pure trailing whitespace and invisible in the sheet: `Fleetwood Mac ` and `Travis `.
-   The fold does not reach 278 without them, which is a reminder that decision 17's `trim` is
-   load-bearing and not cosmetic.
+3. **Nine fold events, from seven spelling collisions plus two whitespace pairs.** The seven
+   are `The Kaiser Chiefs`/`Kaiser Chiefs`, `Fratellis`/`The Fratellis`, `Walk The Moon`/`Walk
+   the Moon`, `Florence and the Machine`/`Florence & the Machine`, `Kool and The Gang`/`Kool
+   and the Gang`/`Kool & the Gang`, `The Beach Boys`/`Beach Boys`, `Human League`/`The Human
+   League`. **[E]** Two more are pure trailing whitespace and invisible in the sheet:
+   `Fleetwood Mac `/`Fleetwood Mac` (8 and 13 cells) and `Travis `/`Travis` (10 and 31).
+   Decision 17's `trim` is load-bearing, not cosmetic.
+3a. **[E]** Four further strings carry trailing whitespace with no counterpart and so fold to
+   nothing: `Blue Brothers `, `Emotions `, `Fatboy Slim `, `Randy Newman `. Harmless, but a
+   fold that strips *before* counting spellings will report seven collisions rather than nine
+   and hide the whitespace problem entirely.
 4. **Divider rows appear in the `Artist` column** and must be filtered before deduplication, or
    the import creates artists named after them. Seven distinct strings, not two:
    `SET 1`/`SET 2` (9 cells), `Set 3` (1), `FIRST DANCE` (3), `EXTRAS` (2). **[E]** 295 raw
@@ -115,7 +119,10 @@ Two passes with a human step between them.
 11. Retain the **source spelling** of every key alongside the derived pitch class. Converting
     `Gb` to the integer 6 and discarding the spelling loses information the app cannot
     reconstruct when `key_signature` is null.
-12. Suspect spellings to flag, not silently fix: `Bbb` (×9 — not a key), `Cb` (×19), `Fb` (×1).
+12. Suspect spellings to **flag, not discard**. `Bbb` (×9) and `Fb` (×1) are not keys, so
+    `key_signature` stays null. **[E] `Cb` (×19) is a real key** — C♭ major is `−7`, inside
+    decision 32's range — so derive its signature and flag it anyway. Flagging and nulling are
+    different actions; rule 9 asks only for the flag.
 12a. **[E] Some tabs write the key inside the title cell** — `Valerie Ab`, `Brown Eyed Girl - G`
     — 45 cells workbook-wide, concentrated in tab `1-6-23`. Without splitting these the tab is
     unreadable and three `Key` cells vanish. Split, and flag every split for confirmation: the
@@ -170,7 +177,8 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
     - 6 genuine typos landing in 2002
 
     **No cell anywhere resolves to year 2099**, and no cell holds a year-less date such as
-    `13/2`. Both were artefacts of the markdown export and are retired.
+    `13/2`. Both were artefacts of the markdown export and are retired. The only out-of-range
+    years in the entire workbook are **1900 ×13** and **2002 ×6**.
 
 ### Set lists
 
@@ -248,16 +256,21 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
     affected, i.e. all of them.
 31. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
     integers.
-32. **[E] `Order` never holds duration. All 30 occurrences encode position**, in one of three
-    conventions, decoded from the real data:
-    - `set × 100 + position` — 18 tabs. The values `216`, `230`, `300` that were previously read
-      as durations are set 2 item 16, set 2 item 30, and set 3 item 0. The series is contiguous
-      and monotone within each hundred, which is what proves it.
+32. **[E] `Order` never holds duration. All 37 occurrences encode position**, in one of three
+    conventions:
+    - `set × 100 + position` — 26 tabs. The values `216`, `230`, `300` previously read as
+      durations are set 2 item 16, set 2 item 30, and set 3. Verified: they sit inside
+      contiguous `101, 102, …` runs on `2-7-22`, `28-5-22`, `2-9-22` and `19-11-22`.
     - decimal `set.position` — 3 tabs.
     - plain `1..N` with a separate `Set` column — 3 tabs.
+    - degenerate — 4 tabs; empty — 1.
 
-    Classify per tab by testing which convention makes the series contiguous. Flag any tab that
-    fits none — 22 rows currently do not classify.
+    **Contiguity and monotonicity must be tested, not assumed.** A range check alone
+    misclassifies: on `15-10-22`, `15-10-22 easier` and `6-8-22` the column runs
+    `49, 50, 60, 99, 101…230`, which under a naive hundreds reading yields a fabricated set 0
+    and colliding positions — breaking decision 54's requirement that `(position, id)` be a
+    total order. Flag `ORDER-UNCLASSIFIABLE` on any tab with a repeated `Order` value or a
+    value below 100.
 33. **[E] There is no duration source anywhere in the workbook, so `song.duration_seconds`
     cannot be populated at all.** This was the last candidate and it evaporated on inspection.
     Consequence for the product: the set list screen's running-time total has neither durations
