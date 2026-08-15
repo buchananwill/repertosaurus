@@ -1,0 +1,56 @@
+-- artist — mutable record, derived id (decisions 20, 21).
+-- Artist names are never stored as free text on a song.
+--
+-- Merge is last-write-wins per row on (updated_at, device_id, id) with a tombstone
+-- winning a tie (decision 11). That comparison lives in the shared core; `applyMerged`
+-- below is the unconditional write the core issues once it has picked the winner.
+
+CREATE TABLE artist (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    sort_name   TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX artist_sort_name ON artist(sort_name);
+
+selectAllLive:
+SELECT *
+FROM artist
+WHERE deleted_at IS NULL
+ORDER BY sort_name;
+
+selectById:
+SELECT *
+FROM artist
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM artist
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO artist(id, name, sort_name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO artist(id, name, sort_name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE artist
+SET name = ?, sort_name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE artist
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

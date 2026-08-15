@@ -1,0 +1,86 @@
+-- song_performer — junction, derived id UUIDv5(song_id, performer_id) (decisions 26, 27).
+--
+-- Who *can* sing or play a given song: a song-level capability. Distinct from
+-- setlist_item.lead_performer_id, which records who actually did, at one gig (decision 58).
+--
+-- vocal_range lives here and not on song, because range is only meaningful for a
+-- particular voice. Closed two-value vocabulary: 1 = high (workbook `H`), 0 = low (`L`).
+
+CREATE TABLE song_performer (
+    id            TEXT NOT NULL PRIMARY KEY,
+    song_id       TEXT NOT NULL,
+    performer_id  TEXT NOT NULL,
+    is_lead       INTEGER NOT NULL DEFAULT 0,
+    vocal_range   INTEGER,
+    notes         TEXT,
+
+    updated_at    TEXT NOT NULL,
+    deleted_at    TEXT,
+    device_id     TEXT NOT NULL,
+
+    FOREIGN KEY (song_id) REFERENCES song(id),
+    FOREIGN KEY (performer_id) REFERENCES performer(id),
+    CHECK (is_lead IN (0, 1)),
+    CHECK (vocal_range IS NULL OR vocal_range IN (0, 1)),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE UNIQUE INDEX song_performer_pair ON song_performer(song_id, performer_id);
+CREATE INDEX song_performer_performer ON song_performer(performer_id);
+
+selectBySong:
+SELECT
+    song_performer.id,
+    song_performer.performer_id,
+    performer.name AS performer_name,
+    song_performer.is_lead,
+    song_performer.vocal_range,
+    song_performer.notes
+FROM song_performer
+JOIN performer ON performer.id = song_performer.performer_id
+WHERE song_performer.song_id = ?
+  AND song_performer.deleted_at IS NULL
+  AND performer.deleted_at IS NULL
+ORDER BY song_performer.is_lead DESC, performer.name;
+
+selectByPerformer:
+SELECT
+    song.id AS song_id,
+    song.title,
+    song_performer.is_lead,
+    song_performer.vocal_range
+FROM song_performer
+JOIN song ON song.id = song_performer.song_id
+WHERE song_performer.performer_id = ?
+  AND song_performer.deleted_at IS NULL
+  AND song.deleted_at IS NULL
+ORDER BY song.title;
+
+selectChangedSince:
+SELECT *
+FROM song_performer
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO song_performer(
+    id, song_id, performer_id, is_lead, vocal_range, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO song_performer(
+    id, song_id, performer_id, is_lead, vocal_range, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE song_performer
+SET is_lead = ?, vocal_range = ?, notes = ?, updated_at = ?, deleted_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE song_performer
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

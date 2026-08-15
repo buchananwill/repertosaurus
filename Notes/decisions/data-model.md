@@ -66,11 +66,31 @@ It is equally a design error to make a table out of something that does not repe
    where a duplicate is meaningful.** Two devices typing "wedding" into a type-ahead mean one
    context, not two. Two taps on *Valerie* mean two practice sessions (decision 36).
 4. Canonical keys for derived ids:
-   - lookups (`instrument`, `tag`, `groove`, `venue`, `practice_context`, `performer`,
+   - lookups (`instrument`, `tag`, `groove`, `venue`, `band`, `practice_context`, `performer`,
      `artist`) — the normalised name, per decision 17.
    - `song` — `artist_id` plus normalised title.
    - junctions — the composite of the two foreign keys, e.g. `song_instrument` is
      `UUIDv5(song_id, instrument_id)`.
+
+4a. **The namespace constants are fixed and must never change.** Every derived id already
+    written becomes unreachable if they do, so these are ratified values, not defaults:
+
+    ```
+    ROOT              = UUIDv5(DNS, "songbook.dev")
+                      = 3ce0f1dc-b3b4-5aee-9683-49dfb0741ca7
+    namespace(table)  = UUIDv5(ROOT, table_name)
+    row id            = UUIDv5(namespace(table), normalise(name))
+    ```
+
+4b. Namespaces are **per table**, not one shared root. A lookup's canonical key is only its
+    normalised name (decision 4), so a shared namespace would give the tag `guitar` and the
+    instrument `guitar` the same id. Verified: `instrument/guitar` is
+    `f6b6f826-8eeb-5acc-9314-d2c096f780f6` and `tag/guitar` is
+    `f11c3596-de4a-5c65-b83a-ecd328b88ca2`.
+
+4c. Decision 17's normalisation strips punctuation, so the seeded tags `cw-duet` and
+    `need-to-learn` key on `cw duet` and `need to learn`. Display names keep their hyphens.
+    This is correct — it means a user typing "CW Duet" matches the existing tag.
 5. An id is opaque and immutable once written. Renaming an artist changes `name`, never the id;
    the derived id only has to converge at creation time, which is the moment duplicates are
    created.
@@ -105,9 +125,9 @@ It is equally a design error to make a table out of something that does not repe
 
 ### Lookup tables — the user extends these, not the schema
 
-15. `instrument`, `tag`, `groove`, `venue` and `practice_context` are **tables, not enums**.
-    Each carries `id`, `name`, plus the standard three. Adding a row must never require a code
-    change or a migration.
+15. `instrument`, `tag`, `groove`, `venue`, `band` and `practice_context` are **tables, not
+    enums**. Each carries `id`, `name`, plus the standard three. Adding a row must never
+    require a code change or a migration.
 16. All follow the same UI rule: **a type-ahead that creates on enter, surfacing near-matches
     while typing.** No admin screens. Friction in adding a lookup value is how you get `Party`
     and `party`.
@@ -147,6 +167,7 @@ It is equally a design error to make a table out of something that does not repe
     the other `Andy`. A new band member must cost zero schema change and zero free text.
 26. `song_performer (id, song_id, performer_id, is_lead, vocal_range, notes, …)` records **who
     can sing or play a given song**. A song-level capability, distinct from decision 48.
+    `is_lead` is `NOT NULL DEFAULT 0` with a `CHECK (is_lead IN (0, 1))`.
 27. `vocal_range` lives here, not on `song`. Range is only meaningful for a particular voice —
     a song that sits high for one singer sits comfortably for another. Stored as `INTEGER`
     with a `CHECK`, mapping the workbook's `H`/`L` to `1`/`0`; it is a closed two-value
@@ -158,6 +179,11 @@ It is equally a design error to make a table out of something that does not repe
     `tonal_centre`, `tonality_note`, `tempo_bpm`, `duration_seconds INTEGER`,
     `decade INTEGER`, `loop_length INTEGER`, `chord_count INTEGER`, `chord_pattern TEXT`,
     `groove_id`, `mashup_note`, `notes`, `chart_url`, plus the standard three.
+28a. **`artist_id` is `NOT NULL`.** Decision 4 makes it half of the song's canonical key, so a
+    null artist yields an unstable derived id and two devices would not converge. Where the
+    workbook has no artist, the migration attaches a seeded `Unknown Artist` row rather than
+    leaving the column null. A placeholder is honest; a null FK spreads `LEFT JOIN` through
+    every screen.
 29. `reference_recording TEXT NULL` names the specific recording all musical facts are stated
     against. A key claim is not verifiable without it. Free text or a URL; not validated; not a
     table, because it does not repeat.
@@ -219,6 +245,9 @@ It is equally a design error to make a table out of something that does not repe
     `device_id`.
 45. `logged_on TEXT NOT NULL` defaults to today. Logging for a past date is available but
     demoted into a menu; it must never be on the primary tap path.
+45a. **`context_id` is nullable.** A one-tap log must never require a second chip. The app
+    writes the session's context when the user has set one and null otherwise; a null context
+    reads as "just practising" and is not an error.
 46. `feel INTEGER NULL` is 1–3, optional. **Surfaced as long-press on the row, not as an extra
     step in the tap path.** A plain tap logs with `feel` null; long-press opens the rating.
     Day-one affordance, not a later addition.
@@ -233,8 +262,19 @@ It is equally a design error to make a table out of something that does not repe
 
 ### setlist
 
-49. `setlist` columns: `id`, `name`, `performed_on` (date, nullable), `venue_id`, `client`,
-    `notes`, plus the standard three.
+49. `setlist` columns: `id`, `name`, `performed_on` (date, nullable), `band_id`, `venue_id`,
+    `client`, `notes`, plus the standard three.
+49a. **`band` is a first-class lookup table** — `id`, `name`, `notes`, plus the standard three.
+    The user performs under several acts and configurations, and a set list belongs to one of
+    them. The workbook shows this plainly once the worksheet names are visible: `Blue Lion`
+    recurs across four tabs, `Acoustic` and `ACOUSTIC` mark a different configuration of the
+    same booking, and `Bass-vox Rep` is a repertoire for a specific role. Earlier gig sheets
+    name several acts outright — *The Fleet*, *The Gifted*, *Three Lance*, *Jukebox Nation*.
+49b. Band and venue are **different dimensions and must not be conflated.** An early reading of
+    the tab names took `Blue Lion` for a pub; it is a band. Nothing in a tab name is
+    self-describing, so the migration classifies rather than assumes — see migration rule 18.
+49c. Per-band repertoire — "what can we play as an acoustic duo" — is **not** modelled as a
+    junction yet. Use `tag` for it in phase 1. Revisit if tags prove too weak.
 50. `venue` is a table because venues genuinely repeat, and because it makes a question worth
     asking answerable: *what did we play last time we were here?* `client` stays free text — a
     wedding couple is a one-off.

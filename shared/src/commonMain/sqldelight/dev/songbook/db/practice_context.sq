@@ -1,0 +1,58 @@
+-- practice_context — lookup, user-extensible, derived id (decisions 15, 16, 19).
+-- Why a session happened: practice, twitch, rehearsal, gig.
+
+CREATE TABLE practice_context (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX practice_context_name ON practice_context(name);
+
+-- Seed (decision 19). Ids are UUIDv5(practice_context namespace, normalised name).
+INSERT INTO practice_context(id, name, updated_at, deleted_at, device_id) VALUES
+    ('1a9bb75b-e61f-533f-aaae-30053e06856e', 'practice',  '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('42cd9d7c-6ee6-5604-b2f4-81d68820212d', 'twitch',    '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('a547e2df-0f82-5dba-a7c4-c4d0f2031208', 'rehearsal', '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('ead21184-4281-5573-829a-5bb64a2b399c', 'gig',       '2026-08-15T00:00:00.000Z', NULL, 'seed');
+
+selectAllLive:
+SELECT *
+FROM practice_context
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM practice_context
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM practice_context
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO practice_context(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO practice_context(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+update:
+UPDATE practice_context
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE practice_context
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

@@ -1,0 +1,60 @@
+-- venue — lookup, user-extensible, derived id (decisions 15, 16, 50).
+-- A table because venues genuinely repeat, and because it makes
+-- "what did we play last time we were here?" answerable.
+
+CREATE TABLE venue (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX venue_name ON venue(name);
+
+selectAllLive:
+SELECT *
+FROM venue
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM venue
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM venue
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+-- Decision 50: what did we play last time we were here?
+selectSetlistsAtVenue:
+SELECT setlist.id, setlist.name, setlist.performed_on, setlist.client
+FROM setlist
+WHERE setlist.venue_id = ?
+  AND setlist.deleted_at IS NULL
+ORDER BY setlist.performed_on DESC;
+
+insert:
+INSERT INTO venue(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO venue(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+update:
+UPDATE venue
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE venue
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

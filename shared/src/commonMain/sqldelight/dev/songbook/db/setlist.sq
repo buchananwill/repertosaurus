@@ -1,0 +1,69 @@
+-- setlist — mutable record, random id (decisions 49, 50).
+-- client stays free text: a wedding couple is a one-off and does not repeat.
+
+CREATE TABLE setlist (
+    id            TEXT NOT NULL PRIMARY KEY,
+    name          TEXT NOT NULL,
+    performed_on  TEXT,
+    venue_id      TEXT,
+    client        TEXT,
+    notes         TEXT,
+
+    updated_at    TEXT NOT NULL,
+    deleted_at    TEXT,
+    device_id     TEXT NOT NULL,
+
+    FOREIGN KEY (venue_id) REFERENCES venue(id),
+    CHECK (performed_on IS NULL OR performed_on GLOB '????-??-??'),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX setlist_venue ON setlist(venue_id);
+CREATE INDEX setlist_performed_on ON setlist(performed_on DESC);
+
+selectAllLive:
+SELECT
+    setlist.id,
+    setlist.name,
+    setlist.performed_on,
+    setlist.venue_id,
+    venue.name AS venue_name,
+    setlist.client,
+    setlist.notes
+FROM setlist
+LEFT JOIN venue ON venue.id = setlist.venue_id AND venue.deleted_at IS NULL
+WHERE setlist.deleted_at IS NULL
+ORDER BY setlist.performed_on DESC, setlist.name;
+
+selectById:
+SELECT *
+FROM setlist
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM setlist
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO setlist(
+    id, name, performed_on, venue_id, client, notes, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO setlist(
+    id, name, performed_on, venue_id, client, notes, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE setlist
+SET name = ?, performed_on = ?, venue_id = ?, client = ?, notes = ?,
+    updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE setlist
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

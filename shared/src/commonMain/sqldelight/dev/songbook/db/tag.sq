@@ -1,0 +1,61 @@
+-- tag — lookup, user-extensible, derived id (decisions 15, 16, 19).
+-- Seeded from the workbook's flag columns.
+
+CREATE TABLE tag (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX tag_name ON tag(name);
+
+-- Seed (decision 19). Ids are UUIDv5(tag namespace, normalised name); note that
+-- normalisation strips punctuation, so `cw-duet` keys on `cw duet` and `need-to-learn`
+-- on `need to learn` while the display name keeps its hyphens.
+INSERT INTO tag(id, name, updated_at, deleted_at, device_id) VALUES
+    ('19f52880-05eb-5873-9d19-e754f0ee75f6', 'party',         '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('88c3f71b-6d7e-5a4b-ab3d-af296c4a76e5', 'christmas',     '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('cc9212da-f163-5dbf-a41d-cc13ad4daaff', 'cw-duet',       '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('774d2338-a928-54ea-9b6a-c6552ab6ea0b', 'target',        '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('4de25824-dbf2-5a3e-bb3e-fb2e610b6c1e', 'need-to-learn', '2026-08-15T00:00:00.000Z', NULL, 'seed');
+
+selectAllLive:
+SELECT *
+FROM tag
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM tag
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM tag
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO tag(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO tag(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+update:
+UPDATE tag
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE tag
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

@@ -1,0 +1,194 @@
+-- setlist_item — mutable record, random id (decisions 52-60).
+--
+-- Set membership is the foreign key setlist_set_id, NOT an integer compared by value.
+-- setlist_id and set_no are deliberately NOT repeated here; both are reachable through
+-- the FK (decision 53). Carrying set_no in two tables that merge independently lets two
+-- devices each add "set 3" and leaves every item in both.
+--
+-- position is a FRACTIONAL ORDERING KEY (LexoRank-style) held as TEXT, not an integer
+-- index, with (position, id) as the total order (decision 54). Inserting or moving one
+-- song allocates a key between its new neighbours and touches exactly one row, which is
+-- what last-write-wins can merge. An integer index would make every reorder a mass
+-- update and would violate decision 14.
+--
+-- transpose is a signed semitone offset from the song's reference key (decision 55). The
+-- song's own key never changes. Sounding pitch class is (tonal_centre + transpose) mod 12
+-- and the sounding signature is key_signature + 7 * transpose reduced into -7..+7 with
+-- the spelling tie-break of decision 56 — all of which lives in the shared core with
+-- tests, never in a UI layer (decision 57).
+--
+-- A set list reads song facts through the foreign key. Facts are never copied onto an
+-- item; transpose and tempo_override are the only sanctioned per-gig divergences
+-- (decision 59).
+
+CREATE TABLE setlist_item (
+    id                 TEXT NOT NULL PRIMARY KEY,
+    setlist_set_id     TEXT NOT NULL,
+    song_id            TEXT NOT NULL,
+    position           TEXT NOT NULL,
+    transpose          INTEGER NOT NULL DEFAULT 0,
+    lead_performer_id  TEXT,
+    tempo_override     INTEGER,
+    note               TEXT,
+
+    updated_at         TEXT NOT NULL,
+    deleted_at         TEXT,
+    device_id          TEXT NOT NULL,
+
+    FOREIGN KEY (setlist_set_id) REFERENCES setlist_set(id),
+    FOREIGN KEY (song_id) REFERENCES song(id),
+    FOREIGN KEY (lead_performer_id) REFERENCES performer(id),
+    CHECK (LENGTH(position) > 0),
+    CHECK (tempo_override IS NULL OR tempo_override > 0),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+-- Set contents in order. (position, id) is the total order, so the index carries both.
+CREATE INDEX setlist_item_set_position ON setlist_item(setlist_set_id, position, id);
+CREATE INDEX setlist_item_song ON setlist_item(song_id);
+CREATE INDEX setlist_item_lead_performer ON setlist_item(lead_performer_id);
+
+-- Set list contents, whole list, in performance order.
+-- Returns the SOUNDING KEY INPUTS — song.key_signature, song.tonal_centre and
+-- setlist_item.transpose — not a rendered key. Set lists display and print sounding
+-- (concert) key (decision 60); the reduction and enharmonic spelling are computed in the
+-- shared core per decisions 56, 40 and 57.
+selectBySetlist:
+SELECT
+    setlist_item.id                AS setlist_item_id,
+    setlist_set.id                 AS setlist_set_id,
+    setlist_set.set_no             AS set_no,
+    setlist_item.position          AS position,
+    song.id                        AS song_id,
+    song.title                     AS title,
+    artist.name                    AS artist_name,
+    song.key_signature             AS key_signature,
+    song.tonal_centre              AS tonal_centre,
+    setlist_item.transpose         AS transpose,
+    song.tempo_bpm                 AS tempo_bpm,
+    setlist_item.tempo_override    AS tempo_override,
+    song.duration_seconds          AS duration_seconds,
+    setlist_item.lead_performer_id AS lead_performer_id,
+    performer.name                 AS lead_performer_name,
+    setlist_item.note              AS note
+FROM setlist_item
+JOIN setlist_set
+       ON setlist_set.id = setlist_item.setlist_set_id
+      AND setlist_set.deleted_at IS NULL
+JOIN song
+       ON song.id = setlist_item.song_id
+      AND song.deleted_at IS NULL
+LEFT JOIN artist
+       ON artist.id = song.artist_id
+      AND artist.deleted_at IS NULL
+LEFT JOIN performer
+       ON performer.id = setlist_item.lead_performer_id
+      AND performer.deleted_at IS NULL
+WHERE setlist_set.setlist_id = ?
+  AND setlist_item.deleted_at IS NULL
+ORDER BY setlist_set.set_no, setlist_set.id, setlist_item.position, setlist_item.id;
+
+-- One set only, same projection.
+selectBySet:
+SELECT
+    setlist_item.id                AS setlist_item_id,
+    setlist_item.position          AS position,
+    song.id                        AS song_id,
+    song.title                     AS title,
+    artist.name                    AS artist_name,
+    song.key_signature             AS key_signature,
+    song.tonal_centre              AS tonal_centre,
+    setlist_item.transpose         AS transpose,
+    song.tempo_bpm                 AS tempo_bpm,
+    setlist_item.tempo_override    AS tempo_override,
+    song.duration_seconds          AS duration_seconds,
+    setlist_item.lead_performer_id AS lead_performer_id,
+    performer.name                 AS lead_performer_name,
+    setlist_item.note              AS note
+FROM setlist_item
+JOIN song
+       ON song.id = setlist_item.song_id
+      AND song.deleted_at IS NULL
+LEFT JOIN artist
+       ON artist.id = song.artist_id
+      AND artist.deleted_at IS NULL
+LEFT JOIN performer
+       ON performer.id = setlist_item.lead_performer_id
+      AND performer.deleted_at IS NULL
+WHERE setlist_item.setlist_set_id = ?
+  AND setlist_item.deleted_at IS NULL
+ORDER BY setlist_item.position, setlist_item.id;
+
+-- Fractional-key allocation support: the neighbours a new or moved row sits between.
+selectPositionBefore:
+SELECT position, id
+FROM setlist_item
+WHERE setlist_set_id = :setlistSetId
+  AND deleted_at IS NULL
+  AND position < :position
+ORDER BY position DESC, id DESC
+LIMIT 1;
+
+selectPositionAfter:
+SELECT position, id
+FROM setlist_item
+WHERE setlist_set_id = :setlistSetId
+  AND deleted_at IS NULL
+  AND position > :position
+ORDER BY position ASC, id ASC
+LIMIT 1;
+
+selectLastPosition:
+SELECT position, id
+FROM setlist_item
+WHERE setlist_set_id = ? AND deleted_at IS NULL
+ORDER BY position DESC, id DESC
+LIMIT 1;
+
+selectChangedSince:
+SELECT *
+FROM setlist_item
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO setlist_item(
+    id, setlist_set_id, song_id, position, transpose, lead_performer_id,
+    tempo_override, note, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO setlist_item(
+    id, setlist_set_id, song_id, position, transpose, lead_performer_id,
+    tempo_override, note, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- A move touches exactly one row (decision 54). Moving between sets is the same write.
+move:
+UPDATE setlist_item
+SET setlist_set_id = ?, position = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+update:
+UPDATE setlist_item
+SET transpose = ?, lead_performer_id = ?, tempo_override = ?, note = ?,
+    updated_at = ?, device_id = ?
+WHERE id = ?;
+
+-- Multi-select transpose-all +/-1 (decision 60). Operates on transpose only.
+transposeSelection:
+UPDATE setlist_item
+SET transpose = transpose + :delta, updated_at = :updatedAt, device_id = :deviceId
+WHERE id IN :ids;
+
+-- Reset-to-original for the same selection (decision 60).
+resetTransposeSelection:
+UPDATE setlist_item
+SET transpose = 0, updated_at = :updatedAt, device_id = :deviceId
+WHERE id IN :ids;
+
+softDelete:
+UPDATE setlist_item
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

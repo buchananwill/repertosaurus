@@ -117,19 +117,34 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
     carries the client and sometimes an address or postcode. Use both. The worksheet names are
     only visible in the `.xlsx` — a CSV or markdown export discards them, which is why the
     `.xlsx` is mandatory.
-22. Parse the worksheet name for three things:
-    - **`performed_on`** — most tabs are dated `D-M-YY` (`Blue Lion 6-9-25`, `29-4-23 MRS &
-      Mrs Dale`, `2-4-22`). This is the only source of gig dates anywhere in the workbook, and
-      it fills a `setlist` column that had no source at all. Some carry only a year
-      (`Jukefest 2025`, `Radiant Lanterns 2022`).
-    - **`venue`** — the non-date, non-person part. Venues genuinely repeat: `Blue Lion` appears
-      four times, which is the evidence the venue table was justified on.
-    - **`client`** — person-shaped parts (`MRS & Mrs Dale`, `Mr & Mrs Brinkley`,
-      `Emma Munro-Faure & Dha…`), or the in-sheet header row where the tab name has none.
-23. **Excel truncates worksheet names to 31 characters.** At least two are cut off
+22. **The date is the only part of a worksheet name that is safely parseable.** Extract
+    `performed_on` from a `D-M-YY` fragment (`Blue Lion 6-9-25`, `29-4-23 MRS & Mrs Dale`,
+    `2-4-22`), falling back to a bare year (`Jukefest 2025`, `Radiant Lanterns 2022`). This is
+    the only source of gig dates anywhere in the workbook and fills a `setlist` column that
+    previously had no source at all.
+23. **Do not infer what the non-date remainder is.** It is heterogeneous and nothing in it is
+    self-describing. It may be:
+    - a **band** — `Blue Lion` is an act the user performs in, not a pub. Earlier gig sheets
+      name others outright: *The Fleet*, *The Gifted*, *Three Lance*, *Jukebox Nation*.
+    - a **venue** — plausibly `Chigwell School`, `St Lawrence`, and the holiday parks that
+      appear in in-sheet headers (`Seal Bay - Selsey`, `Haven - Allhallows`).
+    - an **event** — `Jukefest 2025`, `Radiant Lanterns 2022`.
+    - a **configuration** — `Acoustic`, the `ACOUSTIC` suffix, `easier`,
+      `70s-disco-oriented`, `Bass-vox Rep`.
+    - a **client** — `MRS & Mrs Dale`, `Mr & Mrs Brinkley`, `Emma Munro-Faure & Dha…`.
+
+    An early pass took `Blue Lion` for a venue and was wrong. Emit every distinct remainder to
+    the review sheet with a proposed classification and a confidence, and let the human decide.
+    **A wrong guess here silently corrupts `band_id` and `venue_id` for the whole history**, and
+    unlike a key or a tempo there is no musical check that would catch it later.
+24. In-sheet header rows are equally mixed — `Seal Bay - Selsey` (venue),
+    `GU19 5PJ - Adam & Anna Scott` (postcode plus client), `SO42 7QB - Mr & Mrs Anthony Horne`
+    (postcode plus client), `Kendra Piper` (a person), `50 Shades of Grant` (an act). Same
+    treatment: propose, flag, do not assume.
+25. **Excel truncates worksheet names to 31 characters.** At least two are cut off
     (`Filtered 24-8-24 70s-disco-orie`, `15-6-24 Emma Munro-Faure &  Dha`). Recover the full
     name from the in-sheet header where one exists; flag to the review sheet where it does not.
-24. **Not every tab is a gig.** Classify before importing, and flag anything unclassifiable:
+26. **Not every tab is a gig.** Classify before importing, and flag anything unclassifiable:
     - `Everything` — the master song list, not a setlist. Source for song facts.
     - `Sheet2` — junk, skip.
     - `Bass-vox Rep`, `LPT with Ryan` — repertoire views or working lists, not performances.
@@ -140,26 +155,26 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
       `15-10-22` and `15-10-22 easier`, `24-8-24 70s-disco-oriented` and its `Filtered`
       counterpart. These are **not** duplicates; they are alternative sets for the same booking.
       Import both, keep the qualifier in `setlist.name`, and flag the pair.
-25. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
+27. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
     with `target_minutes = M`. Default to a single set when the tab says nothing. Without this
     no `setlist_set` exists, and `setlist_item.setlist_set_id` has nothing to point at.
-26. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
+28. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
     integers. Where an `Order` column holds a decimal (`0.2`, `1.09`, `2.03`, `3.07`), the
     integer part selects the `setlist_set` and the fractional part orders within it.
-27. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
+29. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
     set.position decimal; others hold values like `216`, `230`, `300` that are duration in
     seconds. Disambiguate per tab by inspecting the value range, and flag any tab that cannot
     be classified confidently rather than importing it wrong.
-28. Where a tab's `Order` column is classified as duration, **write it to
+30. Where a tab's `Order` column is classified as duration, **write it to
     `song.duration_seconds`.** It is the only source of duration anywhere in the workbook, and
     the set list screen needs it to total against `target_minutes`. Discovering it and then
     discarding it would be waste.
-29. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
+31. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
     that item's `setlist_item.tempo_override` rather than dropping it. Of 27 tempo
     disagreements, 5 are rounding and 3 are half-time notation, but the remaining 19 are real —
     and several are deliberate, a party arrangement taken faster. `tempo_override` is the
     column designed for exactly that.
-30. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
+32. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
     in five cells (`FD`/`LV`, and `Andy?`/`Andy` annotations). Import both, suffix the names,
     and flag for the user to delete one. Which was actually played is not recoverable.
 
@@ -178,7 +193,7 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
   Songs whose workbook key carries no quality, or which are genuinely modal, stay NULL for a
   human to resolve later.
 - No attempt to *decide* the 19 genuine tempo disagreements. Both values are retained — master
-  on the song, gig value on the item (rule 29) — because most will resolve to "both were right,
+  on the song, gig value on the item (rule 31) — because most will resolve to "both were right,
   for different gigs". These are **questions, not errors**.
 - No import of the set-list triage columns. See *Deliberately not modelled* in
   [data-model.md](../decisions/data-model.md).

@@ -1,0 +1,181 @@
+-- song — mutable record, derived id (decisions 28-40).
+--
+-- key_signature is the dominant diatonic signature as a signed sharp/flat count, -7..+7
+-- (decision 32). tonal_centre is the home bass note as pitch class 0-11, 0 = C
+-- (decision 33). There is deliberately no mode or quality column: major/minor is implied
+-- by the pair (decision 35). Do not add one.
+--
+-- reference_recording, chord_pattern, mashup_note, tonality_note and chart_url are free
+-- text on purpose (decisions 29, 30, 39) — they do not repeat, so they do not earn tables.
+
+CREATE TABLE song (
+    id                   TEXT NOT NULL PRIMARY KEY,
+    title                TEXT NOT NULL,
+    artist_id            TEXT,
+    reference_recording  TEXT,
+    key_signature        INTEGER,
+    tonal_centre         INTEGER,
+    tonality_note        TEXT,
+    tempo_bpm            INTEGER,
+    duration_seconds     INTEGER,
+    decade               INTEGER,
+    loop_length          INTEGER,
+    chord_count          INTEGER,
+    chord_pattern        TEXT,
+    groove_id            TEXT,
+    mashup_note          TEXT,
+    notes                TEXT,
+    chart_url            TEXT,
+
+    updated_at           TEXT NOT NULL,
+    deleted_at           TEXT,
+    device_id            TEXT NOT NULL,
+
+    FOREIGN KEY (artist_id) REFERENCES artist(id),
+    FOREIGN KEY (groove_id) REFERENCES groove(id),
+    CHECK (key_signature IS NULL OR key_signature BETWEEN -7 AND 7),
+    CHECK (tonal_centre IS NULL OR tonal_centre BETWEEN 0 AND 11),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX song_artist ON song(artist_id);
+CREATE INDEX song_title ON song(title);
+CREATE INDEX song_groove ON song(groove_id);
+
+-- The Session screen (decisions 8, 44, 48).
+--
+-- Coldest first for one discipline: every live song, ordered by days since its last
+-- practice on :instrumentId, never-practised songs first. Voided events are removed by
+-- the LEFT JOIN against practice_event_void plus the IS NULL test — a left anti-join.
+-- A union merge cannot suppress a row, so this anti-join is the only correct way to
+-- honour an undo (decision 8).
+--
+-- last_practised and times_practised are derived here, never stored (decision 48).
+selectByStaleness:
+SELECT
+    song.id                AS song_id,
+    song.title             AS title,
+    artist.name            AS artist_name,
+    MAX(practice_event.logged_on)   AS last_practised,
+    COUNT(practice_event.id)        AS times_practised,
+    CAST(julianday(:today) - julianday(MAX(practice_event.logged_on)) AS INTEGER)
+                                    AS days_since
+FROM song
+LEFT JOIN artist
+       ON artist.id = song.artist_id
+      AND artist.deleted_at IS NULL
+LEFT JOIN practice_event
+       ON practice_event.song_id = song.id
+      AND practice_event.instrument_id = :instrumentId
+LEFT JOIN practice_event_void
+       ON practice_event_void.practice_event_id = practice_event.id
+WHERE song.deleted_at IS NULL
+  AND practice_event_void.id IS NULL
+GROUP BY song.id, song.title, artist.name
+ORDER BY last_practised IS NOT NULL, last_practised ASC, song.title ASC;
+
+-- The same ordering scoped to one set list, for the set-list-scoped session mode.
+selectByStalenessInSetlist:
+SELECT
+    song.id                AS song_id,
+    song.title             AS title,
+    artist.name            AS artist_name,
+    MAX(practice_event.logged_on)   AS last_practised,
+    COUNT(practice_event.id)        AS times_practised,
+    CAST(julianday(:today) - julianday(MAX(practice_event.logged_on)) AS INTEGER)
+                                    AS days_since
+FROM song
+JOIN setlist_item
+       ON setlist_item.song_id = song.id
+      AND setlist_item.deleted_at IS NULL
+JOIN setlist_set
+       ON setlist_set.id = setlist_item.setlist_set_id
+      AND setlist_set.deleted_at IS NULL
+      AND setlist_set.setlist_id = :setlistId
+LEFT JOIN artist
+       ON artist.id = song.artist_id
+      AND artist.deleted_at IS NULL
+LEFT JOIN practice_event
+       ON practice_event.song_id = song.id
+      AND practice_event.instrument_id = :instrumentId
+LEFT JOIN practice_event_void
+       ON practice_event_void.practice_event_id = practice_event.id
+WHERE song.deleted_at IS NULL
+  AND practice_event_void.id IS NULL
+GROUP BY song.id, song.title, artist.name
+ORDER BY last_practised IS NOT NULL, last_practised ASC, song.title ASC;
+
+selectAllLive:
+SELECT *
+FROM song
+WHERE deleted_at IS NULL
+ORDER BY title;
+
+selectById:
+SELECT *
+FROM song
+WHERE id = ?;
+
+selectByArtist:
+SELECT *
+FROM song
+WHERE artist_id = ? AND deleted_at IS NULL
+ORDER BY title;
+
+searchByTitle:
+SELECT song.id, song.title, artist.name AS artist_name
+FROM song
+LEFT JOIN artist ON artist.id = song.artist_id
+WHERE song.deleted_at IS NULL
+  AND song.title LIKE '%' || :term || '%'
+ORDER BY song.title;
+
+selectChangedSince:
+SELECT *
+FROM song
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO song(
+    id, title, artist_id, reference_recording, key_signature, tonal_centre,
+    tonality_note, tempo_bpm, duration_seconds, decade, loop_length, chord_count,
+    chord_pattern, groove_id, mashup_note, notes, chart_url,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO song(
+    id, title, artist_id, reference_recording, key_signature, tonal_centre,
+    tonality_note, tempo_bpm, duration_seconds, decade, loop_length, chord_count,
+    chord_pattern, groove_id, mashup_note, notes, chart_url,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE song
+SET title = ?,
+    artist_id = ?,
+    reference_recording = ?,
+    key_signature = ?,
+    tonal_centre = ?,
+    tonality_note = ?,
+    tempo_bpm = ?,
+    duration_seconds = ?,
+    decade = ?,
+    loop_length = ?,
+    chord_count = ?,
+    chord_pattern = ?,
+    groove_id = ?,
+    mashup_note = ?,
+    notes = ?,
+    chart_url = ?,
+    updated_at = ?,
+    device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE song
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

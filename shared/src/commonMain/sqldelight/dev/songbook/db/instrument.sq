@@ -1,0 +1,66 @@
+-- instrument — lookup, user-extensible, derived id (decisions 15, 16, 18).
+-- Voice is an instrument here. `backing vocal` is separate from `vocal` so a song can
+-- carry both a lead and a backing-vocal note without needing two rows for the same
+-- (song, instrument) pair.
+--
+-- Adding a row must never require a code change or a migration: the type-ahead creates
+-- on enter and the derived id (UUIDv5 over the normalised name) makes two devices
+-- creating the same value converge on one row.
+
+CREATE TABLE instrument (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX instrument_name ON instrument(name);
+
+-- Seed (decision 18). Ids are UUIDv5(instrument namespace, normalised name); see
+-- ../../../../README.md for the namespace derivation.
+INSERT INTO instrument(id, name, updated_at, deleted_at, device_id) VALUES
+    ('6409e4f3-5881-5293-8918-9dbafe572ac6', 'vocal',         '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('38ae379a-fb72-5c64-9242-b57f6deeb5cd', 'backing vocal', '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('f6b6f826-8eeb-5acc-9314-d2c096f780f6', 'guitar',        '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('4e6210b7-1029-5855-99c2-32f48d87ec2a', 'bass',          '2026-08-15T00:00:00.000Z', NULL, 'seed'),
+    ('ce4b4d8d-ea47-52f0-aeed-a167949377e4', 'keys',          '2026-08-15T00:00:00.000Z', NULL, 'seed');
+
+selectAllLive:
+SELECT *
+FROM instrument
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM instrument
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM instrument
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO instrument(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO instrument(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+update:
+UPDATE instrument
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE instrument
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

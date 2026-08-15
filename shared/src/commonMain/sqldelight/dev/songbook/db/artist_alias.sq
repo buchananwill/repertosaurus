@@ -1,0 +1,51 @@
+-- artist_alias — child of artist, random id (decision 22).
+-- Only for aliases the normalisation of decision 17 cannot resolve:
+--   OCS -> Ocean Colour Scene, Florence + the Machine -> Florence and the Machine.
+-- Do not populate it with cases decision 17 already handles.
+
+CREATE TABLE artist_alias (
+    id          TEXT NOT NULL PRIMARY KEY,
+    artist_id   TEXT NOT NULL,
+    alias       TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    FOREIGN KEY (artist_id) REFERENCES artist(id),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX artist_alias_artist ON artist_alias(artist_id);
+CREATE INDEX artist_alias_alias ON artist_alias(alias);
+
+selectByArtist:
+SELECT *
+FROM artist_alias
+WHERE artist_id = ? AND deleted_at IS NULL
+ORDER BY alias;
+
+selectArtistIdByAlias:
+SELECT artist_id
+FROM artist_alias
+WHERE alias = ? AND deleted_at IS NULL;
+
+selectChangedSince:
+SELECT *
+FROM artist_alias
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO artist_alias(id, artist_id, alias, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO artist_alias(id, artist_id, alias, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+softDelete:
+UPDATE artist_alias
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

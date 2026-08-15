@@ -1,0 +1,67 @@
+-- song_tag — junction, derived id UUIDv5(song_id, tag_id) (decisions 13, 43).
+--
+-- Tags are never stored as free text on a song. Junction rows are individually
+-- addressable rows, not a set to be replaced wholesale: "replace this song's tags" as a
+-- multi-row delete plus insert is not something two offline devices can merge coherently.
+
+CREATE TABLE song_tag (
+    id          TEXT NOT NULL PRIMARY KEY,
+    song_id     TEXT NOT NULL,
+    tag_id      TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    FOREIGN KEY (song_id) REFERENCES song(id),
+    FOREIGN KEY (tag_id) REFERENCES tag(id),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE UNIQUE INDEX song_tag_pair ON song_tag(song_id, tag_id);
+CREATE INDEX song_tag_tag ON song_tag(tag_id);
+
+selectBySong:
+SELECT song_tag.id, tag.id AS tag_id, tag.name AS tag_name
+FROM song_tag
+JOIN tag ON tag.id = song_tag.tag_id
+WHERE song_tag.song_id = ?
+  AND song_tag.deleted_at IS NULL
+  AND tag.deleted_at IS NULL
+ORDER BY tag.name;
+
+selectSongsByTag:
+SELECT song.id, song.title, artist.name AS artist_name
+FROM song_tag
+JOIN song ON song.id = song_tag.song_id
+LEFT JOIN artist ON artist.id = song.artist_id AND artist.deleted_at IS NULL
+WHERE song_tag.tag_id = ?
+  AND song_tag.deleted_at IS NULL
+  AND song.deleted_at IS NULL
+ORDER BY song.title;
+
+selectChangedSince:
+SELECT *
+FROM song_tag
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO song_tag(id, song_id, tag_id, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO song_tag(id, song_id, tag_id, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+softDelete:
+UPDATE song_tag
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+-- Re-adding a tag reuses the derived id, so it is an untombstone, not a second row.
+restore:
+UPDATE song_tag
+SET deleted_at = NULL, updated_at = ?, device_id = ?
+WHERE id = ?;

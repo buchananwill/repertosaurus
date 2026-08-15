@@ -1,0 +1,51 @@
+-- groove — lookup, user-extensible, derived id (decisions 15, 16).
+-- Not seeded: the vocabulary comes out of the migration and the type-ahead.
+
+CREATE TABLE groove (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX groove_name ON groove(name);
+
+selectAllLive:
+SELECT *
+FROM groove
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM groove
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM groove
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO groove(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO groove(id, name, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?);
+
+update:
+UPDATE groove
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE groove
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

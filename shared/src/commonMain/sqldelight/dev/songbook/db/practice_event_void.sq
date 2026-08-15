@@ -1,0 +1,44 @@
+-- practice_event_void — IMMUTABLE, APPEND-ONLY. Random id (UUIDv4), decisions 6, 8, 11.
+--
+-- Deleting a practice event is an append, not a mutation: a row here naming the voided
+-- event. Reads left-anti-join it. A union merge cannot suppress a row, so without this
+-- the undo on the product's highest-frequency path silently fails — the voided event
+-- returns on the next sync.
+--
+-- Append-only, so created_at and device_id and NO deleted_at (decision 9). Voiding a
+-- void is not a thing; a re-log is a new practice_event.
+
+CREATE TABLE practice_event_void (
+    id                 TEXT NOT NULL PRIMARY KEY,
+    practice_event_id  TEXT NOT NULL,
+
+    created_at         TEXT NOT NULL,
+    device_id          TEXT NOT NULL,
+
+    FOREIGN KEY (practice_event_id) REFERENCES practice_event(id),
+    CHECK (created_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+-- The lookup every read does. Not UNIQUE: two devices may each void the same event
+-- offline and both rows must survive the union merge.
+CREATE INDEX practice_event_void_event ON practice_event_void(practice_event_id);
+
+-- Undo (decision 8). One statement, no read first.
+insert:
+INSERT INTO practice_event_void(id, practice_event_id, created_at, device_id)
+VALUES (?, ?, ?, ?);
+
+isVoided:
+SELECT EXISTS (
+    SELECT 1 FROM practice_event_void WHERE practice_event_id = ?
+);
+
+selectCreatedSince:
+SELECT *
+FROM practice_event_void
+WHERE created_at > ?
+ORDER BY created_at, device_id, id;
+
+applyMerged:
+INSERT OR IGNORE INTO practice_event_void(id, practice_event_id, created_at, device_id)
+VALUES (?, ?, ?, ?);

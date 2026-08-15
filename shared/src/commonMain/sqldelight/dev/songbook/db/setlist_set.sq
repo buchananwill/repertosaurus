@@ -1,0 +1,80 @@
+-- setlist_set — child of setlist, random id (decision 51).
+-- Replaces the workbook's `2x60` free text. The set list screen totals actual duration
+-- against target_minutes per set; parsing a string in the UI to do that would be a defect.
+--
+-- No UNIQUE constraint on (setlist_id, set_no): two devices offline can each add "set 3"
+-- and both rows must survive the merge. Items hang off setlist_set_id (decision 53), so
+-- a duplicated set_no is a display wrinkle to resolve, not lost or misfiled songs.
+
+CREATE TABLE setlist_set (
+    id              TEXT NOT NULL PRIMARY KEY,
+    setlist_id      TEXT NOT NULL,
+    set_no          INTEGER NOT NULL,
+    target_minutes  INTEGER,
+
+    updated_at      TEXT NOT NULL,
+    deleted_at      TEXT,
+    device_id       TEXT NOT NULL,
+
+    FOREIGN KEY (setlist_id) REFERENCES setlist(id),
+    CHECK (set_no >= 1),
+    CHECK (target_minutes IS NULL OR target_minutes > 0),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX setlist_set_setlist ON setlist_set(setlist_id, set_no);
+
+selectBySetlist:
+SELECT *
+FROM setlist_set
+WHERE setlist_id = ? AND deleted_at IS NULL
+ORDER BY set_no, id;
+
+-- Actual against target, per set (decision 51). Songs with no duration are counted in
+-- song_count but contribute nothing to actual_seconds, so the UI can say so.
+selectTotalsBySetlist:
+SELECT
+    setlist_set.id AS setlist_set_id,
+    setlist_set.set_no,
+    setlist_set.target_minutes,
+    COUNT(setlist_item.id) AS song_count,
+    COALESCE(SUM(song.duration_seconds), 0) AS actual_seconds,
+    SUM(CASE WHEN song.duration_seconds IS NULL THEN 1 ELSE 0 END) AS unknown_duration_count
+FROM setlist_set
+LEFT JOIN setlist_item
+       ON setlist_item.setlist_set_id = setlist_set.id
+      AND setlist_item.deleted_at IS NULL
+LEFT JOIN song
+       ON song.id = setlist_item.song_id
+      AND song.deleted_at IS NULL
+WHERE setlist_set.setlist_id = ?
+  AND setlist_set.deleted_at IS NULL
+GROUP BY setlist_set.id, setlist_set.set_no, setlist_set.target_minutes
+ORDER BY setlist_set.set_no, setlist_set.id;
+
+selectChangedSince:
+SELECT *
+FROM setlist_set
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO setlist_set(
+    id, setlist_id, set_no, target_minutes, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO setlist_set(
+    id, setlist_id, set_no, target_minutes, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE setlist_set
+SET set_no = ?, target_minutes = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE setlist_set
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
