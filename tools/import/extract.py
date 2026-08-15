@@ -70,7 +70,16 @@ EXPECTED = [
     ("practice", "unique events 2026", 18, "R19"),
     ("practice", "unparseable practice-date cells", 50, "R20"),
     ("practice", "date typos landing in 2002", 6, "R20"),
+    ("practice", "date typos landing in 1900", 13, "found"),
     ("practice", "date typos landing in 2099", 10, "R20"),
+    ("order", "tabs with an Order/Position column", 37, "R32"),
+    ("order", "hundreds-style tabs", 26, "R32"),
+    ("order", "decimal set.position tabs", 3, "R32"),
+    ("order", "plain counter + Set tabs", 3, "R32"),
+    ("order", "degenerate or unreliable tabs", 4, "R32"),
+    ("order", "empty Order tabs", 1, "R32"),
+    ("order", "unheaded position columns recovered", 2, "review"),
+    ("cells", "cells left unaccounted for", 0, "review"),
 ]
 
 
@@ -86,7 +95,11 @@ def normalise(value) -> str:
     s = s.replace("&", " and ")
     if s.startswith("the "):
         s = s[4:]
-    s = re.sub(r"[^\w\s]", "", s, flags=re.UNICODE)
+    # Punctuation becomes a SPACE, never nothing. [D4c] ratifies the tag `cw-duet` keying
+    # on `cw duet`; deleting the separator instead would give `cwduet`, and `acdc`,
+    # `blink182`, `ah a`. These ids are permanent once written [D4a, D5] and this same
+    # function backs the app's type-ahead [D17], so "AC DC" must match the migrated row.
+    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -131,8 +144,15 @@ MINOR_SIG = {
     "D": -1, "G": -2, "C": -3, "F": -4, "Bb": -5, "Eb": -6, "Ab": -7,
 }
 
+# [D42] the workbook's a-e difficulty vocabulary mapped to 1-5.
+DIFFICULTY_MAP = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
+
 # [R12] spellings the workbook uses that a human should confirm rather than the script fix.
+# Flagging is not discarding: where the spelling is nonetheless a real key, the derived
+# signature is kept. Cb major is a legitimate key at -7 and is inside [D32]'s range.
 SUSPECT_SPELLINGS = {"Bbb", "Cb", "Fb"}
+# Of those, the ones that are not keys at all and so cannot carry a signature.
+NOT_REALLY_KEYS = {"Bbb", "Fb"}
 
 UNKNOWN_KEYS = {"???", "??", "?", "E?"}
 
@@ -159,6 +179,15 @@ class KeyReading(object):
         self.flag = ""
         self.note = ""
 
+    def add_flag(self, flag, note):
+        """Append. Never assign — a transposition reading must not clobber the
+        SUSPECT-KEY-SPELLING its own root already earned."""
+        flags = [f for f in self.flag.split("; ") if f]
+        if flag not in flags:
+            flags.append(flag)
+        self.flag = "; ".join(flags)
+        self.note = " | ".join([n for n in (self.note, note) if n])
+
 
 def _read_named_key(text, reading):
     """Fill root/minor/tonal_centre/key_signature from a plain key name. Returns True on
@@ -174,14 +203,21 @@ def _read_named_key(text, reading):
     table = MINOR_SIG if minor else MAJOR_SIG
     reading.key_signature = table.get(root)
     if root in SUSPECT_SPELLINGS:
-        reading.flag = "SUSPECT-KEY-SPELLING"
-        reading.note = ("%s is not a key the workbook should contain [R12]; "
-                        "pitch class proposed, key_signature left NULL" % root)
-        reading.key_signature = None
+        if root in NOT_REALLY_KEYS:
+            reading.key_signature = None
+            reading.add_flag("SUSPECT-KEY-SPELLING",
+                             "%s is not a key at all [R12]; pitch class proposed, "
+                             "key_signature left NULL" % root)
+        else:
+            # [R12] says flag, not discard. Cb major is a real key at -7.
+            reading.add_flag("SUSPECT-KEY-SPELLING",
+                             "%s is an unusual spelling and is flagged [R12], but it is a "
+                             "real key, so the derived signature %+d is kept"
+                             % (root, reading.key_signature))
     elif reading.key_signature is None:
-        reading.flag = "KEY-SIGNATURE-UNDERIVABLE"
-        reading.note = ("no diatonic signature for %s%s [R10]; tonal_centre kept, "
-                        "key_signature NULL" % (root, "m" if minor else ""))
+        reading.add_flag("KEY-SIGNATURE-UNDERIVABLE",
+                         "no diatonic signature for %s%s [R10]; tonal_centre kept, "
+                         "key_signature NULL" % (root, "m" if minor else ""))
     return True
 
 
@@ -217,11 +253,11 @@ def classify_key(value):
         reading.kind = "transposition_key_first"
         reading.offset = int(m.group(2).replace(" ", ""))
         _read_named_key(m.group(1), reading)
-        reading.flag = "TRANSPOSE-NOTATION-AMBIGUOUS"
-        reading.note = ("key-first notation; 'X (-n)' and '-n (X)' contradict each other "
-                        "[R7]. Confirm whether %s is the written or the sounding key, and "
-                        "whether %+d applies to it. Offset belongs on the setlist_item, not "
-                        "the song [R8]." % (m.group(1), reading.offset))
+        reading.add_flag("TRANSPOSE-NOTATION-AMBIGUOUS",
+                         "key-first notation; 'X (-n)' and '-n (X)' contradict each other "
+                         "[R7]. Confirm whether %s is the written or the sounding key, and "
+                         "whether %+d applies to it. Offset belongs on the setlist_item, "
+                         "not the song [R8]." % (m.group(1), reading.offset))
         return reading
 
     m = RE_OFFSET_FIRST.match(text)
@@ -229,10 +265,10 @@ def classify_key(value):
         reading.kind = "transposition_offset_first"
         reading.offset = int(m.group(1).replace(" ", ""))
         _read_named_key(m.group(2), reading)
-        reading.flag = "TRANSPOSE-NOTATION-AMBIGUOUS"
-        reading.note = ("offset-first notation, the reversed form [R7]. Confirm whether %s "
-                        "is the written or the sounding key. Offset belongs on the "
-                        "setlist_item, not the song [R8]." % m.group(2))
+        reading.add_flag("TRANSPOSE-NOTATION-AMBIGUOUS",
+                         "offset-first notation, the reversed form [R7]. Confirm whether "
+                         "%s is the written or the sounding key. Offset belongs on the "
+                         "setlist_item, not the song [R8]." % m.group(2))
         return reading
 
     if RE_ORIG.search(text):
@@ -241,7 +277,9 @@ def classify_key(value):
         head = RE_ORIG.split(text)[0].strip().strip("(").strip()
         if head:
             _read_named_key(head, reading)
-        reading.note = "deliberately played in the original key [R7]; transpose = 0"
+        reading.note = " | ".join([n for n in (
+            reading.note,
+            "deliberately played in the original key [R7]; transpose = 0") if n])
         return reading
 
     if _read_named_key(text, reading):
@@ -296,10 +334,22 @@ TAG_COLUMNS = {
 # Columns the spec deliberately does not model. Silently skipped, not logged as unresolved.
 TRIAGE_COLUMNS = {
     "confidence", "fit", "sum", "score", "priority", "inclusion", "gtr triage",
-    "vox triage", "w", "r", "a", "overall", "num", "no.", "current level", "suggested",
-    "request", "requests", "learn", "ignore", "four-piece", "vocal level", "rehearsal",
-    "sing", "play", "set", "position", "order", "num.", "change", "+/-",
+    "vox triage", "w", "r", "a",
 }
+
+# Columns read into song facts by read_facts.
+FACT_COLUMNS = {
+    "tempo", "decade", "loop length", "no. of chords", "chord pattern", "mashup",
+    "feel", "bass difficulty", "range", "wavestate patches", "c gtr",
+    "bv comments", "guitar comments",
+}
+
+# Columns read into setlist structure by classify_order / build_setlist_items.
+SETLIST_COLUMNS = {"order", "position", "set", "+/-", "change", "no.", "num", "overall"}
+
+# [R29] Above this many songs with no ordering at all, a tab reads as a repertoire
+# snapshot rather than a performance.
+REPERTOIRE_ROW_THRESHOLD = 200
 
 SET_DIVIDER = re.compile(
     r"^\s*(set\s*\d+|first\s*dance|extras?|encore)\s*(/\s*extras?)?\s*:?\s*$",
@@ -319,8 +369,12 @@ def strip_inline_key(title):
     if not m:
         return title.strip(), ""
     head, key = m.group(1).strip(), m.group(2)
-    if len(head) < 3 or " " not in head:
+    if len(head) < 3:
         return title.strip(), ""
+    # No word-count guard here. The real guard is clean_title's check that the stripped
+    # form names a song the master tab knows, which a bare 'Kiss' or 'Valerie' passes and
+    # a false split does not. Requiring a space in the head refused 17 correct splits and
+    # minted phantom songs ('Valerie Ab', 'Kiss - A', 'Shotgun F').
     return head, key
 
 NON_SETLIST_TABS = {
@@ -408,11 +462,20 @@ def classify_remainder(remainder):
     if key in CONFIRMED_CLASSIFICATION:
         return CONFIRMED_CLASSIFICATION[key], "confirmed", "", ""
 
-    # A confirmed name plus a trailing qualifier, e.g. 'Blue Lion ACOUSTIC'.
+    # A confirmed name plus a trailing qualifier, e.g. 'Blue Lion ACOUSTIC'. Align on word
+    # boundaries, not on the normalised string's length — normalisation drops a leading
+    # 'The ' and expands '&', so a raw slice by len(normalised) misaligns.
+    words = text.split()
     for confirmed, kind in sorted(CONFIRMED_CLASSIFICATION.items()):
-        if key.startswith(confirmed + " ") or key == confirmed:
-            qualifier = text[len(confirmed):].strip() if len(text) > len(confirmed) else ""
-            return (kind + " + configuration", "confirmed-with-qualifier", qualifier, "")
+        if not (key == confirmed or key.startswith(confirmed + " ")):
+            continue
+        for take in range(1, len(words) + 1):
+            if normalise(" ".join(words[:take])) == confirmed:
+                qualifier = " ".join(words[take:]).strip()
+                return (kind + " + configuration" if qualifier else kind,
+                        "confirmed-with-qualifier" if qualifier else "confirmed",
+                        qualifier, "")
+        return (kind, "confirmed", "", "")
 
     if key in {normalise(w) for w in CONFIGURATION_WORDS}:
         return "configuration", "high", "", ""
@@ -435,7 +498,8 @@ class Extract(object):
     def __init__(self, wb):
         self.wb = wb
         self.unresolved = []          # worksheet, cell, raw, reason
-        self.artist_cells = collections.Counter()      # raw string -> count
+        self.artist_cells = collections.Counter()      # raw string -> count, for the fold
+        self.artist_column_cells = collections.Counter()  # Artist column only, for [R1]
         self.artist_divider_cells = collections.Counter()
         self.song_rows = []           # one dict per song row instance
         self.key_cells = []           # every Key cell, classified
@@ -448,6 +512,11 @@ class Extract(object):
         self.master_titles = set()
         self.master_artists = set()
         self.text_first_columns = set()  # sheets whose unheaded column A holds text
+        self.vocal_ranges = {}        # (norm artist, norm title) -> 1/0, for [R15, D27]
+        self.triage_cells = 0         # deliberately-dropped triage cells, counted not lost
+        self.combined_columns = collections.defaultdict(set)
+        self.unheaded_order_columns = collections.defaultdict(set)
+        self.unheaded_key_columns = collections.defaultdict(set)
         self.master_facts = {}        # normalised (artist, title) -> facts from 'Everything'
         self.tab_facts = collections.defaultdict(list)  # same key -> facts from other tabs
 
@@ -551,8 +620,13 @@ class Extract(object):
             first = [r[0] for r in rows if not is_blank(r[0])] if rows else []
             if first and sum(1 for v in first if isinstance(v, str)) > len(first) / 2:
                 self.text_first_columns.add(sheet_name)
+        self.detect_special_columns()
+        for sheet_name in self.wb.sheetnames:
+            headers, rows = read_sheet(self.wb[sheet_name])
+            roles = self.sheet_columns[sheet_name]
             self.census_keys(sheet_name, headers, rows, roles)
             self.scan_sheet(sheet_name, headers, rows, roles)
+            self.account_columns(sheet_name, headers, rows, roles)
 
     def census_keys(self, sheet_name, headers, rows, roles):
         """[R7] classifies the Key column by counting every cell in it. That census must
@@ -584,6 +658,35 @@ class Extract(object):
             self.read_keys(sheet_name, headers, lower, row, ri, title, artist,
                            current_set, is_master)
 
+            # '5-7-24' carries a gig-key column with no header at all. Its cells are real
+            # key evidence but are NOT part of [R7]'s census of the `Key` column, so they
+            # are recorded with census=False and logged.
+            for ci in sorted(self.unheaded_key_columns.get(sheet_name, ())):
+                v = row[ci]
+                if is_blank(v):
+                    continue
+                reading = classify_key(v)
+                if reading.kind == "empty":
+                    continue
+                self.key_cells.append({
+                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                    "column": "(unheaded)", "position": "gig", "title": title,
+                    "artist": artist, "raw": str(v).strip(), "kind": reading.kind,
+                    "root": reading.root or "", "minor": reading.minor,
+                    "tonal_centre": reading.tonal_centre,
+                    "key_signature": reading.key_signature, "offset": reading.offset,
+                    "set_no": current_set, "census": False, "is_master": False,
+                    "flag": "; ".join([f for f in (reading.flag,
+                                                   "KEY-COLUMN-UNHEADED") if f]),
+                    "note": " | ".join([n for n in (
+                        reading.note,
+                        "key read from an unheaded column; not counted in [R7]'s census "
+                        "of the `Key` column") if n]),
+                })
+                self.unresolve(sheet_name, cell_ref(ci, ri), v,
+                               "key value in an unheaded column; recorded as gig-key "
+                               "evidence but excluded from the [R7] Key-column census")
+
     def scan_sheet(self, sheet_name, headers, rows, roles):
         lower = [h.lower() for h in headers]
         ti, ai = roles["title"], roles["artist"]
@@ -607,6 +710,21 @@ class Extract(object):
             title_raw = row[ti]
             artist_raw = row[ai] if ai is not None else None
 
+            # Two rows of 'Radiant Lanterns 2022' populate ONLY the combined
+            # 'Title - Artist' column, so it is the sole record of those songs.
+            if is_blank(title_raw):
+                for ci in sorted(self.combined_columns.get(sheet_name, ())):
+                    if is_blank(row[ci]) or " - " not in str(row[ci]):
+                        continue
+                    part_title, part_artist = str(row[ci]).rsplit(" - ", 1)
+                    title_raw, artist_raw = part_title.strip(), part_artist.strip()
+                    self.unresolve(sheet_name, cell_ref(ci, ri), str(row[ci]),
+                                   "row's only content is the combined 'Title - Artist' "
+                                   "column; song recovered by splitting on the last ' - ' "
+                                   "into %r / %r — confirm the split"
+                                   % (title_raw, artist_raw))
+                    break
+
             # Divider rows. SET 1 / SET 2 in the Artist column [R4], and 'Set 1:' in the
             # title column of the tabs whose Title header carries the gig name.
             divider = None
@@ -624,8 +742,17 @@ class Extract(object):
 
             if not is_blank(artist_raw):
                 self.artist_cells[str(artist_raw)] += 1
+                # [R1]'s 288 is a census of the Artist *column*. An artist recovered by
+                # splitting a combined cell still needs an artist row, but must not shift
+                # that census, so it is folded without being counted.
+                if ai is not None and not is_blank(row[ai]):
+                    self.artist_column_cells[str(artist_raw)] += 1
 
             if is_blank(title_raw):
+                # A practice date, a tag mark or a singer mark on a row that names no song
+                # cannot become a row in any table — there is no song to attach it to. Log
+                # it rather than dropping it silently.
+                self.log_orphan_row(sheet_name, headers, lower, row, ri)
                 continue
 
             title, inline_key = self.clean_title(title_raw)
@@ -659,7 +786,8 @@ class Extract(object):
                 "norm_key": (na, nt),
             })
 
-            facts = self.read_facts(sheet_name, headers, lower, row, ri, ti)
+            facts = self.read_facts(sheet_name, headers, lower, row, ri, ti,
+                                    title_for_row=title, artist_for_row=artist)
             if is_master:
                 self.master_facts[(na, nt)] = facts
             else:
@@ -669,6 +797,97 @@ class Extract(object):
             self.read_practice(sheet_name, headers, lower, row, ri, title, artist)
             self.read_performers(sheet_name, headers, lower, row, ri, title, artist)
             self.read_tags(sheet_name, headers, lower, row, ri, title, artist)
+
+    def recognised_columns(self, sheet_name, headers, roles):
+        """Every column index some reader consumes, plus the triage columns the spec
+        deliberately drops. Anything outside this set is unaccounted-for data."""
+        lower = [h.lower() for h in headers]
+        recognised, triage = set(), set()
+        for ci, h in enumerate(lower):
+            if h in TRIAGE_COLUMNS:
+                triage.add(ci)
+            elif (h == "key" or h in FACT_COLUMNS or h in SETLIST_COLUMNS
+                    or h in PERFORMER_COLUMNS or h in ANNOTATION_COLUMNS
+                    or h in TAG_COLUMNS or h == "twitch"
+                    or "practice" in h or "practise" in h):
+                recognised.add(ci)
+            elif h == "" and self.is_annotation_column(sheet_name, ci):
+                recognised.add(ci)
+            elif h == "" and ci in self.combined_columns.get(sheet_name, ()):
+                recognised.add(ci)
+            elif h == "" and ci in self.unheaded_order_columns.get(sheet_name, ()):
+                recognised.add(ci)
+            elif h == "" and ci in self.unheaded_key_columns.get(sheet_name, ()):
+                recognised.add(ci)
+        for role in ("title", "artist"):
+            if roles.get(role) is not None:
+                recognised.add(roles[role])
+        return recognised, triage
+
+    def account_columns(self, sheet_name, headers, rows, roles):
+        """No silent data loss. Every non-blank cell in a column no reader claims is
+        logged, with the header named, so the human can see what the migration ignored."""
+        recognised, triage = self.recognised_columns(sheet_name, headers, roles)
+        for ci in range(len(headers)):
+            if ci in recognised:
+                continue
+            header = headers[ci] or "(unheaded)"
+            cells = [(ri, r[ci]) for ri, r in enumerate(rows) if not is_blank(r[ci])]
+            if not cells:
+                continue
+            if ci in triage:
+                self.triage_cells += len(cells)
+                self.unresolve(sheet_name, "%s2:%s%d" % (get_column_letter(ci + 1),
+                                                         get_column_letter(ci + 1),
+                                                         len(rows) + 1),
+                               "%d cells" % len(cells),
+                               "column %r is a set-list triage column, deliberately not "
+                               "modelled (see 'Deliberately not modelled' in data-model.md); "
+                               "dropped on purpose, not by omission" % header)
+                continue
+            for ri, value in cells:
+                self.unresolve(sheet_name, cell_ref(ci, ri), value,
+                               "column %r has no role in the target schema; the cell was "
+                               "read but nothing consumes it" % header)
+
+    def detect_special_columns(self):
+        """Three unheaded column shapes that carry real data and would otherwise be lost.
+
+        - a combined 'Title - Artist' column ('Radiant Lanterns 2022', 'Sheet2'), which on
+          two rows is the ONLY populated cell and so is the sole record of that song;
+        - an unheaded position series ('29-7-23', '9-9-23'), which is the ordering those
+          tabs were otherwise flagged as missing;
+        - an unheaded gig-key column ('5-7-24').
+        """
+        self.combined_columns = collections.defaultdict(set)
+        self.unheaded_order_columns = collections.defaultdict(set)
+        self.unheaded_key_columns = collections.defaultdict(set)
+        for sheet_name in self.wb.sheetnames:
+            headers, rows = read_sheet(self.wb[sheet_name])
+            roles = self.sheet_columns[sheet_name]
+            for ci, header in enumerate(headers):
+                if header.strip():
+                    continue
+                if ci in (roles.get("title"), roles.get("artist")):
+                    continue
+                values = [r[ci] for r in rows if not is_blank(r[ci])]
+                if len(values) < 5:
+                    continue
+                texts = [str(v) for v in values if isinstance(v, str)]
+                if texts and len(texts) > len(values) * 0.8:
+                    split = [t for t in texts if " - " in t]
+                    if len(split) > len(texts) * 0.8:
+                        self.combined_columns[sheet_name].add(ci)
+                        continue
+                    keys = [t for t in texts if classify_key(t).kind == "plain"]
+                    if len(keys) > len(texts) * 0.8:
+                        self.unheaded_key_columns[sheet_name].add(ci)
+                    continue
+                numbers = [v for v in values
+                           if isinstance(v, (int, float)) and not isinstance(v, bool)]
+                if len(numbers) == len(values) and len(set(numbers)) > len(numbers) * 0.8:
+                    if all(0 <= v <= 500 for v in numbers):
+                        self.unheaded_order_columns[sheet_name].add(ci)
 
     def seed_declared_performers(self):
         """[R13] wants one performer per singer column, whether or not the column has any
@@ -763,9 +982,27 @@ class Extract(object):
             if artist:
                 self.tab_facts[(normalise(artist), key[1])].extend(self.tab_facts.pop(key))
 
+    def log_orphan_row(self, sheet_name, headers, lower, row, ri):
+        """Cells on a row with no song title. Nothing can consume them; all are logged."""
+        for ci, h in enumerate(lower):
+            if is_blank(row[ci]):
+                continue
+            if "practice" in h or "practise" in h or h == "twitch":
+                kind = "practice"
+            elif h in TAG_COLUMNS:
+                kind = "tag"
+            elif h in PERFORMER_COLUMNS or h in ANNOTATION_COLUMNS:
+                kind = "performer"
+            else:
+                continue
+            self.unresolve(sheet_name, cell_ref(ci, ri), row[ci],
+                           "%s cell in column %r on a row that names no song; there is no "
+                           "song_id to attach it to [R17, R14, D43]" % (kind, headers[ci]))
+
     # -- facts [R6] ----------------------------------------------------------------
 
-    def read_facts(self, sheet_name, headers, lower, row, ri, ti):
+    def read_facts(self, sheet_name, headers, lower, row, ri, ti,
+                   title_for_row="", artist_for_row=""):
         facts = {}
         for ci, h in enumerate(lower):
             v = row[ci]
@@ -805,22 +1042,32 @@ class Extract(object):
             elif h == "feel":
                 facts["groove"] = str(v).strip()
             elif h == "bass difficulty":
-                mapped = {"a": 1, "b": 2, "c": 3}.get(str(v).strip().lower())
+                # [D42] maps a-e to 1-5. The range is five, not three, precisely because
+                # this extract found d x31 and e x24 alongside a/b/c.
+                mapped = DIFFICULTY_MAP.get(str(v).strip().lower())
                 if mapped:
                     facts["bass_difficulty"] = mapped
                 else:
                     self.unresolve(sheet_name, cell_ref(ci, ri), v,
-                                   "bass difficulty outside the a/b/c vocabulary [D42]; "
+                                   "bass difficulty outside the a-e vocabulary [D42]; "
                                    "no mapping asserted")
             elif h == "range":
                 mapped = {"h": 1, "l": 0}.get(str(v).strip().lower())
                 if mapped is not None:
-                    facts["vocal_range"] = mapped
+                    # Held aside for the owner's song_performer row [R15, D27], NOT put
+                    # on the song.
+                    self.vocal_ranges.setdefault(
+                        (normalise(artist_for_row), normalise(title_for_row)), mapped)
                 else:
                     self.unresolve(sheet_name, cell_ref(ci, ri), v,
                                    "Range outside the H/L vocabulary [D27]")
             elif h == "wavestate patches":
                 facts["keys_patch"] = str(v).strip()
+            elif h == "c gtr":
+                # Named verbatim in [D41] as a song_instrument fact for guitar. It holds
+                # dates, so record it and say so rather than asserting a difficulty.
+                facts["c_gtr"] = (v.date().isoformat()
+                                  if isinstance(v, datetime.datetime) else str(v).strip())
             elif h in ("bv comments", "guitar comments"):
                 facts.setdefault("instrument_notes", []).append("%s: %s" % (h, str(v).strip()))
         return facts
@@ -987,8 +1234,12 @@ class Extract(object):
         if ci != 0:
             return False
         roles = self.sheet_columns.get(sheet_name, {})
-        if not roles.get("title_inferred") or roles.get("artist") == ci:
+        if ci in (roles.get("title"), roles.get("artist")):
             return False
+        if ci in self.combined_columns.get(sheet_name, ()):
+            return False
+        # Not conditioned on title_inferred: '15-10-22 easier' names its Title column and
+        # still keeps 10 `Kita` annotations in an unheaded column A [R16].
         return sheet_name in self.text_first_columns
 
     def record_annotation(self, sheet_name, headers, ci, ri, v, title, artist, is_lead):
@@ -1051,6 +1302,113 @@ class Extract(object):
             roles = self.sheet_columns[sheet_name]
             record = self.describe_setlist(sheet_name, headers, rows, roles)
             self.setlists.append(record)
+
+    def search_nxm(self):
+        """[R30] Search for an NxM set-length string rather than asserting its absence.
+        The claim is only worth making if the script actually looked."""
+        pattern = re.compile(r"\b\d\s*[x×]\s*\d{2,3}\s*(mins?|minutes?)?\b", re.I)
+        self.nxm_hits = 0
+        self.nxm_examples = []
+        for sheet_name in self.wb.sheetnames:
+            _, rows = read_sheet(self.wb[sheet_name])
+            for ri, row in enumerate(rows):
+                for ci, value in enumerate(row):
+                    if not isinstance(value, str):
+                        continue
+                    if pattern.search(value):
+                        self.nxm_hits += 1
+                        if len(self.nxm_examples) < 10:
+                            self.nxm_examples.append(
+                                "%s!%s=%r" % (sheet_name, cell_ref(ci, ri), value[:40]))
+
+    def build_sets(self):
+        """[R30, D51, D53] Emit one setlist_set per distinct set_no so that
+        setlist_item.setlist_set_id has something to point at. Where a tab shows no set
+        structure at all, default to a single set numbered 1 — a set list always has at
+        least one set, and 77% of items would otherwise carry a dangling FK."""
+        items_by_sheet = collections.defaultdict(list)
+        for item in self.setlist_items:
+            items_by_sheet[item["worksheet"]].append(item)
+
+        self.sets = []
+        for record in self.setlists:
+            if record["purpose"] != "setlist":
+                continue
+            sheet_name = record["worksheet"]
+            items = items_by_sheet.get(sheet_name, [])
+            seen = sorted({item["set_no"] for item in items
+                           if isinstance(item["set_no"], int)})
+            defaulted = not seen
+            if defaulted:
+                seen = [1]
+            # Items before the first divider, or on a tab whose Order says nothing, have
+            # no set of their own. [D53] makes setlist_set_id the only route to a set, so
+            # a blank here is a dangling FK. Put them in the first set and say so.
+            fallback = seen[0]
+            orphans = 0
+            for item in items:
+                if isinstance(item["set_no"], int):
+                    continue
+                item["set_no"] = fallback
+                if defaulted:
+                    # The whole tab has no set structure. That is reported once on the
+                    # Sets row as SET-DEFAULTED; flagging every item would bury the
+                    # findings that actually need a decision.
+                    continue
+                orphans += 1
+                item["flag"] = "; ".join(
+                    [f for f in item["flag"].split("; ") if f] + ["SET-ASSUMED"])
+                item["note"] = " | ".join([n for n in (
+                    item["note"],
+                    "this tab does mark sets, but this row falls outside all of them; "
+                    "assigned to set %d so setlist_set_id resolves [D53]"
+                    % fallback) if n])
+            for set_no in seen:
+                flags, notes = ["SET-TARGET-MINUTES-NULL"], []
+                notes.append("target_minutes has no source in this workbook [R30]")
+                if defaulted:
+                    flags.append("SET-DEFAULTED")
+                    notes.append("the tab shows no set structure; defaulted to a single "
+                                 "set so setlist_item.setlist_set_id resolves [D53]")
+                if set_no == 0:
+                    flags.append("SET-NUMBER-ZERO")
+                    notes.append("set 0 is a pre-show block (first dance, walk-in) read "
+                                 "from an Order integer part of 0; confirm what it means "
+                                 "before importing [R32]")
+                if orphans:
+                    flags.append("SET-ABSORBED-ORPHAN-ITEMS")
+                    notes.append("%d item(s) on this tab sat outside any set marker and "
+                                 "were assigned to set %d" % (orphans, fallback))
+                self.sets.append({
+                    "worksheet": sheet_name,
+                    "setlist_name": sheet_name,
+                    "set_no": set_no,
+                    "target_minutes": "",
+                    "item_count": sum(1 for i in items if i["set_no"] == set_no),
+                    "source": "defaulted" if defaulted else record["order_convention"],
+                    "flag": "; ".join(flags),
+                    "note": " | ".join(notes),
+                })
+
+    def flag_position_collisions(self):
+        """[D54] `(position, id)` must be a total order. Two items sharing a position
+        inside one set is a defect the build pass cannot resolve on its own, so surface
+        it rather than let it through."""
+        groups = collections.defaultdict(list)
+        for item in self.setlist_items:
+            groups[(item["worksheet"], item["set_no"], item["position"])].append(item)
+        for (sheet_name, set_no, position), items in groups.items():
+            if len(items) < 2:
+                continue
+            titles = ", ".join(sorted(i["title"] for i in items))
+            for item in items:
+                item["flag"] = "; ".join(
+                    [f for f in item["flag"].split("; ") if f] + ["POSITION-COLLISION"])
+                item["note"] = " | ".join([n for n in (
+                    item["note"],
+                    "%d items share set %s position %s on this tab (%s); [D54] needs a "
+                    "total order, so the build pass must break this tie"
+                    % (len(items), set_no, position, titles)) if n])
 
     def annotate_setlist_relationships(self):
         """Tabs that share a date, or share an in-sheet client header, are either literal
@@ -1154,16 +1512,29 @@ class Extract(object):
             notes.append("worksheet-name remainder %r is a proposal only [R23]; a wrong "
                          "guess silently corrupts band_id and venue_id" % remainder)
 
-        order_kind, order_note, set_numbers = self.classify_order(headers, lower, rows, roles)
-        if order_kind in ("degenerate", "ambiguous", "absent"):
+        order_kind, order_note, set_numbers = self.classify_order(
+            sheet_name, headers, lower, rows, roles)
+        if order_kind in ("degenerate", "ambiguous", "absent", "unreliable"):
             if purpose == "setlist":
                 flags.append("ORDER-UNCLASSIFIABLE")
         notes.append(order_note)
 
+        # [R29] A tab that enumerates a few hundred songs with no ordering is a repertoire
+        # snapshot, not an ordered performance. Importing it as a gig invents a gig.
+        if (purpose == "setlist" and order_kind == "absent"
+                and row_count > REPERTOIRE_ROW_THRESHOLD):
+            flags.append("NOT-A-SETLIST-SUSPECTED")
+            notes.append("%d songs and no Order column at all: this reads as a repertoire "
+                         "snapshot, not an ordered performance [R29]. Treat it as a tag "
+                         "over the repertoire unless you know otherwise — importing it as "
+                         "a gig fabricates a performance that never happened." % row_count)
+
         if purpose == "setlist":
             flags.append("SET-TARGET-MINUTES-NO-SOURCE")
-            notes.append("no NxM set-length string exists anywhere in the workbook [R30]; "
-                         "setlist_set.target_minutes has no source and stays NULL")
+            notes.append("target_minutes has no source [R30]: an exhaustive regex for an "
+                         "NxM set-length string over every cell of all %d tabs returned "
+                         "%d matches. setlist_set rows are still created; target_minutes "
+                         "stays NULL." % (len(self.wb.sheetnames), self.nxm_hits))
 
         return {
             "worksheet": sheet_name,
@@ -1208,19 +1579,27 @@ class Extract(object):
                 "in-sheet header %r is unclassified [R26]; it may be a venue, a client, "
                 "a person or an act" % text)
 
-    @staticmethod
-    def classify_order(headers, lower, rows, roles):
-        """[R32] Disambiguate the Order column per tab by inspecting its value range.
+    def classify_order(self, sheet_name, headers, lower, rows, roles):
+        """[R32] Disambiguate the Order column per tab. Every Order column in this workbook
+        encodes position, never duration [R33] — there is no duration branch because there
+        is no duration source.
 
-        Every Order column in this workbook encodes position, never duration. The three
-        conventions found are: set*100 + position; a set.position decimal; and a plain
-        1..N counter paired with a separate Set column.
+        Contiguity and monotonicity are TESTED, not assumed. A bare range check
+        misclassifies `49, 50, 60, 99, 101…230` as hundreds-style, which fabricates a
+        set 0 and produces colliding positions, breaking [D54]'s requirement that
+        `(position, id)` be a total order.
         """
         oi = None
         for ci, h in enumerate(lower):
             if h in ("order", "position"):
                 oi = ci
                 break
+        if oi is None:
+            # '29-7-23' and '9-9-23' keep a real 1.01/1.02/1.03 series in an unheaded
+            # column. Without this they were flagged as having no ordering at all.
+            candidates = sorted(self.unheaded_order_columns.get(sheet_name, ()))
+            if candidates:
+                oi = candidates[-1]
         set_col = lower.index("set") if "set" in lower else None
         set_numbers = set()
 
@@ -1237,13 +1616,34 @@ class Extract(object):
                     "no Order and no Set column; row order is the only ordering signal "
                     "[R31]", set_numbers)
 
-        values = [v for v in (r[oi] for r in rows)
-                  if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        # Divider rows ('SET 2') and set-header rows carry the round hundreds 100/200/300.
+        # They are set markers, not item positions, and counting them as items would
+        # manufacture repeats that are not really repeats.
+        ti_local, ai_local = roles.get("title"), roles.get("artist")
+        values, header_values = [], []
+        for r in rows:
+            v = r[oi]
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                continue
+            title_cell = r[ti_local] if ti_local is not None else None
+            artist_cell = r[ai_local] if ai_local is not None else None
+            is_divider = any(isinstance(c, str) and SET_DIVIDER.match(c)
+                             for c in (title_cell, artist_cell))
+            if is_divider or (float(v).is_integer() and v >= 100 and v % 100 == 0):
+                header_values.append(v)
+                continue
+            if is_blank(title_cell):
+                continue
+            values.append(v)
+        for v in header_values:
+            if float(v).is_integer() and v >= 100:
+                set_numbers.add(int(v) // 100)
         if not values:
             return ("absent", "Order column is empty [R32]", set_numbers)
 
         lo, hi = min(values), max(values)
         distinct = len(set(values))
+        repeated = len(values) - distinct
 
         if distinct <= 2:
             return ("degenerate",
@@ -1258,13 +1658,45 @@ class Extract(object):
                     "fraction orders within it [R31]" % (lo, hi), set_numbers)
 
         if lo >= 40 and hi <= 500:
+            # [R32] Test the properties instead of asserting them.
+            below_hundred = sorted({v for v in values if v < 100})
+            if repeated or below_hundred:
+                reasons = []
+                if below_hundred:
+                    reasons.append("%d value(s) below 100 (%s), which a hundreds reading "
+                                   "would put in a fabricated set 0"
+                                   % (len(below_hundred),
+                                      ", ".join("%g" % v for v in below_hundred[:6])))
+                if repeated:
+                    duplicates = sorted({v for v in values if values.count(v) > 1})
+                    reasons.append("%d repeated value(s) (%s), which would collide as "
+                                   "positions and break [D54]'s total order"
+                                   % (repeated,
+                                      ", ".join("%g" % v for v in duplicates[:6])))
+                return ("unreliable",
+                        "Order runs %g..%g and looks hundreds-style, but %s. Refusing to "
+                        "derive set_no or position from it [R32]."
+                        % (lo, hi, "; and ".join(reasons)), set_numbers)
+
+            # Every remainder must be a real position within its hundred. A remainder of 0
+            # would be a set header that slipped through; anything outside 1..99 is not a
+            # position at all. Row order is deliberately NOT tested — on these tabs the
+            # Order column IS the order and the rows are not stored sorted.
+            bad = sorted({v for v in values if not 1 <= (v - 100 * (int(v) // 100)) < 100})
+            if bad:
+                return ("unreliable",
+                        "Order runs %g..%g and looks hundreds-style, but %d value(s) (%s) "
+                        "leave no valid position within their hundred. Refusing to derive "
+                        "set_no or position [R32]."
+                        % (lo, hi, len(bad), ", ".join("%g" % v for v in bad[:6])),
+                        set_numbers)
             for v in values:
                 set_numbers.add(int(v) // 100)
             return ("hundreds set*100+position",
-                    "Order runs %g..%g; the hundreds digit is the set and the remainder "
-                    "is the position [R31]. These are NOT durations in seconds — the "
-                    "series is contiguous and monotone within each hundred [R32, R33]"
-                    % (lo, hi), set_numbers)
+                    "Order runs %g..%g; the hundreds digit is the set and the remainder is "
+                    "the position [R31]. Verified across %d item rows: no repeated value, "
+                    "no value below 100, every remainder in 1..99."
+                    % (lo, hi, len(values)), set_numbers)
 
         if set_col is not None:
             for r in rows:
@@ -1319,38 +1751,69 @@ class Extract(object):
                     order_value = row[oi] if oi is not None else None
                     set_no = current_set
                     position = sequence
+                    item_pool_flag = False
                     if isinstance(order_value, (int, float)):
                         if record["order_convention"].startswith("hundreds"):
                             set_no = int(order_value) // 100
                             position = order_value - 100 * set_no
+                            if position == 0:
+                                # A round hundred (200, 300, 400) marks set membership
+                                # with no position: a pool of songs assigned to that set
+                                # but not yet ordered. Keep the set, do not invent an
+                                # order, and say which it is.
+                                position = sequence
+                                item_pool_flag = True
                         elif record["order_convention"].startswith("decimal"):
                             set_no = int(order_value)
                             position = round(order_value - set_no, 4)
-                        else:
-                            position = order_value
+                        # Where the convention was rejected, the Order value is NOT used
+                        # as a position: it is exactly the column classify_order refused
+                        # to trust. Row sequence is the only signal left, and it is at
+                        # least a total order [D54].
                     if si is not None and isinstance(row[si], (int, float)):
                         set_no = int(row[si])
 
-                    transpose = ""
-                    transpose_flag = ""
+                    # None, not "", so a legitimate transpose of 0 is distinguishable
+                    # from "no transpose stated".
+                    transpose = None
+                    item_flags, item_notes = [], []
+                    if item_pool_flag:
+                        item_flags.append("POSITION-UNSPECIFIED")
+                        item_notes.append("Order %g names set %d but gives no position "
+                                          "within it; row order used as a placeholder "
+                                          "[R31]" % (order_value, set_no))
                     if transpose_i is not None and not is_blank(row[transpose_i]):
                         raw = str(row[transpose_i]).strip()
                         m = re.match(r"^([+-]?\d+(?:\.\d+)?)$", raw)
                         if m:
                             transpose = int(float(m.group(1)))
                             if not raw.startswith(("+", "-")):
-                                transpose_flag = "TRANSPOSE-SIGN-UNSTATED"
+                                item_flags.append("TRANSPOSE-SIGN-UNSTATED")
+                                item_notes.append("%r states no sign; read as %+d, but the "
+                                                  "direction is not stated in the workbook"
+                                                  % (raw, transpose))
                         else:
-                            transpose_flag = "TRANSPOSE-UNPARSEABLE"
+                            item_flags.append("TRANSPOSE-UNPARSEABLE")
+                            item_notes.append("%r is not a signed semitone count [R8]" % raw)
                             self.unresolve(sheet_name, cell_ref(transpose_i, ri), raw,
                                            "transposition column value is not a signed "
                                            "semitone count [R8]")
 
                     key_reading = classify_key(row[ki]) if ki is not None else None
                     if key_reading is not None and key_reading.offset is not None:
-                        if transpose == "":
+                        if transpose is None:
                             transpose = key_reading.offset
-                            transpose_flag = "TRANSPOSE-FROM-KEY-CELL"
+                            item_flags.append("TRANSPOSE-FROM-KEY-CELL")
+                            item_notes.append("offset taken from the Key cell %r [R8]"
+                                              % str(row[ki]).strip())
+                        # Carry the rule 7 ambiguity through. The human resolving this row
+                        # must see that the notation itself is contested, not just a
+                        # tidy asserted number.
+                        for flag in [f for f in key_reading.flag.split("; ") if f]:
+                            if flag not in item_flags:
+                                item_flags.append(flag)
+                        if key_reading.note:
+                            item_notes.append(key_reading.note)
 
                     self.setlist_items.append({
                         "worksheet": sheet_name,
@@ -1362,11 +1825,11 @@ class Extract(object):
                                   and not is_blank(row[ai]) else "",
                         "key_raw": "" if ki is None or is_blank(row[ki])
                                    else str(row[ki]).strip(),
-                        "transpose": transpose,
+                        "transpose": "" if transpose is None else transpose,
                         "tempo_on_tab": row[tempo_i] if tempo_i is not None
                                         and isinstance(row[tempo_i], (int, float)) else "",
-                        "flag": transpose_flag,
-                        "note": "",
+                        "flag": "; ".join(item_flags),
+                        "note": " | ".join(item_notes),
                     })
 
 
@@ -1457,18 +1920,35 @@ def fold_songs(extract, artists_by_key):
 
         facts = dict(extract.master_facts.get(key, {}))
         from_master = key in extract.master_facts
-        if not from_master:
-            merged = collections.defaultdict(collections.Counter)
-            for other in extract.tab_facts.get(key, []):
-                for name, value in other.items():
-                    if isinstance(value, list):
-                        continue
-                    merged[name][value] += 1
-            for name, counter in merged.items():
-                facts[name] = sorted(counter.items(), key=lambda kv: (-kv[1], str(kv[0])))[0][0]
-            if extract.tab_facts.get(key):
-                notes.append("song is absent from the master tab; facts taken by majority "
-                             "across %d gig tabs [R6]" % len(extract.tab_facts[key]))
+        # [R6] Prefer the master tab, fall back to the most common value across the other
+        # tabs. That fallback is per FIELD, not per song: the master tab has no Feel,
+        # BV Comments or Guitar comments column at all, so a song present in the master
+        # would otherwise lose facts that only a gig tab records.
+        merged = collections.defaultdict(collections.Counter)
+        for other in extract.tab_facts.get(key, []):
+            for name, value in other.items():
+                if isinstance(value, list):
+                    for item in value:
+                        merged[name][item] += 1
+                    continue
+                merged[name][value] += 1
+        borrowed = []
+        for name, counter in merged.items():
+            if name in facts:
+                continue
+            if name == "instrument_notes":
+                facts[name] = sorted(counter)
+            else:
+                facts[name] = sorted(counter.items(),
+                                     key=lambda kv: (-kv[1], str(kv[0])))[0][0]
+            borrowed.append(name)
+        if borrowed and from_master:
+            notes.append("the master tab records no %s for this song; taken by majority "
+                         "across %d gig tabs [R6]"
+                         % (", ".join(sorted(borrowed)), len(extract.tab_facts.get(key, []))))
+        elif not from_master and extract.tab_facts.get(key):
+            notes.append("song is absent from the master tab; facts taken by majority "
+                         "across %d gig tabs [R6]" % len(extract.tab_facts[key]))
 
         cells = key_by_song.get(key, [])
         master_cells = [c for c in cells if c["is_master"]]
@@ -1530,7 +2010,10 @@ def fold_songs(extract, artists_by_key):
             "chord_count": facts.get("chord_count", ""),
             "chord_pattern": facts.get("chord_pattern", ""),
             "bass_difficulty": facts.get("bass_difficulty", ""),
-            "vocal_range": facts.get("vocal_range", ""),
+            "groove": facts.get("groove", ""),
+            "keys_patch": facts.get("keys_patch", ""),
+            "instrument_notes": " | ".join(facts.get("instrument_notes", [])),
+            "guitar_worked_on": facts.get("c_gtr", ""),
             "mashup_note": facts.get("mashup_note", ""),
             "row_instances": g["rows"],
             "worksheets": len(g["sheets"]),
@@ -1539,6 +2022,56 @@ def fold_songs(extract, artists_by_key):
             "note": " | ".join(notes),
         })
     return songs
+
+
+def build_song_performers(extract, performers_by_key):
+    """[R14] one row per non-empty cell in a singer column, deduped per (song, performer).
+    [R15, D27] `vocal_range` lives HERE, on the owner's row, never on the song: range is
+    only meaningful for a particular voice."""
+    owner_key = normalise("Will")
+    rows = {}
+    for mark in extract.performer_marks:
+        if not mark.get("title"):
+            continue
+        key = normalise(mark["performer"].rstrip("?"))
+        if not key:
+            continue
+        ident = (normalise(mark["artist"]), normalise(mark["title"]), key)
+        if ident in rows:
+            if mark["is_lead"]:
+                rows[ident]["is_lead"] = 1
+            continue
+        rows[ident] = {
+            "song": mark["title"], "artist": mark["artist"],
+            "performer": mark["performer"].rstrip("?"),
+            "performer_id": performers_by_key.get(key, ""),
+            "is_lead": mark["is_lead"], "vocal_range": "",
+            "source": "%s:%s" % (mark["source"], mark["column"]),
+            "flag": mark["flag"], "note": mark["note"],
+        }
+
+    ranges = extract.vocal_ranges
+    for ident, row in rows.items():
+        if ident[2] != owner_key:
+            continue
+        value = ranges.get((ident[0], ident[1]))
+        if value is None:
+            continue
+        row["vocal_range"] = value
+        row["note"] = " | ".join([n for n in (
+            row["note"],
+            "vocal_range from the Range column, attached to the owner's song_performer "
+            "row and not to the song [R15, D27]") if n])
+
+    orphans = set(ranges) - {(i[0], i[1]) for i in rows if i[2] == owner_key}
+    for artist_key, title_key in sorted(orphans):
+        extract.unresolve("(multiple)", "Range column", str(ranges[(artist_key, title_key)]),
+                          "Range value for %r has no owner song_performer row to attach to "
+                          "[R15, D27]; a range without a voice is meaningless" % title_key)
+
+    return sorted(rows.values(),
+                  key=lambda r: (normalise(r["artist"]), normalise(r["song"]),
+                                 normalise(r["performer"])))
 
 
 def fold_performers(extract):
@@ -1665,7 +2198,40 @@ def build_tags(extract):
 # Counts
 # --------------------------------------------------------------------------------------
 
-def build_counts(extract, artists, songs, events):
+def account_cells(extract):
+    """Prove there is no silent loss: every non-blank cell in the workbook is either in a
+    column some reader consumes, or in a deliberately-dropped triage column, or logged to
+    Unresolved. Anything left over is a hole in the extractor."""
+    total = 0
+    in_recognised = 0
+    unrecognised = 0
+    for sheet_name in extract.wb.sheetnames:
+        headers, rows = read_sheet(extract.wb[sheet_name])
+        roles = extract.sheet_columns[sheet_name]
+        recognised, triage = extract.recognised_columns(sheet_name, headers, roles)
+        for row in rows:
+            for ci, value in enumerate(row):
+                if is_blank(value):
+                    continue
+                total += 1
+                if ci in recognised:
+                    in_recognised += 1
+                elif ci not in triage:
+                    unrecognised += 1
+    header_cells = sum(1 for name in extract.wb.sheetnames
+                       for h in read_sheet(extract.wb[name])[0] if h)
+    return {
+        "total_cells": total,
+        "in_recognised_columns": in_recognised,
+        "triage_cells": extract.triage_cells,
+        "unrecognised_cells": unrecognised,
+        "unresolved_rows": len(extract.unresolved),
+        "header_cells": header_cells,
+        "unaccounted": total - in_recognised - extract.triage_cells - unrecognised,
+    }
+
+
+def build_counts(extract, artists, songs, events, accounting):
     # The [R7] census counts cells in the Key *column*. Keys recovered from inside a
     # title cell are real findings but are not part of that column's census.
     census = [c for c in extract.key_cells if c.get("census")]
@@ -1696,11 +2262,25 @@ def build_counts(extract, artists, songs, events):
         _, rows = read_sheet(extract.wb[name])
         total_rows += sum(1 for r in rows if any(not is_blank(v) for v in r))
 
+    order_kinds = collections.Counter()
+    for record in extract.setlists:
+        kind = record["order_convention"]
+        order_kinds[kind] += 1
+        headers = read_sheet(extract.wb[record["worksheet"]])[0]
+        lower = [h.lower() for h in headers]
+        if "order" in lower or "position" in lower:
+            order_kinds["_any"] += 1
+            if kind == "absent":
+                order_kinds["absent-with-column"] += 1
+        elif extract.unheaded_order_columns.get(record["worksheet"]):
+            order_kinds["_unheaded"] += 1
+
     found = {
         ("workbook", "worksheets"): len(extract.wb.sheetnames),
         ("workbook", "rows on export"): total_rows,
-        ("artists", "distinct artist strings"): len(extract.artist_cells),
-        ("artists", "artists after normalisation"): len(artists),
+        ("artists", "distinct artist strings"): len(extract.artist_column_cells),
+        ("artists", "artists after normalisation"): len(
+            {normalise(a) for a in extract.artist_column_cells}),
         ("artists", "known collision groups"): collisions,
         ("artists", "SET 1 / SET 2 cells in Artist column"): sum(
             n for s, n in extract.artist_divider_cells.items()
@@ -1726,7 +2306,17 @@ def build_counts(extract, artists, songs, events):
         ("practice", "unique events 2026"): by_year["2026"],
         ("practice", "unparseable practice-date cells"): unparseable,
         ("practice", "date typos landing in 2002"): implausible["2002"],
+        ("practice", "date typos landing in 1900"): implausible["1900"],
         ("practice", "date typos landing in 2099"): implausible["2099"],
+        ("order", "tabs with an Order/Position column"): order_kinds["_any"],
+        ("order", "hundreds-style tabs"): order_kinds["hundreds set*100+position"],
+        ("order", "decimal set.position tabs"): order_kinds["decimal set.position"],
+        ("order", "plain counter + Set tabs"): order_kinds["plain counter + Set column"],
+        ("order", "degenerate or unreliable tabs"): (order_kinds["degenerate"]
+                                                     + order_kinds["unreliable"]),
+        ("order", "empty Order tabs"): order_kinds["absent-with-column"],
+        ("order", "unheaded position columns recovered"): order_kinds["_unheaded"],
+        ("cells", "cells left unaccounted for"): accounting["unaccounted"],
     }
 
     table = []
@@ -1782,18 +2372,24 @@ def main():
     extract.load_master()
     extract.scan()
     extract.resolve_missing_artists()
+    extract.search_nxm()
     extract.build_setlists()
     extract.annotate_setlist_relationships()
     extract.seed_declared_performers()
     extract.build_setlist_items()
+    extract.build_sets()
+    extract.flag_position_collisions()
 
     artists = fold_artists(extract.artist_cells)
     artists_by_key = {a["normalised_key"]: a["artist_id"] for a in artists}
     songs = fold_songs(extract, artists_by_key)
     performers = fold_performers(extract)
+    performers_by_key = {p["normalised_key"]: p["performer_id"] for p in performers}
+    song_performers = build_song_performers(extract, performers_by_key)
     events = build_practice_events(extract)
     tags = build_tags(extract)
-    counts = build_counts(extract, artists, songs, events)
+    accounting = account_cells(extract)
+    counts = build_counts(extract, artists, songs, events, accounting)
 
     out = openpyxl.Workbook()
     out.remove(out.active)
@@ -1809,7 +2405,8 @@ def main():
                 ["song_id", "title", "artist", "tonal_centre", "key_signature",
                  "source_key_spelling", "tonality_note", "tempo_bpm", "duration_seconds",
                  "decade", "loop_length", "chord_count", "chord_pattern",
-                 "bass_difficulty", "vocal_range", "mashup_note", "row_instances",
+                 "bass_difficulty", "groove", "keys_patch", "instrument_notes",
+                 "guitar_worked_on", "mashup_note", "row_instances",
                  "worksheets", "from_master_tab", "flag", "note"])
     write_sheet(out, "Artists", artists,
                 ["artist_id", "canonical_name", "sort_name", "normalised_key",
@@ -1822,9 +2419,15 @@ def main():
                  "proposed_classification", "confidence", "proposed_venue",
                  "proposed_client", "in_sheet_header", "row_count", "sets_seen",
                  "order_convention", "flag", "note"])
+    write_sheet(out, "Sets", extract.sets,
+                ["worksheet", "setlist_name", "set_no", "target_minutes", "item_count",
+                 "source", "flag", "note"])
     write_sheet(out, "SetlistItems", extract.setlist_items,
                 ["worksheet", "row", "set_no", "position", "title", "artist", "key_raw",
                  "transpose", "tempo_on_tab", "flag", "note"])
+    write_sheet(out, "SongPerformers", song_performers,
+                ["song", "artist", "performer", "performer_id", "is_lead", "vocal_range",
+                 "source", "flag", "note"])
     write_sheet(out, "PracticeEvents", events,
                 ["song", "artist", "instrument", "context", "date", "source_worksheets",
                  "surviving_only_on", "flag", "note"])
@@ -1852,8 +2455,20 @@ def main():
                  row["found"], row["delta"], row["verdict"]))
 
     print()
+    print("CELL ACCOUNTING (no cell may vanish silently)")
+    print("-" * 104)
+    for label, key in (("non-blank data cells", "total_cells"),
+                       ("in a column a reader consumes", "in_recognised_columns"),
+                       ("in a triage column, dropped on purpose", "triage_cells"),
+                       ("in no column, each one logged", "unrecognised_cells"),
+                       ("rows in the Unresolved sheet", "unresolved_rows"),
+                       ("UNACCOUNTED FOR", "unaccounted")):
+        print("   %-42s %7d" % (label, accounting[key]))
+    print()
+
     flagged = collections.Counter()
     for name, rows in (("Songs", songs), ("Artists", artists), ("Performers", performers),
+                       ("SongPerformers", song_performers), ("Sets", extract.sets),
                        ("Setlists", extract.setlists), ("SetlistItems",
                        extract.setlist_items), ("PracticeEvents", events), ("Tags", tags)):
         for row in rows:
