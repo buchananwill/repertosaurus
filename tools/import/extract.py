@@ -512,6 +512,9 @@ class Extract(object):
         self.master_titles = set()
         self.master_artists = set()
         self.text_first_columns = set()  # sheets whose unheaded column A holds text
+        self.known_pairs = set()      # (norm artist, norm title) from headed columns only
+        self.misaligned = {}          # sheet -> alignment finding for an inferred column
+        self.dropped_attributions = 0
         self.vocal_ranges = {}        # (norm artist, norm title) -> 1/0, for [R15, D27]
         self.triage_cells = 0         # deliberately-dropped triage cells, counted not lost
         self.combined_columns = collections.defaultdict(set)
@@ -620,6 +623,9 @@ class Extract(object):
             first = [r[0] for r in rows if not is_blank(r[0])] if rows else []
             if first and sum(1 for v in first if isinstance(v, str)) > len(first) / 2:
                 self.text_first_columns.add(sheet_name)
+        self.build_known_pairs()
+        self.detect_misaligned_columns()
+        self.log_misaligned_columns()
         self.detect_special_columns()
         for sheet_name in self.wb.sheetnames:
             headers, rows = read_sheet(self.wb[sheet_name])
@@ -819,8 +825,10 @@ class Extract(object):
                 recognised.add(ci)
             elif h == "" and ci in self.unheaded_key_columns.get(sheet_name, ()):
                 recognised.add(ci)
-        for role in ("title", "artist"):
+        for role in ("title", "artist", "artist_misaligned_column"):
             if roles.get(role) is not None:
+                # A column dropped for misalignment is still accounted for: every one of
+                # its cells is logged individually by log_misaligned_columns.
                 recognised.add(roles[role])
         return recognised, triage
 
@@ -849,6 +857,95 @@ class Extract(object):
                 self.unresolve(sheet_name, cell_ref(ci, ri), value,
                                "column %r has no role in the target schema; the cell was "
                                "read but nothing consumes it" % header)
+
+    def build_known_pairs(self):
+        """(artist, title) pairs from columns the workbook itself heads `Artist` and
+        `Title`. Those are aligned by construction, so they are the yardstick an inferred
+        column is measured against."""
+        for sheet_name in self.wb.sheetnames:
+            roles = self.sheet_columns[sheet_name]
+            if roles["artist"] is None or roles["title"] is None:
+                continue
+            if roles["artist_inferred"]:
+                continue
+            headers, rows = read_sheet(self.wb[sheet_name])
+            for row in rows:
+                a, t = row[roles["artist"]], row[roles["title"]]
+                if is_blank(a) or is_blank(t) or not isinstance(a, str):
+                    continue
+                self.known_pairs.add(
+                    (normalise(a), normalise(self.clean_title(t)[0])))
+
+    def detect_misaligned_columns(self):
+        """A column sorted without extending the selection leaves its values offset
+        against the rows they describe. `26-8-23` is the known case: its titles are in
+        alphabetical order and the unheaded artist column is one row out.
+
+        The test is comparative, not a hardcoded tab list. For every column inferred as an
+        artist source, score the aligned reading against the +1 and -1 shifts using
+        (artist, title) pairs the headed columns already vouch for. If a shift scores
+        better, the column is not trustworthy at any offset: the aligned reading is
+        provably wrong and the shift is only inferred. Drop it and flag it.
+        """
+        for sheet_name in self.wb.sheetnames:
+            roles = self.sheet_columns[sheet_name]
+            aci, tci = roles["artist"], roles["title"]
+            if aci is None or tci is None or not roles["artist_inferred"]:
+                continue
+            headers, rows = read_sheet(self.wb[sheet_name])
+            scores = {}
+            for offset in (0, 1, -1):
+                hits = total = 0
+                for ri, row in enumerate(rows):
+                    a = row[aci]
+                    if is_blank(a) or not isinstance(a, str):
+                        continue
+                    tj = ri + offset
+                    if not 0 <= tj < len(rows):
+                        continue
+                    t = rows[tj][tci]
+                    if is_blank(t):
+                        continue
+                    total += 1
+                    if (normalise(a),
+                            normalise(self.clean_title(t)[0])) in self.known_pairs:
+                        hits += 1
+                scores[offset] = (hits, total)
+
+            aligned_hits = scores[0][0]
+            best_offset, (best_hits, best_total) = max(
+                scores.items(), key=lambda kv: (kv[1][0], -abs(kv[0])))
+            if best_offset == 0 or best_hits <= aligned_hits:
+                continue
+            self.misaligned[sheet_name] = {
+                "column": aci,
+                "aligned_hits": aligned_hits,
+                "best_offset": best_offset,
+                "best_hits": best_hits,
+                "considered": scores[best_offset][1],
+            }
+            roles["artist"] = None
+            roles["artist_inferred"] = False
+            roles["artist_misaligned_column"] = aci
+
+    def log_misaligned_columns(self):
+        """Every cell of a dropped column is logged, with the reason required by review."""
+        for sheet_name, finding in sorted(self.misaligned.items()):
+            headers, rows = read_sheet(self.wb[sheet_name])
+            ci = finding["column"]
+            for ri, row in enumerate(rows):
+                if is_blank(row[ci]):
+                    continue
+                self.dropped_attributions += 1
+                self.unresolve(
+                    sheet_name, cell_ref(ci, ri), row[ci],
+                    "column %s is offset relative to titles (sort desync) - artist "
+                    "attribution unreliable; %d of %d values match a known artist/title "
+                    "pair at an offset of %+d but only %d match as aligned, so the column "
+                    "is dropped rather than shifted - a wrong repair is worse than none"
+                    % (get_column_letter(ci + 1), finding["best_hits"],
+                       finding["considered"], finding["best_offset"],
+                       finding["aligned_hits"]))
 
     def detect_special_columns(self):
         """Three unheaded column shapes that carry real data and would otherwise be lost.
@@ -1484,6 +1581,20 @@ class Extract(object):
                          "the band is unresolved [R28]; imported as a setlist because it "
                          "carries an ordered song list, but flag either way")
 
+        finding = self.misaligned.get(sheet_name)
+        if finding:
+            flags.append("COLUMN-MISALIGNED-SUSPECTED")
+            notes.append("column %s reads as artists but is offset against the titles: "
+                         "%d of %d values match a known artist/title pair at %+d rows, "
+                         "against %d aligned. The titles on this tab are sorted and the "
+                         "column was not carried with them. All %s attributions are "
+                         "dropped, not shifted — one value does not fit the offset, and a "
+                         "wrong repair is worse than none."
+                         % (get_column_letter(finding["column"] + 1),
+                            finding["best_hits"], finding["considered"],
+                            finding["best_offset"], finding["aligned_hits"],
+                            get_column_letter(finding["column"] + 1)))
+
         in_sheet_header = roles.get("in_sheet_header", "")
         venue, client_proposal, header_note = self.split_header(in_sheet_header)
         if header_note:
@@ -1878,6 +1989,19 @@ def fold_songs(extract, artists_by_key):
         "titles": collections.Counter(), "artists": collections.Counter(),
         "rows": 0, "sheets": set(), "backfilled": 0,
     })
+    # Two tabs attributing one title to different artists is either a cover, two different
+    # songs sharing a name, or a straight mistake — the workbook has 'Radiohead' against
+    # "Don't Stop Me Now" on one tab and 'Queen' on the master. The migration cannot tell
+    # them apart, so it must not merge them and must not stay silent.
+    # Keyed on the NORMALISED artist: 'Kaiser Chiefs' vs 'The Kaiser Chiefs' is a spelling
+    # collision that [D17] already folds and the Artists sheet already reports. Counting
+    # those here would bury the real disagreements under six false ones.
+    attributions = collections.defaultdict(lambda: collections.defaultdict(set))
+    for row in extract.song_rows:
+        if row["artist"] and not row.get("artist_backfilled"):
+            attributions[normalise(row["title"])][normalise(row["artist"])].add(
+                (row["artist"], row["worksheet"]))
+
     for row in extract.song_rows:
         g = grouped[row["norm_key"]]
         g["titles"][row["title"]] += 1
@@ -1910,6 +2034,22 @@ def fold_songs(extract, artists_by_key):
             artist_id = derived_id("artist", normalise("Unknown Artist"))
         else:
             artist_id = artists_by_key.get(na, "")
+
+        rivals = attributions.get(nt, {})
+        if len(rivals) > 1:
+            flags.append("ARTIST-DISAGREEMENT")
+            described = []
+            for _, pairs in sorted(rivals.items()):
+                spelling = sorted({p[0] for p in pairs})[0]
+                sheets = sorted({p[1] for p in pairs})
+                described.append("%s on %d tab%s (%s)"
+                                 % (spelling, len(sheets), "" if len(sheets) == 1 else "s",
+                                    ", ".join(sheets[:4])
+                                    + (", …" if len(sheets) > 4 else "")))
+            notes.append("the workbook attributes this title to %d different artists: %s. "
+                         "They are kept as separate songs — a cover and a mistake look "
+                         "identical from here — but at most one of them is right."
+                         % (len(rivals), "; ".join(described)))
 
         if g["backfilled"]:
             flags.append("ARTIST-BACKFILLED-BY-TITLE")
