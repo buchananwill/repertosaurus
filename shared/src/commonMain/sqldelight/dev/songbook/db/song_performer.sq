@@ -1,4 +1,5 @@
--- song_performer — junction, derived id UUIDv5(song_id, performer_id) (decisions 26, 27).
+-- song_performer — junction (decisions 26, 27). Derived id, decision 4:
+--     UUIDv5(namespace('song_performer'), song_id || '/' || performer_id)
 --
 -- Who *can* sing or play a given song: a song-level capability, true independently of any
 -- gig. Distinct from setlist_item_performer, which records who a song is STAGED WITH on

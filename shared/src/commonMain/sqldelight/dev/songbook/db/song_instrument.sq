@@ -1,5 +1,5 @@
--- song_instrument — junction carrying facts, derived id UUIDv5(song_id, instrument_id)
--- (decisions 41, 42).
+-- song_instrument — junction carrying facts (decisions 41, 42). Derived id, decision 4:
+--     UUIDv5(namespace('song_instrument'), song_id || '/' || instrument_id)
 --
 -- Facts true of a song on one instrument. Absorbs the workbook's `bass difficulty`,
 -- `Guitar comments`, `BV Comments`, `C GTR` and `Wavestate Patches` columns, so

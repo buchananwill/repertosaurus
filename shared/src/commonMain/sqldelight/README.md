@@ -101,10 +101,20 @@ Seed ids are UUIDv5 so that a device creating the same lookup value by hand conv
 same row. The derivation used to generate them:
 
 ```
-ROOT       = UUIDv5(DNS namespace, "songbook.dev")   = 3ce0f1dc-b3b4-5aee-9683-49dfb0741ca7
-namespace  = UUIDv5(ROOT, <table name>)
-row id     = UUIDv5(namespace, normalise(<name>))
+ROOT        = UUIDv5(DNS namespace, "songbook.dev")   = 3ce0f1dc-b3b4-5aee-9683-49dfb0741ca7
+namespace   = UUIDv5(ROOT, <table name>)
+row id      = UUIDv5(namespace, normalise(<name>))
+song id     = UUIDv5(namespace("song"), artist_id + "/" + normalise(title))
+junction id = UUIDv5(namespace(table), fk_a + "/" + fk_b)
 ```
+
+The junction line is decision 4 **as amended**, and it holds for every junction without
+exception. It replaces an earlier form, `UUIDv5(fk_a, fk_b)`, which used the first foreign key
+directly as the namespace: that one carried no table identity, so two junctions over the same
+pair of ids collided, and it derives entirely different ids. Cross-checked against the
+migration's output: all 789 junction ids it emits (507 `song_performer`, 282 `song_tag`) match
+the form above and **none** match the old one. The two foreign keys are ordered — pass them in
+the order the table declares them.
 
 Per-table namespaces, so that the tag `guitar` and the instrument `guitar` cannot collide:
 
@@ -118,6 +128,10 @@ Per-table namespaces, so that the tag `guitar` and the instrument `guitar` canno
 | `venue` | `d14fa03f-4788-55a6-9b2c-e675c56c8829` |
 | `band` | `ff2f3f80-7e27-5303-b760-a36ba4655a9b` |
 | `practice_context` | `414530ce-0bcb-5557-a96a-f532ccac4bfa` |
+| `song` | `7638e555-dd49-5ef9-8500-f8d3f2ec5b82` |
+| `song_instrument` | `6572c369-eed2-5b33-8a1f-8d19bc16ee51` |
+| `song_tag` | `e32a16d4-bfe6-5d25-a481-ae7ea033f53e` |
+| `song_performer` | `f6e3d47e-9ffd-5ddc-8595-8ed9a98071f1` |
 | `setlist_item_performer` | `52a976ba-d58d-5c3c-ac60-acb796d7e8cf` |
 
 `normalise` is the single shared-core function: **Unicode-normalise to NFC** (decision 17a),

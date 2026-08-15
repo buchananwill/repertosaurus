@@ -1,4 +1,5 @@
--- song_tag — junction, derived id UUIDv5(song_id, tag_id) (decisions 13, 43).
+-- song_tag — junction (decisions 13, 43). Derived id, decision 4:
+--     UUIDv5(namespace('song_tag'), song_id || '/' || tag_id)
 --
 -- Tags are never stored as free text on a song. Junction rows are individually
 -- addressable rows, not a set to be replaced wholesale: "replace this song's tags" as a

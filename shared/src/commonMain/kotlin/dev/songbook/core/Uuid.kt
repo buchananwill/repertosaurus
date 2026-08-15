@@ -46,14 +46,32 @@ public object Ids {
         uuid5(namespaceFor("song"), artistId + "/" + normalise(title))
 
     /**
-     * A junction row id: the composite of the two foreign keys, e.g. `song_instrument` is
-     * `UUIDv5(song_id, instrument_id)` — decision 4. The first key is the namespace.
+     * A junction row id — decision 4:
+     * `UUIDv5(namespace(table), fkA + "/" + fkB)`.
+     *
+     * One form for **every** junction, without exception: `song_instrument`, `song_tag`,
+     * `song_performer` and `setlist_item_performer`. It is the same shape as every other
+     * derived id — the table's own namespace (decisions 4a, 4b) over the canonical key,
+     * joined with the ratified `/` of decision 4d.
+     *
+     * This **supersedes** an earlier form, `UUIDv5(fkA, fkB)`, which used the first foreign
+     * key directly as the namespace. That form carried no table identity, so two junctions
+     * over the same pair of ids would collide, and it derives entirely different ids — all
+     * 507 `song_performer` rows the migration emits differ between the two. Ids are
+     * immutable once written (decision 5), so reintroducing it forks every junction row
+     * silently, with nothing failing loudly.
+     *
+     * The two keys are **ordered**: pass them in the order the table declares them —
+     * `song_instrument` is `(song_id, instrument_id)` — or the Kotlin core and the Python
+     * migration will not converge.
      */
-    public fun junction(firstId: String, secondId: String): String = uuid5(firstId, secondId)
+    public fun junction(table: String, fkA: String, fkB: String): String =
+        uuid5(namespaceFor(table), fkA + "/" + fkB)
 
     /**
-     * A `setlist_item_performer` row id (decisions 3, 4, 4d, 58):
-     * `UUIDv5(namespace('setlist_item_performer'), setlist_item_id + "/" + performer_id)`.
+     * A `setlist_item_performer` row id (decisions 3, 4, 4d, 58) — [junction] over
+     * `(setlist_item_id, performer_id)`, named because this junction has a caller in the
+     * shared core rather than only in the migration.
      *
      * Derived, not random: two devices staging the same performer on the same item is a
      * duplicate, and decision 3 derives the id wherever a duplicate would be an error.
@@ -61,14 +79,9 @@ public object Ids {
      * `position` is deliberately **not** part of the key. Moving someone from lead to
      * co-lead updates that one row rather than minting a second, which is what
      * last-write-wins can merge.
-     *
-     * Note the shape: this junction keys on the table's own namespace with the `/`
-     * separator of decision 4d, where [junction] keys on `UUIDv5(firstId, secondId)` for
-     * `song_instrument` and `song_performer`. Both forms satisfy decision 4 and they are
-     * not interchangeable, so the migration must use this one for this table.
      */
     public fun setlistItemPerformer(setlistItemId: String, performerId: String): String =
-        uuid5(namespaceFor("setlist_item_performer"), setlistItemId + "/" + performerId)
+        junction("setlist_item_performer", setlistItemId, performerId)
 
     /** A UUIDv4, for rows where a duplicate is meaningful (decisions 3, 6). */
     public fun random(random: Random = Random.Default): String {

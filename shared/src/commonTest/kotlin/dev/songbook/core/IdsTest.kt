@@ -167,14 +167,106 @@ class IdsTest {
         )
     }
 
-    /** Decision 4: junctions key on the composite of the two foreign keys. */
+    /**
+     * Decision 4: a junction id is `UUIDv5(namespace(table), fkA + "/" + fkB)` — the
+     * table's own namespace over the two foreign keys, joined with the `/` of decision 4d.
+     */
     @Test
-    fun junctionIdsAreDerivedFromBothForeignKeys() {
+    fun junctionIdsAreDerivedFromTheTableNamespaceAndBothForeignKeys() {
         val song = Ids.song(Ids.derived("artist", "The Zutons"), "Valerie")
         val guitar = Ids.derived("instrument", "guitar")
         val bass = Ids.derived("instrument", "bass")
-        assertEquals(Ids.junction(song, guitar), Ids.junction(song, guitar))
-        assertNotEquals(Ids.junction(song, guitar), Ids.junction(song, bass))
+
+        assertEquals(
+            uuid5(Ids.namespaceFor("song_instrument"), "$song/$guitar"),
+            Ids.junction("song_instrument", song, guitar),
+        )
+        assertEquals(
+            Ids.junction("song_instrument", song, guitar),
+            Ids.junction("song_instrument", song, guitar),
+        )
+        assertNotEquals(
+            Ids.junction("song_instrument", song, guitar),
+            Ids.junction("song_instrument", song, bass),
+        )
+    }
+
+    /**
+     * The superseded junction form — the first foreign key used directly as the namespace,
+     * no table identity and no separator — must stay dead. It collides across two junctions
+     * over the same pair of ids, and it derives ids the migration has never emitted.
+     */
+    @Test
+    fun theSupersededJunctionFormIsNotWhatWeDerive() {
+        val song = Ids.song(Ids.derived("artist", "The Zutons"), "Valerie")
+        val guitar = Ids.derived("instrument", "guitar")
+
+        assertNotEquals(uuid5(song, guitar), Ids.junction("song_instrument", song, guitar))
+        // The table is part of the key, so the same pair in two junctions cannot collide.
+        assertNotEquals(
+            Ids.junction("song_instrument", song, guitar),
+            Ids.junction("song_tag", song, guitar),
+        )
+    }
+
+    /**
+     * The four junctions, pinned. The `song_performer` and `song_tag` values are **exact
+     * ids the Python migration emitted** for real rows — Amy Winehouse's *Valerie* tagged
+     * `bass-vox`, ABBA's *Dancing Queen* sung by Jennifer — taken from a cross-check of all
+     * 507 + 282 junction ids it emits. If one of these moves, the app and the migration
+     * have forked, and decision 5 makes that permanent.
+     */
+    @Test
+    fun junctionIdsForAllFourTablesAreTheRatifiedValues() {
+        // Namespaces derived rather than copied: namespace(table) = UUIDv5(ROOT, table).
+        assertEquals(uuid5(Ids.ROOT, "song_performer"), Ids.namespaceFor("song_performer"))
+        assertEquals(uuid5(Ids.ROOT, "song_tag"), Ids.namespaceFor("song_tag"))
+        assertEquals(uuid5(Ids.ROOT, "song_instrument"), Ids.namespaceFor("song_instrument"))
+        assertEquals(
+            uuid5(Ids.ROOT, "setlist_item_performer"),
+            Ids.namespaceFor("setlist_item_performer"),
+        )
+
+        assertEquals("f6e3d47e-9ffd-5ddc-8595-8ed9a98071f1", Ids.namespaceFor("song_performer"))
+        assertEquals("e32a16d4-bfe6-5d25-a481-ae7ea033f53e", Ids.namespaceFor("song_tag"))
+        assertEquals("6572c369-eed2-5b33-8a1f-8d19bc16ee51", Ids.namespaceFor("song_instrument"))
+        assertEquals(
+            "52a976ba-d58d-5c3c-ac60-acb796d7e8cf",
+            Ids.namespaceFor("setlist_item_performer"),
+        )
+
+        // Both song ids are derived here, and both match what the migration emitted.
+        val valerie = Ids.song(Ids.derived("artist", "Amy Winehouse"), "Valerie")
+        assertEquals("79915806-b3fe-5ece-b33e-77c09dd8c907", valerie)
+        val dancingQueen = Ids.song(Ids.derived("artist", "ABBA"), "Dancing Queen")
+        assertEquals("ac7c45d3-fe48-548b-a718-d13ce4f94394", dancingQueen)
+
+        // song_tag: Valerie tagged `bass-vox`.
+        assertEquals(
+            "5fd6b9f0-9c89-5c7f-b191-19e36d0bb885",
+            Ids.junction("song_tag", valerie, "212b5a4b-0a46-5ab5-bb7c-a448f42ae70c"),
+        )
+        // song_performer: Dancing Queen sung by Jennifer.
+        assertEquals(
+            "9d6741be-10f9-5e0c-9d7f-d9933d272018",
+            Ids.junction("song_performer", dancingQueen, "563c8cf4-40a7-50b0-8956-00a4055a7d34"),
+        )
+        // song_instrument: Valerie on guitar. No migration row to compare — the migration
+        // emits per-instrument facts without ids yet — so this pins the construction.
+        assertEquals(
+            "124c7c67-a795-57c4-a04a-a655d2df3145",
+            Ids.junction("song_instrument", valerie, Ids.derived("instrument", "guitar")),
+        )
+        // setlist_item_performer: a fixed item id, staged with Will.
+        assertEquals(
+            "1782fe77-20bc-5914-bb1d-76fb20821e38",
+            Ids.setlistItemPerformer(
+                "3f1d9c58-0f3e-4a3f-9a1b-2c7d4e5f6a7b",
+                Ids.derived("performer", "Will"),
+            ),
+        )
+        // And that performer id is the one the migration emitted for Will.
+        assertEquals("c5b61fd7-b087-52a1-a43c-e771203207b5", Ids.derived("performer", "Will"))
     }
 
     /**
@@ -199,10 +291,13 @@ class IdsTest {
             Ids.setlistItemPerformer(item, coralie),
         )
 
-        // Its own namespace, and not the `junction` form song_instrument and
-        // song_performer use — the two constructions are not interchangeable.
+        // It is the one junction form, not a second one: this is exactly Ids.junction
+        // against this table's namespace, which is its own and not the root.
         assertNotEquals(Ids.namespaceFor("setlist_item_performer"), Ids.ROOT)
-        assertNotEquals(Ids.setlistItemPerformer(item, will), Ids.junction(item, will))
+        assertEquals(
+            Ids.junction("setlist_item_performer", item, will),
+            Ids.setlistItemPerformer(item, will),
+        )
     }
 
     /** Decision 6: practice events must be random, or same-day sessions collapse. */
