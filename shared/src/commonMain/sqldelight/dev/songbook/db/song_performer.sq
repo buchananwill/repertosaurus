@@ -1,7 +1,9 @@
 -- song_performer — junction, derived id UUIDv5(song_id, performer_id) (decisions 26, 27).
 --
--- Who *can* sing or play a given song: a song-level capability. Distinct from
--- setlist_item.lead_performer_id, which records who actually did, at one gig (decision 58).
+-- Who *can* sing or play a given song: a song-level capability, true independently of any
+-- gig. Distinct from setlist_item_performer, which records who a song is STAGED WITH on
+-- one night (decisions 58, 58a). The two answer different questions and must never be
+-- merged, and there is no is_duet flag anywhere: any song can be staged as a duet.
 --
 -- vocal_range lives here and not on song, because range is only meaningful for a
 -- particular voice. Closed two-value vocabulary: 1 = high (workbook `H`), 0 = low (`L`).

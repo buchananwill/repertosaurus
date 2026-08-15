@@ -161,6 +161,20 @@ assert UNKNOWN_ARTIST_ID == UNKNOWN_ARTIST_SEED_ID, (
 CONFIRMED_BANDS = ("Blue Lion", "Radiant Lanterns", "LPT with Ryan")
 
 
+def setlist_item_performer_id(item_id: str, performer_id: str) -> str:
+    """[D4, D58] `UUIDv5(namespace("setlist_item_performer"), item_id + "/" + performer_id)`.
+
+    `position` is deliberately NOT in the key: moving somebody from lead to co-lead must
+    update the row, not mint a second one alongside it.
+
+    The extract pass cannot call this. `setlist_item.id` is **random** per the type roster,
+    minted by the build pass, so any value computed here would change on every run and
+    break idempotence. The formula lives here so the build pass has one implementation to
+    call, and the review sheet carries a stable `item_key` to join on instead.
+    """
+    return derived_id("setlist_item_performer", "%s/%s" % (item_id, performer_id))
+
+
 def sort_name(name: str) -> str:
     """'The Kaiser Chiefs' -> 'Kaiser Chiefs, The'  [D21]"""
     for article in ("The ", "A ", "An "):
@@ -385,6 +399,18 @@ INITIAL_EXPANSIONS = {"w": "Will", "r": "Ryan", "t": "Tommy", "p": "Paul"}
 
 # Ruled NOT performers. Discard the attribution; never guess at what they meant.
 INITIALS_NOT_PERFORMERS = {"a", "b", "c"}
+
+# Inside a duet marker the letters mean something the standalone ruling does not cover:
+# the user read `w/c` as Will and Coralie, so `c` here is Coralie even though a bare `C`
+# was ruled not a performer at all. The two rulings are about different things — a lone
+# initial in a lead-vocal column, versus one half of an explicit pairing.
+DUET_INITIALS = dict(INITIAL_EXPANSIONS, c="Coralie")
+
+# Ruled garbage by the user in their review pass. These are rulings, not accidents: the
+# machine file kept regenerating them after the user deleted them by hand. `Kendra Piper`
+# is a Title-column header, not a singer column [R13 vs R26]. `Si` is NOT here — it is a
+# real name.
+BINNED_PERFORMERS = {"2nd request", "3rd request", "fd", "lv", "kendra piper"}
 
 # Tag columns [D19]. Header -> seeded tag name.
 TAG_COLUMNS = {
@@ -1128,6 +1154,12 @@ class Extract(object):
             header = record["in_sheet_header"]
             if not header or not re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+$", header.strip()):
                 continue
+            # USER RULING: binned in the review pass. `Kendra Piper` is the header cell of
+            # a Title column, which is why [R13] mistook it for a singer column.
+            if normalise(header) in BINNED_PERFORMERS:
+                self.unresolve(record["worksheet"], "in-sheet header", header,
+                               "user ruled not a performer")
+                continue
             self.performer_marks.append({
                 "worksheet": record["worksheet"], "cell": "in-sheet header",
                 "source": "in-sheet header", "column": header, "performer": header,
@@ -1425,7 +1457,7 @@ class Extract(object):
                                            is_lead)
                     continue
                 self.performer_marks.append({
-                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                    "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
                     "source": "column", "column": headers[ci], "performer": name,
                     "is_lead": is_lead, "title": title, "artist": artist,
                     "raw": mark, "flag": flag, "note": note,
@@ -1466,6 +1498,15 @@ class Extract(object):
         # still keeps 10 `Kita` annotations in an unheaded column A [R16].
         return sheet_name in self.text_first_columns
 
+    @staticmethod
+    def expand_person(part):
+        """Resolve one half of a duet marker to a person, or None if it does not resolve.
+        Single letters go through DUET_INITIALS; anything longer is already a name."""
+        text = part.strip()
+        if len(text) == 1 and text.isalpha():
+            return DUET_INITIALS.get(text.lower())
+        return text or None
+
     def record_annotation(self, sheet_name, headers, ci, ri, v, title, artist, is_lead):
         text = str(v).strip()
         if not text:
@@ -1477,28 +1518,42 @@ class Extract(object):
                            "performer annotation column holds a non-name value [R16]")
             return
 
+        # USER RULING: deleted as garbage in the review pass. Not a performer.
+        if normalise(text) in BINNED_PERFORMERS:
+            self.unresolve(sheet_name, cell_ref(ci, ri), text,
+                           "user ruled not a performer")
+            return
+
         column_label = headers[ci] or "(unheaded)"
 
-        # A duet marker names two people. USER RULING: do not collapse these into one
-        # invented performer and do not split them — a schema change is under discussion.
-        # Leave the row exactly as the workbook has it and flag it as pending.
+        # A duet marker names two people. [D58] now gives them somewhere to go: the
+        # setlist_item_performer junction, ordered by position. [D58a] a pair is never a
+        # performer, so the composite is split here and never becomes a performer row.
         if "/" in text:
             left, right = [p.strip() for p in text.split("/", 1)]
             if left and right:
-                self.performer_marks.append({
-                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
-                    "source": "annotation", "column": column_label,
-                    "performer": text, "is_lead": is_lead, "title": title,
-                    "artist": artist, "raw": text,
-                    "flag": "DUET-PENDING-SCHEMA",
-                    "note": "%r names two performers at once (%r and %r) in column %r. "
-                            "The pairing is intentional and is held as written: the schema "
-                            "has no way to record a duet on one setlist item yet, and both "
-                            "collapsing it into a single invented performer and splitting "
-                            "it into two rows would assert something the workbook does not "
-                            "say. Awaiting a schema decision."
-                            % (text, left, right, column_label),
-                })
+                for position, part in ((1, left), (2, right)):
+                    person = self.expand_person(part)
+                    if person is None:
+                        self.unresolve(sheet_name, cell_ref(ci, ri), text,
+                                       "duet annotation half %r does not resolve to a "
+                                       "performer" % part)
+                        continue
+                    self.performer_marks.append({
+                        "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                        "row": ri + 2, "source": "annotation", "column": column_label,
+                        "performer": person, "is_lead": 1 if position == 1 else 0,
+                        "position": position, "staging_only": True,
+                        "title": title, "artist": artist, "raw": text,
+                        "flag": "DUET-ORDER-INFERRED",
+                        "note": "%r in column %r is a duet: %s at position %d. That the "
+                                "pair performed it together is certain; which of them led "
+                                "is NOT — position comes from the writing order, left of "
+                                "the slash first, which is an inference and not something "
+                                "the workbook states. [D58a] a pair is never a performer, "
+                                "so the composite %r is not carried anywhere."
+                                % (text, column_label, person, position, text),
+                    })
                 return
 
         # USER RULING on single-letter lead-vocal initials.
@@ -1512,7 +1567,7 @@ class Extract(object):
             if letter in INITIAL_EXPANSIONS:
                 person = INITIAL_EXPANSIONS[letter]
                 self.performer_marks.append({
-                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                    "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
                     "source": "annotation", "column": column_label,
                     "performer": person, "is_lead": is_lead, "title": title,
                     "artist": artist, "raw": text,
@@ -1548,7 +1603,7 @@ class Extract(object):
                          "collapse to the same performer as %r"
                          % (text, text.rstrip("?")))
         self.performer_marks.append({
-            "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+            "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
             "source": "annotation", "column": headers[ci] or "(unheaded)",
             "performer": text, "is_lead": is_lead, "title": title, "artist": artist,
             "raw": text, "flag": "; ".join(flags), "note": " | ".join(notes),
@@ -2421,6 +2476,91 @@ def fold_songs(extract, artists_by_key):
     return songs
 
 
+def build_setlist_item_performers(extract, performers_by_key, names_by_key):
+    """[D58] who a set list item is STAGED WITH on one night, ordered by position.
+
+    Distinct from `song_performer`, which records who KNOWS a song [D58a]. Neither is
+    derived from the other and there is no is_duet flag anywhere — any song can be staged
+    as a duet, so duet-ness is a property of the performance, not the song.
+
+    Sourced from the free-text annotation columns on gig tabs (`LV`, `Lead vocal`, and the
+    unheaded column A of the client-header tabs). The singer-capability columns
+    (`Coralie Vox`, `Sophie-Mae Vocal`, …) are NOT used here — they say who can sing a
+    song, which is the other table's question.
+    """
+    items = {}
+    for item in extract.setlist_items:
+        items[(item["worksheet"], item["row"])] = item
+
+    rows = {}
+    for mark in extract.performer_marks:
+        if mark.get("source") != "annotation" or not mark.get("row"):
+            continue
+        item = items.get((mark["worksheet"], mark["row"]))
+        if item is None:
+            continue
+        key = normalise(mark["performer"].rstrip("?"))
+        if not key:
+            continue
+        ident = (mark["worksheet"], mark["row"], key)
+        position = mark.get("position", 1)
+        if ident in rows:
+            existing = rows[ident]
+            existing["position"] = min(existing["position"], position)
+            merged = [f for f in existing["flag"].split("; ") if f]
+            for flag in [f for f in mark["flag"].split("; ") if f]:
+                if flag not in merged:
+                    merged.append(flag)
+            existing["flag"] = "; ".join(merged)
+            if mark["note"] and mark["note"] not in existing["note"]:
+                existing["note"] = " | ".join(
+                    [n for n in (existing["note"], mark["note"]) if n])
+            continue
+        rows[ident] = {
+            "setlist": mark["worksheet"],
+            "item_key": "%s!%d" % (mark["worksheet"], mark["row"]),
+            "item_row": mark["row"],
+            "song": item["title"],
+            "artist": item["artist"],
+            "performer": names_by_key.get(key, mark["performer"].rstrip("?")),
+            "performer_id": performers_by_key.get(key, ""),
+            "position": position,
+            "source": "%s:%s" % (mark["source"], mark["column"]),
+            "flag": mark["flag"],
+            "note": mark["note"],
+        }
+
+    ordered = sorted(rows.values(),
+                     key=lambda r: (r["setlist"], r["item_row"], r["position"],
+                                    normalise(r["performer"])))
+    # Renumber within each item so positions are 1..n and contiguous, which is what makes
+    # a printed set list deterministic rather than alphabetical by accident [D58].
+    by_item = collections.defaultdict(list)
+    for row in ordered:
+        by_item[(row["setlist"], row["item_row"])].append(row)
+    for group in by_item.values():
+        for index, row in enumerate(group, start=1):
+            row["position"] = index
+        if len(group) < 2:
+            continue
+        if any("DUET-ORDER-INFERRED" in row["flag"] for row in group):
+            continue
+        # Two columns on one row named two different people. That they both performed it
+        # is what the workbook says; which of them led is not, and [D58] gives position 1
+        # a meaning. Say so rather than letting the arbitrary order read as a fact.
+        names = ", ".join("%d:%s" % (row["position"], row["performer"]) for row in group)
+        for row in group:
+            row["flag"] = "; ".join(
+                [f for f in row["flag"].split("; ") if f] + ["MULTI-PERFORMER-ORDER-UNKNOWN"])
+            row["note"] = " | ".join([n for n in (
+                row["note"],
+                "%d performers are named on this row by different columns (%s). The "
+                "workbook does not say which of them led, so position here is ordering "
+                "only and carries no claim about the lead [D58]."
+                % (len(group), names)) if n])
+    return ordered
+
+
 def build_song_performers(extract, performers_by_key, names_by_key):
     """[R14] one row per non-empty cell in a singer column, deduped per (song, performer).
     [R15, D27] `vocal_range` lives HERE, on the owner's row, never on the song: range is
@@ -2429,6 +2569,11 @@ def build_song_performers(extract, performers_by_key, names_by_key):
     rows = {}
     for mark in extract.performer_marks:
         if not mark.get("title"):
+            continue
+        # [D58a] a duet split is a staging fact about one night. Letting it create a
+        # song_performer row would derive capability from staging, which is exactly the
+        # merge the decision forbids.
+        if mark.get("staging_only"):
             continue
         key = normalise(mark["performer"].rstrip("?"))
         if not key:
@@ -2807,6 +2952,8 @@ def main():
     performers_by_key = {p["normalised_key"]: p["performer_id"] for p in performers}
     names_by_key = {p["normalised_key"]: p["name"] for p in performers}
     song_performers = build_song_performers(extract, performers_by_key, names_by_key)
+    item_performers = build_setlist_item_performers(extract, performers_by_key,
+                                                    names_by_key)
     events = build_practice_events(extract)
     tags = build_tags(extract)
     accounting = account_cells(extract)
@@ -2848,6 +2995,9 @@ def main():
     write_sheet(out, "SetlistItems", extract.setlist_items,
                 ["worksheet", "row", "set_no", "position", "title", "artist", "key_raw",
                  "transpose", "tempo_on_tab", "flag", "note"])
+    write_sheet(out, "SetlistItemPerformers", item_performers,
+                ["setlist", "item_key", "item_row", "song", "artist", "performer",
+                 "performer_id", "position", "source", "flag", "note"])
     write_sheet(out, "SongPerformers", song_performers,
                 ["song", "artist", "performer", "performer_id", "is_lead", "vocal_range",
                  "source", "flag", "note"])
@@ -2891,7 +3041,9 @@ def main():
 
     flagged = collections.Counter()
     for name, rows in (("Songs", songs), ("Artists", artists), ("Performers", performers),
-                       ("SongPerformers", song_performers), ("Sets", extract.sets),
+                       ("SongPerformers", song_performers),
+                       ("SetlistItemPerformers", item_performers),
+                       ("Sets", extract.sets),
                        ("Bands", extract.bands),
                        ("Setlists", extract.setlists), ("SetlistItems",
                        extract.setlist_items), ("PracticeEvents", events), ("Tags", tags)):

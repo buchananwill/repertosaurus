@@ -39,8 +39,8 @@ public object Ids {
     /**
      * A song id. Decision 4 makes the canonical key `artist_id` plus the normalised title.
      *
-     * The separator is not fixed by the decision spec; it is pinned here as `/` and the
-     * migration must use the same construction or the two will not converge.
+     * The `/` separator is ratified by decision 4d, not incidental: the Kotlin core and the
+     * Python migration must concatenate identically or the same song gets two ids.
      */
     public fun song(artistId: String, title: String): String =
         uuid5(namespaceFor("song"), artistId + "/" + normalise(title))
@@ -50,6 +50,25 @@ public object Ids {
      * `UUIDv5(song_id, instrument_id)` — decision 4. The first key is the namespace.
      */
     public fun junction(firstId: String, secondId: String): String = uuid5(firstId, secondId)
+
+    /**
+     * A `setlist_item_performer` row id (decisions 3, 4, 4d, 58):
+     * `UUIDv5(namespace('setlist_item_performer'), setlist_item_id + "/" + performer_id)`.
+     *
+     * Derived, not random: two devices staging the same performer on the same item is a
+     * duplicate, and decision 3 derives the id wherever a duplicate would be an error.
+     *
+     * `position` is deliberately **not** part of the key. Moving someone from lead to
+     * co-lead updates that one row rather than minting a second, which is what
+     * last-write-wins can merge.
+     *
+     * Note the shape: this junction keys on the table's own namespace with the `/`
+     * separator of decision 4d, where [junction] keys on `UUIDv5(firstId, secondId)` for
+     * `song_instrument` and `song_performer`. Both forms satisfy decision 4 and they are
+     * not interchangeable, so the migration must use this one for this table.
+     */
+    public fun setlistItemPerformer(setlistItemId: String, performerId: String): String =
+        uuid5(namespaceFor("setlist_item_performer"), setlistItemId + "/" + performerId)
 
     /** A UUIDv4, for rows where a duplicate is meaningful (decisions 3, 6). */
     public fun random(random: Random = Random.Default): String {

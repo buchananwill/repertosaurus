@@ -1,0 +1,172 @@
+-- setlist_item_performer — junction, derived id (decisions 3, 4, 4d, 58, 58a-58d).
+--
+-- Who a set list item is STAGED WITH on one night. `position` orders them — 1 is the lead,
+-- 2 the co-lead — so a printed set list is deterministic rather than alphabetical by
+-- accident (decision 58).
+--
+-- This is NOT song_performer. That table records who *knows* a song, a capability true
+-- independently of any gig; this one records who is singing it tonight (decision 58a). The
+-- two answer different questions and must never be merged. There is no `is_duet` flag
+-- anywhere: any song can be staged as a duet, so duet-ness is a property of the
+-- performance, not of the song.
+--
+-- A capped `lead_performer_id` + `duet_performer_id` pair was rejected (decision 58b): it
+-- is structurally the workbook growing a column per singer, and the first trio or guest
+-- would reintroduce it. No `role` column and no `instrument_id` either (decision 58d).
+--
+-- The id is DERIVED, not random: two devices adding the same performer to the same item
+-- is a duplicate, and decision 3 says derive the id where a duplicate would be an error.
+--     id = UUIDv5(namespace('setlist_item_performer'), setlist_item_id || '/' || performer_id)
+-- `position` is deliberately NOT part of the key — the same person moved from lead to
+-- co-lead is the same row updated, not a new one. The separator is the `/` of decision 4d.
+
+CREATE TABLE setlist_item_performer (
+    id               TEXT NOT NULL PRIMARY KEY,
+    setlist_item_id  TEXT NOT NULL,
+    performer_id     TEXT NOT NULL,
+    position         INTEGER NOT NULL,
+
+    updated_at       TEXT NOT NULL,
+    deleted_at       TEXT,
+    device_id        TEXT NOT NULL,
+
+    FOREIGN KEY (setlist_item_id) REFERENCES setlist_item(id),
+    FOREIGN KEY (performer_id) REFERENCES performer(id),
+    CHECK (position >= 1),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+-- One row per (item, performer): the derived id already guarantees it, and this makes the
+-- database say so too.
+CREATE UNIQUE INDEX setlist_item_performer_pair
+    ON setlist_item_performer(setlist_item_id, performer_id);
+
+-- (setlist_item_id, position, id) is the total order every read below uses. `position`
+-- alone is not unique — two devices offline can each write position 1 — so `id` is the
+-- tie-break, exactly as (position, id) orders setlist_item itself.
+CREATE INDEX setlist_item_performer_item_position
+    ON setlist_item_performer(setlist_item_id, position, id);
+
+CREATE INDEX setlist_item_performer_performer
+    ON setlist_item_performer(performer_id);
+
+-- Performers on one item, in performance order.
+selectForItem:
+SELECT
+    setlist_item_performer.id,
+    setlist_item_performer.performer_id,
+    performer.name AS performer_name,
+    setlist_item_performer.position
+FROM setlist_item_performer
+JOIN performer
+       ON performer.id = setlist_item_performer.performer_id
+      AND performer.deleted_at IS NULL
+WHERE setlist_item_performer.setlist_item_id = ?
+  AND setlist_item_performer.deleted_at IS NULL
+ORDER BY setlist_item_performer.position, setlist_item_performer.id;
+
+-- Every performer on every item of one set list, in one pass. The print view groups these
+-- by setlist_item_id in the shared core; issuing selectForItem per row would be the N+1
+-- decision 58c warns about.
+selectForSetlist:
+SELECT
+    setlist_item_performer.setlist_item_id,
+    setlist_item_performer.id,
+    setlist_item_performer.performer_id,
+    performer.name AS performer_name,
+    setlist_item_performer.position
+FROM setlist_item_performer
+JOIN setlist_item
+       ON setlist_item.id = setlist_item_performer.setlist_item_id
+      AND setlist_item.deleted_at IS NULL
+JOIN setlist_set
+       ON setlist_set.id = setlist_item.setlist_set_id
+      AND setlist_set.deleted_at IS NULL
+JOIN performer
+       ON performer.id = setlist_item_performer.performer_id
+      AND performer.deleted_at IS NULL
+WHERE setlist_set.setlist_id = ?
+  AND setlist_item_performer.deleted_at IS NULL
+ORDER BY
+    setlist_item_performer.setlist_item_id,
+    setlist_item_performer.position,
+    setlist_item_performer.id;
+
+-- Decision 58c: "who is singing this tonight", written ONCE, here, rather than left to
+-- each caller to assemble. One row per set list item, in performance order, with the
+-- staged performers as a single ordered string. NULL where nobody is staged.
+--
+-- Why this shape and not `LEFT JOIN (… GROUP BY setlist_item_id)`:
+--
+--  * GROUP_CONCAT has no defined argument order. SQLite before 3.44 has no ORDER BY inside
+--    an aggregate and no window functions before 3.25 — and minSdk 26 ships SQLite 3.19 —
+--    so the order has to come from the order rows reach the aggregate.
+--  * Here the aggregate has NO GROUP BY, so no grouping sorter can reshuffle its input, and
+--    its FROM subquery carries the ORDER BY. SQLite may not flatten an ORDER BY subquery
+--    into an aggregate outer query, so that ORDER BY survives. In the GROUP BY form the
+--    grouping sort sits between the ORDER BY and the aggregate and SQLite's sorter is not
+--    documented as stable — the order would be incidental, which is what decision 58's
+--    "deterministic rather than alphabetical by accident" rules out.
+--  * The ordering is (position, id), not position alone: position is not unique.
+--  * It is a correlated subquery, so it costs one index range scan per item against
+--    setlist_item_performer_item_position — but it is one statement and one cursor, and it
+--    cannot drop an item. An item with nobody staged keeps its row with a NULL, the way a
+--    LEFT JOIN would; an inner join here would silently shorten the set list.
+--  * The NULLIF is load-bearing twice over: it collapses an empty concatenation to NULL,
+--    and it is what tells SQLDelight the column is nullable. Without it the generated
+--    mapper reads the column as non-null and an item with nobody staged throws rather than
+--    returning "nobody" — the same bug in Kotlin instead of SQL.
+selectStagedForSetlist:
+SELECT
+    setlist_item.id       AS setlist_item_id,
+    setlist_set.set_no    AS set_no,
+    setlist_item.position AS position,
+    NULLIF((
+        SELECT GROUP_CONCAT(ordered.performer_name, ', ')
+        FROM (
+            SELECT performer.name AS performer_name
+            FROM setlist_item_performer
+            JOIN performer
+                   ON performer.id = setlist_item_performer.performer_id
+                  AND performer.deleted_at IS NULL
+            WHERE setlist_item_performer.setlist_item_id = setlist_item.id
+              AND setlist_item_performer.deleted_at IS NULL
+            ORDER BY setlist_item_performer.position, setlist_item_performer.id
+        ) AS ordered
+    ), '') AS staged_performers
+FROM setlist_item
+JOIN setlist_set
+       ON setlist_set.id = setlist_item.setlist_set_id
+      AND setlist_set.deleted_at IS NULL
+WHERE setlist_set.setlist_id = ?
+  AND setlist_item.deleted_at IS NULL
+ORDER BY setlist_set.set_no, setlist_set.id, setlist_item.position, setlist_item.id;
+
+selectChangedSince:
+SELECT *
+FROM setlist_item_performer
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO setlist_item_performer(
+    id, setlist_item_id, performer_id, position, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO setlist_item_performer(
+    id, setlist_item_id, performer_id, position, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- Reordering the staged performers. The id does not move with the position, so this is an
+-- update of one row and last-write-wins can merge it.
+setPosition:
+UPDATE setlist_item_performer
+SET position = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE setlist_item_performer
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

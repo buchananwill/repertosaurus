@@ -20,6 +20,12 @@
 -- A set list reads song facts through the foreign key. Facts are never copied onto an
 -- item; transpose and tempo_override are the only sanctioned per-gig divergences
 -- (decision 59).
+--
+-- There is NO lead_performer_id (decisions 52, 58, 58b). Who performs an item is the
+-- junction table setlist_item_performer, ordered by its position — a column, or a capped
+-- lead/duet pair, is the workbook's column-per-singer failure in miniature. "Who is
+-- singing this tonight" is therefore an aggregate: selectStagedForSetlist in
+-- setlist_item_performer.sq, written once (decision 58c).
 
 CREATE TABLE setlist_item (
     id                 TEXT NOT NULL PRIMARY KEY,
@@ -27,7 +33,6 @@ CREATE TABLE setlist_item (
     song_id            TEXT NOT NULL,
     position           TEXT NOT NULL,
     transpose          INTEGER NOT NULL DEFAULT 0,
-    lead_performer_id  TEXT,
     tempo_override     INTEGER,
     note               TEXT,
 
@@ -37,7 +42,6 @@ CREATE TABLE setlist_item (
 
     FOREIGN KEY (setlist_set_id) REFERENCES setlist_set(id),
     FOREIGN KEY (song_id) REFERENCES song(id),
-    FOREIGN KEY (lead_performer_id) REFERENCES performer(id),
     CHECK (LENGTH(position) > 0),
     CHECK (tempo_override IS NULL OR tempo_override > 0),
     CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
@@ -47,7 +51,6 @@ CREATE TABLE setlist_item (
 -- Set contents in order. (position, id) is the total order, so the index carries both.
 CREATE INDEX setlist_item_set_position ON setlist_item(setlist_set_id, position, id);
 CREATE INDEX setlist_item_song ON setlist_item(song_id);
-CREATE INDEX setlist_item_lead_performer ON setlist_item(lead_performer_id);
 
 -- Set list contents, whole list, in performance order.
 -- Returns the SOUNDING KEY INPUTS — song.key_signature, song.tonal_centre and
@@ -69,8 +72,6 @@ SELECT
     song.tempo_bpm                 AS tempo_bpm,
     setlist_item.tempo_override    AS tempo_override,
     song.duration_seconds          AS duration_seconds,
-    setlist_item.lead_performer_id AS lead_performer_id,
-    performer.name                 AS lead_performer_name,
     setlist_item.note              AS note
 FROM setlist_item
 JOIN setlist_set
@@ -82,9 +83,6 @@ JOIN song
 LEFT JOIN artist
        ON artist.id = song.artist_id
       AND artist.deleted_at IS NULL
-LEFT JOIN performer
-       ON performer.id = setlist_item.lead_performer_id
-      AND performer.deleted_at IS NULL
 WHERE setlist_set.setlist_id = ?
   AND setlist_item.deleted_at IS NULL
 ORDER BY setlist_set.set_no, setlist_set.id, setlist_item.position, setlist_item.id;
@@ -103,8 +101,6 @@ SELECT
     song.tempo_bpm                 AS tempo_bpm,
     setlist_item.tempo_override    AS tempo_override,
     song.duration_seconds          AS duration_seconds,
-    setlist_item.lead_performer_id AS lead_performer_id,
-    performer.name                 AS lead_performer_name,
     setlist_item.note              AS note
 FROM setlist_item
 JOIN song
@@ -113,9 +109,6 @@ JOIN song
 LEFT JOIN artist
        ON artist.id = song.artist_id
       AND artist.deleted_at IS NULL
-LEFT JOIN performer
-       ON performer.id = setlist_item.lead_performer_id
-      AND performer.deleted_at IS NULL
 WHERE setlist_item.setlist_set_id = ?
   AND setlist_item.deleted_at IS NULL
 ORDER BY setlist_item.position, setlist_item.id;
@@ -154,15 +147,15 @@ ORDER BY updated_at, device_id, id;
 
 insert:
 INSERT INTO setlist_item(
-    id, setlist_set_id, song_id, position, transpose, lead_performer_id,
+    id, setlist_set_id, song_id, position, transpose,
     tempo_override, note, updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 applyMerged:
 INSERT OR REPLACE INTO setlist_item(
-    id, setlist_set_id, song_id, position, transpose, lead_performer_id,
+    id, setlist_set_id, song_id, position, transpose,
     tempo_override, note, updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- A move touches exactly one row (decision 54). Moving between sets is the same write.
 move:
@@ -172,7 +165,7 @@ WHERE id = ?;
 
 update:
 UPDATE setlist_item
-SET transpose = ?, lead_performer_id = ?, tempo_override = ?, note = ?,
+SET transpose = ?, tempo_override = ?, note = ?,
     updated_at = ?, device_id = ?
 WHERE id = ?;
 

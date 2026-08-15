@@ -177,6 +177,34 @@ class IdsTest {
         assertNotEquals(Ids.junction(song, guitar), Ids.junction(song, bass))
     }
 
+    /**
+     * Decisions 3, 4, 4d, 58. `setlist_item_performer` derives its id inside the table's
+     * own namespace over `setlist_item_id + "/" + performer_id` — and **not** over
+     * `position`, so moving someone from lead to co-lead updates one row rather than
+     * minting a second.
+     */
+    @Test
+    fun setlistItemPerformerIdsAreNamespacedAndIgnorePosition() {
+        val item = "3f1d9c58-0f3e-4a3f-9a1b-2c7d4e5f6a7b"
+        val will = Ids.derived("performer", "Will")
+        val coralie = Ids.derived("performer", "Coralie")
+
+        assertEquals(
+            uuid5(Ids.namespaceFor("setlist_item_performer"), "$item/$will"),
+            Ids.setlistItemPerformer(item, will),
+        )
+        assertEquals(Ids.setlistItemPerformer(item, will), Ids.setlistItemPerformer(item, will))
+        assertNotEquals(
+            Ids.setlistItemPerformer(item, will),
+            Ids.setlistItemPerformer(item, coralie),
+        )
+
+        // Its own namespace, and not the `junction` form song_instrument and
+        // song_performer use — the two constructions are not interchangeable.
+        assertNotEquals(Ids.namespaceFor("setlist_item_performer"), Ids.ROOT)
+        assertNotEquals(Ids.setlistItemPerformer(item, will), Ids.junction(item, will))
+    }
+
     /** Decision 6: practice events must be random, or same-day sessions collapse. */
     @Test
     fun randomIdsAreDistinctAndWellFormedV4() {

@@ -37,6 +37,7 @@ file carries, in order:
 | [setlist.sq](./dev/songbook/db/setlist.sq) | `setlist` | mutable record |
 | [setlist_set.sq](./dev/songbook/db/setlist_set.sq) | `setlist_set` | child of setlist |
 | [setlist_item.sq](./dev/songbook/db/setlist_item.sq) | `setlist_item` | mutable record |
+| [setlist_item_performer.sq](./dev/songbook/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
 
 Create tables in that table order if you replay the DDL by hand; it is dependency-ordered.
 
@@ -72,6 +73,15 @@ Create tables in that table order if you replay the DDL by hand; it is dependenc
   `setlist_set_id` and nothing else.
 - **`setlist_item.position` is `TEXT`**, a fractional ordering key, with `(position, id)` as the
   total order. It is not an integer index and must never become one.
+- **`setlist_item` has no `lead_performer_id`.** Who performs an item is the junction
+  `setlist_item_performer`, ordered by its own `INTEGER position` — 1 is the lead, 2 the
+  co-lead (decisions 52, 58, 58b). That table's `position` *is* a plain integer, unlike
+  `setlist_item.position`: it orders two or three people inside one item, not a list two
+  devices reorder offline. "Who is singing this tonight" is the aggregate
+  `selectStagedForSetlist`, written once there (decision 58c).
+- **`song_performer` and `setlist_item_performer` are not the same table twice.** The first
+  records who *knows* a song, the second who it is *staged with* on one night (decision 58a).
+  There is no `is_duet` flag anywhere: any song can be staged as a duet.
 - **No mode or quality column on `song`.** Major/minor is implied by the
   `(key_signature, tonal_centre)` pair.
 - **`practice_event.logged_on` has no SQL `DEFAULT`.** "Defaults to today" means the device's
@@ -108,6 +118,7 @@ Per-table namespaces, so that the tag `guitar` and the instrument `guitar` canno
 | `venue` | `d14fa03f-4788-55a6-9b2c-e675c56c8829` |
 | `band` | `ff2f3f80-7e27-5303-b760-a36ba4655a9b` |
 | `practice_context` | `414530ce-0bcb-5557-a96a-f532ccac4bfa` |
+| `setlist_item_performer` | `52a976ba-d58d-5c3c-ac60-acb796d7e8cf` |
 
 `normalise` is the single shared-core function: **Unicode-normalise to NFC** (decision 17a),
 then lowercase, trim, strip a leading `The `, fold `&` to `and`, strip punctuation, collapse
