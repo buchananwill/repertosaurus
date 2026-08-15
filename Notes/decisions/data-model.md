@@ -69,8 +69,13 @@ It is equally a design error to make a table out of something that does not repe
    - lookups (`instrument`, `tag`, `groove`, `venue`, `band`, `practice_context`, `performer`,
      `artist`) — the normalised name, per decision 17.
    - `song` — `artist_id` plus normalised title.
-   - junctions — the composite of the two foreign keys, e.g. `song_instrument` is
-     `UUIDv5(song_id, instrument_id)`.
+   - junctions — `UUIDv5(namespace(table), fk_a + "/" + fk_b)`, the same shape as every other
+     derived id. **This corrects an earlier form** which read "the composite of the two foreign
+     keys, e.g. `UUIDv5(song_id, instrument_id)`", using the first key directly as the
+     namespace. That form was inconsistent with 4a's per-table namespaces and 4d's separator,
+     produced different ids, and — because it carries no table identity — would collide across
+     two junctions over the same pair of ids. Every junction uses the corrected form:
+     `song_instrument`, `song_tag`, `song_performer`, `setlist_item_performer`.
 
 4a. **The namespace constants are fixed and must never change.** Every derived id already
     written becomes unreachable if they do, so these are ratified values, not defaults:
@@ -369,7 +374,19 @@ It is equally a design error to make a table out of something that does not repe
 
 58c. The accepted cost: "who is singing this tonight" becomes an aggregate over the junction,
     ordered by `position`, rather than a column read. That is one query written once, and a
-    permanent tax on the common case of a single performer. Taken deliberately.
+    permanent tax on the common case of a single performer. Taken deliberately. An item with
+    **nobody** staged reads as NULL, not an empty string, and must never drop out of a set list
+    query — the same `LEFT JOIN` discipline as decision 8.
+
+58e. **`setlist_item_performer.position` is a plain `INTEGER`, unlike `setlist_item.position`.**
+    That looks inconsistent and is deliberate. Decision 54 makes item ordering a fractional TEXT
+    key because a set list is a long list two devices reorder independently offline; this
+    position orders two or three people inside a single item, which is not that. Reads order by
+    `(position, id)` so a tie between two devices both writing `1` is at least deterministic,
+    and `UNIQUE(setlist_item_id, performer_id)` stops the same person appearing twice.
+
+58f. Removing a performer from an item is a **soft delete**, per decision 9, like every other
+    mutable row. There is no hard delete anywhere in this schema.
 
 58d. **Not added:** a `role` column (lead / harmony / feature) — no defined vocabulary, so it
     would become free text and drift; `position` already carries what is needed. Nor

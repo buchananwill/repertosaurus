@@ -98,6 +98,32 @@ Deliberately **smaller than native**, which is what stops two UIs meaning twice 
 Play Store is a $25 one-off. Native iOS needs a Mac, $99/yr and review, and **may never be
 necessary** — decide it on evidence from phase 4, not on principle.
 
+## The SQLite you can actually write against
+
+**minSdk 26 means SQLite 3.19.** Android ships the system SQLite, and API 26 (Android 8) is
+stuck at 3.19 — so a whole class of modern SQL is unavailable no matter what the desktop
+`sqlite3` binary or the CI machine accepts:
+
+| Feature | Needs | Available at minSdk 26 |
+|---|---|---|
+| `ORDER BY` inside an aggregate (`GROUP_CONCAT(x ORDER BY y)`) | 3.44 | **no** |
+| Window functions | 3.25 | **no** |
+| `UPSERT` (`ON CONFLICT DO UPDATE`) | 3.24 | **no** |
+
+This has already changed a design. Decision 58 requires a *deterministic* order inside the
+"who is staged tonight" aggregate, and neither an ordered aggregate nor a window function is
+reachable. A `LEFT JOIN (… GROUP BY …)` looks like the answer and is not: it puts a grouping
+sort between the `ORDER BY` and the aggregate, and SQLite's sorter is not documented as stable,
+so the order would be **incidental** — exactly what decision 58 rules out. The working form is a
+correlated scalar subquery, whose aggregate has no `GROUP BY` and so cannot have its input
+reshuffled, and whose inner `ORDER BY` survives because SQLite may not flatten an `ORDER BY`
+subquery into an aggregate outer query.
+
+**Test ordering by inserting in the wrong order.** A query that happens to return rows in
+insertion order passes a naive test and fails in the field.
+
+Raising minSdk later relaxes this; until then, assume 3.19 and verify anything clever.
+
 ## Test Target
 
 Samsung Galaxy S20, Android 13. The Session screen must feel right there before anything else
