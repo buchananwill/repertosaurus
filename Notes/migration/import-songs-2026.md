@@ -86,6 +86,14 @@ recovers it. The asymmetry only runs one way — a wrong attribution silently be
 Applies to performer initials, artist backfill, venue/client classification, and any future
 case of the same shape.
 
+**[E] But an edit in the review sheet is a confirmation, and outranks this rule.** This was
+got wrong once: the user renamed the performer rows `R`, `T` and `p` to Ryan, Tommy and Paul —
+which is them stating the letter *is* that person — and a later general remark about preferring
+missing tags was read as overriding it. It does not. A general preference governs the
+*unresolved*; it never retracts a specific decision the user already made. When the two appear
+to conflict, the specific act wins, and the conflict gets reported rather than resolved
+silently.
+
 ## Shape
 
 Two passes with a human step between them.
@@ -348,3 +356,11 @@ than relying on that.
   for different gigs". These are **questions, not errors**.
 - No import of the set-list triage columns. See *Deliberately not modelled* in
   [data-model.md](../decisions/data-model.md).
+- **[E] The 229 `Twitch` practice events are deliberately dropped — user ruling.** They are
+  real, dated history and this is a real loss, recorded here so a future session does not
+  rediscover the gap and try to close it. The cause: `practice_event.instrument_id` is
+  `NOT NULL`, `Twitch` is a *context* rather than a discipline (rule 18), and the workbook
+  never records which instrument was played on stream. The alternatives were a nullable
+  `instrument_id` — which would put those events outside every instrument chip and so outside
+  staleness — or inventing an instrument, which "sparse beats wrong" forbids. Dropping was
+  chosen over both. Roughly 28% of all recoverable events.
