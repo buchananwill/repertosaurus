@@ -19,6 +19,38 @@ quietly destroying practice history for four years by overwriting single-date ce
 events are still recoverable, some surviving only because a stale set-list tab froze an old
 value.
 
+## Measured baseline — supersedes earlier estimates
+
+**[E]** The counts originally written into this spec came from a *markdown* export of the
+workbook, which lost worksheet names and, it turns out, a substantial fraction of the rows. The
+extract pass measured the real `.xlsx`. Where the two disagree, **the `.xlsx` figures below are
+authoritative** and the older numbers still embedded in individual rules are estimates.
+
+Two of the original figures were also not measuring what their labels claimed: "4,049 rows" was
+the line count of the markdown file, and "2,886 row instances" was the number of distinct
+`(song, tab)` pairs. Neither is a row count. Treat them as retired.
+
+| Metric | Measured |
+|---|---|
+| worksheets | 57 |
+| non-empty data rows | 5,933 |
+| distinct songs | 506 raw, ≈479 after resolving 27 unattributable titles |
+| distinct artist strings → artists | 288 → 278 |
+| artist collision groups | **9** (not 7) |
+| distinct `Key` values | **60** (not 58) |
+| plain key names | 2,797 |
+| transpositions key-first / offset-first / "orig" / unknown | 20 / 3 / 2 / 15 |
+| non-key values in `Key` | **59** (not 44) |
+| unique practice events | 832 |
+| unparseable practice cells | 85 |
+| dates in year 2099 | **0 — they do not exist** |
+
+Confirmed unchanged by measurement: the 20/3/2/15 key classification, the 288→278 artist fold,
+the 9 `SET 1`/`SET 2` cells, the six 2002 date typos, and rule 35's five-cell difference between
+the duplicate tabs. Six exact matches on rare values is strong evidence both readings are of the
+same file, which is why the divergences above are attributed to the export rather than to a
+parser fault.
+
 ## Shape
 
 Two passes with a human step between them.
@@ -37,12 +69,18 @@ Two passes with a human step between them.
    stripping a leading `The `, folding `&` to `and`, and removing punctuation.
 2. Canonical `name` is the most-used spelling. Every losing spelling becomes an `artist_alias`
    row.
-3. Known collisions to expect: `The Kaiser Chiefs`/`Kaiser Chiefs`, `Fratellis`/`The Fratellis`,
-   `Walk The Moon`/`Walk the Moon`, `Florence and the Machine`/`Florence & the Machine`,
-   `Kool and The Gang`/`Kool and the Gang`/`Kool & the Gang`, `The Beach Boys`/`Beach Boys`,
-   `Human League`/`The Human League`.
-4. **`SET 1` and `SET 2` appear in the `Artist` column as divider rows** across nine cells.
-   Filter them before deduplication or the import creates two bands with those names.
+3. **Nine** collision groups, not seven. The seven known ones are `The Kaiser Chiefs`/`Kaiser
+   Chiefs`, `Fratellis`/`The Fratellis`, `Walk The Moon`/`Walk the Moon`, `Florence and the
+   Machine`/`Florence & the Machine`, `Kool and The Gang`/`Kool and the Gang`/`Kool & the
+   Gang`, `The Beach Boys`/`Beach Boys`, `Human League`/`The Human League`. **[E]** Two more
+   are pure trailing whitespace and invisible in the sheet: `Fleetwood Mac ` and `Travis `.
+   The fold does not reach 278 without them, which is a reminder that decision 17's `trim` is
+   load-bearing and not cosmetic.
+4. **Divider rows appear in the `Artist` column** and must be filtered before deduplication, or
+   the import creates artists named after them. Seven distinct strings, not two:
+   `SET 1`/`SET 2` (9 cells), `Set 3` (1), `FIRST DANCE` (3), `EXTRAS` (2). **[E]** 295 raw
+   distinct strings minus these 7 is exactly the 288 the fold starts from — filtering fewer
+   does not reproduce the artist count.
 
 ### Songs
 
@@ -77,7 +115,14 @@ Two passes with a human step between them.
 11. Retain the **source spelling** of every key alongside the derived pitch class. Converting
     `Gb` to the integer 6 and discarding the spelling loses information the app cannot
     reconstruct when `key_signature` is null.
-12. Suspect spellings to flag, not silently fix: `Bbb` (×2 — not a key), `Cb` (×7), `Fb` (×1).
+12. Suspect spellings to flag, not silently fix: `Bbb` (×9 — not a key), `Cb` (×19), `Fb` (×1).
+12a. **[E] Some tabs write the key inside the title cell** — `Valerie Ab`, `Brown Eyed Girl - G`
+    — 45 cells workbook-wide, concentrated in tab `1-6-23`. Without splitting these the tab is
+    unreadable and three `Key` cells vanish. Split, and flag every split for confirmation: the
+    trailing token is ambiguous with a genuine part of a title.
+12b. **[E]** Two decade values, `1970` ×7 and `2000` ×7, have leaked into `Key` columns
+    alongside the `2010` ×17 already known. This is why the measured distinct-`Key` count is 60
+    rather than 58 and the non-key count 59 rather than 44.
 
 ### Performers
 
@@ -85,17 +130,27 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
 
 13. One `performer` row per singer column in the workbook. Name comes from the column header
     with the trailing instrument word removed: `Coralie Vox` → `Coralie`, `Sophie-Mae Vocal` →
-    `Sophie-Mae`, `Will Vocal` → `Will`, `Kendra Piper` → `Kendra Piper`. The master sheet's
-    bare `Lead vocal` column is the workbook owner; seed that performer as `Will`.
+    `Sophie-Mae`, `Will Vocal` → `Will`. **[E]** Two corrections from measurement:
+    - **`Kendra Piper` is not a singer column.** It is the header cell of the *Title* column on
+      four tabs and holds 190 song titles. Reading it as a performer column would attribute 190
+      songs to a singer who has none. Emit as a flagged performer candidate with zero
+      `song_performer` rows and let the human decide.
+    - `Carla Vox` exists as a header but is entirely empty.
+13a. **[E]** The master sheet's bare `Lead vocal` column is **not** uniformly the owner. It
+    routinely names somebody else — `Stef`, `Andy`, `Matt`, `W`, `C`. Attribute a cell holding
+    a name to that person; only an `x`-style mark defaults to the owner (`Will`).
 14. One `song_performer` row per non-empty cell in those columns, with `is_lead` set from
     whether the column is a lead or backing designation.
 15. `vocal_range` comes from the `Range` column's `H`/`L`, mapped to `1`/`0`, attached to the
     owner's `song_performer` row — not to the song. With one performer this reproduces the
     workbook exactly.
-16. Free-text performer annotations in set list tabs (`Andy`, `Andy?`, `FD`, `LV`, `Will B`)
-    resolve to `performer` rows through the same normalisation as artists. `Andy?` and `Andy`
-    must collapse to one performer — that pair is the reason this table exists. Flag any
-    annotation that is not obviously a name (`FD`, `LV`) to the review sheet.
+16. Free-text performer annotations resolve to `performer` rows through the same normalisation
+    as artists. `Andy?` and `Andy` must collapse to one performer — that pair is the reason this
+    table exists. Flag anything not obviously a name (`FD`, `LV`, `2nd Request`) to the review
+    sheet. **[E]** Corrections: `Will B` does not appear in this workbook; `Kita` ×10 does, and
+    was unlisted. These annotations live in the **unheaded column A** of tabs `22-7-23`,
+    `27-7-23` and `30-9-23`, not in a named column, so a header-driven scan misses them
+    entirely.
 
 ### Practice events
 
@@ -106,9 +161,16 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
 18. The `Twitch` column is a practice record with `context = twitch`, not a discipline.
 19. Expect ~879 unique `(song, discipline, date)` events. Distribution by year: 2021: 16,
     2022: 605, 2023: 149, 2024: 73, 2025: 13, 2026: 18.
-20. Dates are `DD/MM/YY`. Flag rather than guess: ~50 cells hold `x`, `goal`, `R`, or dates
-    with no year (`13/2`, `19/3`, `29/3`, `21/8`, `11/4`); typos land in 2002 (×6) and 2099
-    (×10).
+20. **[E]** 85 practice cells do not parse as dates, not ~50, and the categories differ from
+    the original estimate. Flag rather than guess:
+    - 51 text markers — `x`, `X`, `goal`, `GOAL`
+    - 25 bare-time cells and 13 year-1900 cells, all in `Guitar practise`, which are Excel
+      serial `0`/`1` sitting in a date-formatted cell
+    - 9 junk values in `Twitch`
+    - 6 genuine typos landing in 2002
+
+    **No cell anywhere resolves to year 2099**, and no cell holds a year-less date such as
+    `13/2`. Both were artefacts of the markdown export and are retired.
 
 ### Set lists
 
@@ -178,20 +240,29 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
     records how hard a song is on bass, and separately how hard it is to sing — but the
     difficulty of doing *both at once* is emergent and is not a function of either. A tag
     captures it honestly; a computed field would be a lie.
-30. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
-    with `target_minutes = M`. Default to a single set when the tab says nothing. Without this
-    no `setlist_set` exists, and `setlist_item.setlist_set_id` has nothing to point at.
+30. **[E] `target_minutes` has no source. No `NxM` string exists anywhere in the workbook** — an
+    exhaustive regex over every cell of all 57 tabs returns zero. The `2 x 60mins` examples came
+    from a *different* workbook (the band's gig-booking sheet), not this one. Derive `set_no`
+    from `SET 1`/`Set 1:` divider rows and from `Order` (rule 32), create the `setlist_set` rows
+    that implies, and leave `target_minutes` NULL with the setlist flagged. 54 setlists are
+    affected, i.e. all of them.
 31. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
-    integers. Where an `Order` column holds a decimal (`0.2`, `1.09`, `2.03`, `3.07`), the
-    integer part selects the `setlist_set` and the fractional part orders within it.
-32. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
-    set.position decimal; others hold values like `216`, `230`, `300` that are duration in
-    seconds. Disambiguate per tab by inspecting the value range, and flag any tab that cannot
-    be classified confidently rather than importing it wrong.
-33. Where a tab's `Order` column is classified as duration, **write it to
-    `song.duration_seconds`.** It is the only source of duration anywhere in the workbook, and
-    the set list screen needs it to total against `target_minutes`. Discovering it and then
-    discarding it would be waste.
+    integers.
+32. **[E] `Order` never holds duration. All 30 occurrences encode position**, in one of three
+    conventions, decoded from the real data:
+    - `set × 100 + position` — 18 tabs. The values `216`, `230`, `300` that were previously read
+      as durations are set 2 item 16, set 2 item 30, and set 3 item 0. The series is contiguous
+      and monotone within each hundred, which is what proves it.
+    - decimal `set.position` — 3 tabs.
+    - plain `1..N` with a separate `Set` column — 3 tabs.
+
+    Classify per tab by testing which convention makes the series contiguous. Flag any tab that
+    fits none — 22 rows currently do not classify.
+33. **[E] There is no duration source anywhere in the workbook, so `song.duration_seconds`
+    cannot be populated at all.** This was the last candidate and it evaporated on inspection.
+    Consequence for the product: the set list screen's running-time total has neither durations
+    nor set targets from the import, so that feature starts empty and is fed by hand or by a
+    later lookup against a music service. Do not fabricate durations.
 34. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
     that item's `setlist_item.tempo_override` rather than dropping it. Of 27 tempo
     disagreements, 5 are rounding and 3 are half-time notation, but the remaining 19 are real —

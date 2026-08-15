@@ -233,8 +233,10 @@ It is equally a design error to make a table out of something that does not repe
     true of a song **on one instrument**. This absorbs the workbook's `bass difficulty`,
     `Guitar comments`, `BV Comments`, `C GTR` and `Wavestate Patches` columns, and means "how
     hard is this on keys" costs no schema change.
-42. `difficulty INTEGER NULL` with a `CHECK`, mapping the workbook's `a`/`b`/`c` to `1`/`2`/`3`.
-    `patch TEXT NULL`, `notes TEXT NULL`.
+42. `difficulty INTEGER NULL` with `CHECK (difficulty BETWEEN 1 AND 5)`, mapping the workbook's
+    `a`–`e` to `1`–`5`. The range is five, not three: the extract pass found `d` ×31 and `e` ×24
+    in `bass difficulty` alongside the `a`/`b`/`c` originally specced, and a three-value
+    constraint would silently discard 56 cells. `patch TEXT NULL`, `notes TEXT NULL`.
 43. `song_tag (id, song_id, tag_id, …)` is a proper many-to-many against `tag`. Tags are never
     stored as free text on a song.
 
