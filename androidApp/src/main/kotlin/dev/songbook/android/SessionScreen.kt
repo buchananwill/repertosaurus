@@ -18,9 +18,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -47,9 +50,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.songbook.core.Timestamps
+import dev.songbook.core.normalise
+import dev.songbook.data.SongbookRepository
+import dev.songbook.session.ArtistSuggestions
+import dev.songbook.session.SessionOrder
 import dev.songbook.session.SessionRow
 import dev.songbook.session.SessionState
 import kotlinx.datetime.LocalDate
@@ -73,6 +81,9 @@ public fun SessionScreen(viewModel: SessionViewModel) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var feelFor by remember { mutableStateOf<SessionRow?>(null) }
+    var addingSong by remember { mutableStateOf(false) }
+    var addSongTitle by remember { mutableStateOf("") }
+    val artists by viewModel.artists.collectAsState()
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -117,6 +128,17 @@ public fun SessionScreen(viewModel: SessionViewModel) {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = {
+                    addSongTitle = state.query
+                    viewModel.loadArtists()
+                    addingSong = true
+                },
+            ) {
+                Text("Add song")
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Songbook") },
@@ -152,6 +174,38 @@ public fun SessionScreen(viewModel: SessionViewModel) {
                 }
             }
 
+            // The sort toggle sits up here, above the search field and two rows clear of
+            // the first tap target. Coldest first is the default and stays it; a mis-tap
+            // that reorders the list mid-session is worse than useless, so nothing that
+            // reorders is within reach of a thumb aiming at a song.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Sort",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                for (option in SessionOrder.values()) {
+                    FilterChip(
+                        selected = state.order == option,
+                        onClick = { viewModel.setOrder(option) },
+                        label = {
+                            Text(
+                                text = when (option) {
+                                    SessionOrder.COLDEST_FIRST -> "Coldest first"
+                                    SessionOrder.HOTTEST_FIRST -> "Hottest first"
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        },
+                        modifier = Modifier.height(40.dp),
+                    )
+                }
+            }
+
             OutlinedTextField(
                 value = state.query,
                 onValueChange = viewModel::setQuery,
@@ -173,6 +227,11 @@ public fun SessionScreen(viewModel: SessionViewModel) {
                 state = state,
                 onTap = viewModel::log,
                 onLongPress = { row -> feelFor = row },
+                onAddSong = { title ->
+                    addSongTitle = title
+                    viewModel.loadArtists()
+                    addingSong = true
+                },
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
         }
@@ -185,6 +244,18 @@ public fun SessionScreen(viewModel: SessionViewModel) {
             onLog = { feel, note, loggedOn ->
                 viewModel.log(row.songId, feel, note, loggedOn)
                 feelFor = null
+            },
+        )
+    }
+
+    if (addingSong) {
+        AddSongSheet(
+            initialTitle = addSongTitle,
+            artists = artists,
+            onDismiss = { addingSong = false },
+            onAdd = { title, artistName, artistId ->
+                viewModel.addSong(title, artistName, artistId)
+                addingSong = false
             },
         )
     }
@@ -223,6 +294,7 @@ private fun SessionList(
     state: SessionState,
     onTap: (String) -> Unit,
     onLongPress: (SessionRow) -> Unit,
+    onAddSong: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -269,15 +341,26 @@ private fun SessionList(
 
         if (!state.loading && state.pending.isEmpty() && state.logged.isEmpty()) {
             item(key = "empty") {
-                Column(modifier = Modifier.fillMaxWidth().padding(32.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     Text(
                         text = if (state.query.isNotEmpty()) {
                             "Nothing matches \"${state.query}\"."
                         } else {
-                            "No songs yet. Use Import to load your database file."
+                            "No songs yet. Use Import to load your database file, " +
+                                "or add one by hand."
                         },
                         style = MaterialTheme.typography.bodyLarge,
                     )
+                    // Searching for a song that turns out not to be there is exactly the
+                    // moment you want to add it, with the title already typed.
+                    if (state.query.isNotEmpty()) {
+                        Button(onClick = { onAddSong(state.query) }) {
+                            Text("Add \"${state.query}\"")
+                        }
+                    }
                 }
             }
         }
@@ -352,6 +435,117 @@ private fun StalenessBadge(row: SessionRow, loggedCount: Int) {
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
+    }
+}
+
+/**
+ * Add a song: a title, and an artist typed into a type-ahead. Nothing else is asked for —
+ * decisions 27 and 37 are explicit that no key may be required, and this is not the song
+ * editor.
+ *
+ * The artist field is the substance of this sheet. Decisions 16 and 17 call for a
+ * type-ahead that creates on enter and surfaces near-matches *while typing*, with no admin
+ * screen anywhere, and matching runs through the shared `normalise` — so `Fratellis`
+ * surfaces `The Fratellis` and `AC DC` surfaces `AC/DC` before a second row can be made.
+ * Even if the suggestion goes unnoticed, the derived id resolves to the same existing row,
+ * because that id *is* `UUIDv5(namespace, normalise(name))`.
+ *
+ * Leaving the artist blank uses the seeded `Unknown Artist` (decision 28a). A musician
+ * mid-practice must never be blocked from logging by an unsettled attribution.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddSongSheet(
+    initialTitle: String,
+    artists: List<SongbookRepository.Artist>,
+    onDismiss: () -> Unit,
+    onAdd: (title: String, artistName: String, artistId: String?) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    var title by remember { mutableStateOf(initialTitle) }
+    var artist by remember { mutableStateOf("") }
+    var pickedArtistId by remember { mutableStateOf<String?>(null) }
+
+    val suggestions = remember(artist, artists) { ArtistSuggestions.search(artist, artists) }
+    val exact = remember(artist, suggestions) {
+        val typed = normalise(artist)
+        suggestions.firstOrNull { normalise(it.name) == typed && typed.isNotEmpty() }
+    }
+    val commit = {
+        if (title.isNotBlank()) onAdd(title, artist, pickedArtistId)
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Add a song", style = MaterialTheme.typography.headlineSmall)
+
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Title") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            OutlinedTextField(
+                value = artist,
+                onValueChange = {
+                    artist = it
+                    // Typing again abandons a picked suggestion; the name now rules.
+                    pickedArtistId = null
+                },
+                label = { Text("Artist") },
+                supportingText = {
+                    Text(
+                        when {
+                            exact != null -> "Uses the existing ${exact.name}."
+                            artist.isBlank() -> "Leave blank for Unknown Artist."
+                            else -> "Enter adds it. Nothing else to fill in."
+                        },
+                    )
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { commit() }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            if (suggestions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (match in suggestions) {
+                        FilterChip(
+                            selected = pickedArtistId == match.id,
+                            onClick = {
+                                artist = match.name
+                                pickedArtistId = match.id
+                            },
+                            label = { Text(match.name) },
+                            modifier = Modifier.height(44.dp),
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = commit,
+                enabled = title.isNotBlank(),
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+            ) {
+                Text("Add song")
+            }
+        }
     }
 }
 

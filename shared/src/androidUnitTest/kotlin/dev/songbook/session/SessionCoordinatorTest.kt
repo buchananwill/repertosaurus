@@ -88,6 +88,141 @@ class SessionCoordinatorTest {
         assertEquals(vocal, coordinator.initialInstrument(coordinator.instruments()))
     }
 
+    /** The sort direction is a view preference and is remembered like the chip is. */
+    @Test
+    fun theSortDirectionIsRememberedAcrossLaunches() {
+        assertEquals(SessionOrder.COLDEST_FIRST, coordinator.initialOrder())
+
+        coordinator.rememberOrder(SessionOrder.HOTTEST_FIRST)
+
+        val relaunched = SessionCoordinator(repository, preferences)
+        assertEquals(SessionOrder.HOTTEST_FIRST, relaunched.initialOrder())
+    }
+
+    @Test
+    fun anUnreadableStoredOrderFallsBackToColdestFirst() {
+        preferences.rememberOrder("SOMETHING_A_LATER_BUILD_WROTE")
+        assertEquals(SessionOrder.COLDEST_FIRST, coordinator.initialOrder())
+    }
+
+    /** Both directions over real rows, including where a never-practised song lands. */
+    @Test
+    fun bothDirectionsOrderTheSameRowsFromEitherEnd() {
+        val unplayed = insertSong("Dakota", "Stereophonics")
+        val warm = insertSong("Valerie", "The Zutons")
+        val cold = insertSong("Chelsea Dagger", "The Fratellis")
+        repository.logPractice(warm, guitar, loggedOn = "2026-08-14")
+        repository.logPractice(cold, guitar, loggedOn = "2026-06-01")
+
+        val loaded = SessionState()
+            .withInstruments(coordinator.instruments(), guitar)
+            .withRows(coordinator.rows(guitar))
+
+        assertEquals(listOf(unplayed, cold, warm), loaded.pending.map { it.songId })
+        assertEquals(
+            listOf(warm, cold, unplayed),
+            loaded.withOrder(SessionOrder.HOTTEST_FIRST).pending.map { it.songId },
+        )
+    }
+
+    // ---- Adding a song ----------------------------------------------------------------
+
+    @Test
+    fun addingASongMakesItAppearImmediatelyAsNeverPractised() {
+        val songId = coordinator.addSong("Wonderwall", "Oasis")
+        val rows = coordinator.rows(guitar)
+
+        assertEquals(songId, rows.single().songId)
+        assertEquals("never", rows.single().badge)
+        assertNull(rows.single().daysSince)
+        assertEquals(0L, rows.single().timesPractised)
+        assertEquals("Oasis", rows.single().artistName)
+
+        // And it is immediately loggable, like any other row.
+        coordinator.persist(coordinator.newTap(songId, guitar))
+        assertEquals("today", coordinator.rows(guitar).single().badge)
+    }
+
+    /** Decisions 4 and 4d: the id is derived, not random, so two devices converge. */
+    @Test
+    fun theNewSongsIdIsTheDerivedId() {
+        val songId = coordinator.addSong("Wonderwall", "Oasis")
+        val artistId = Ids.derived("artist", "Oasis")
+
+        assertEquals(Ids.song(artistId, "Wonderwall"), songId)
+        assertEquals(artistId, coordinator.artists().single { it.name == "Oasis" }.id)
+    }
+
+    /**
+     * The point of the type-ahead. `Fratellis` must resolve to the stored `The Fratellis`
+     * rather than making a second artist that no merge rule could reconcile.
+     */
+    @Test
+    fun anArtistThatNormalisesToAnExistingOneReusesThatRow() {
+        insertSong("Chelsea Dagger", "The Fratellis")
+        val before = coordinator.artists().size
+
+        val songId = coordinator.addSong("Henrietta", "Fratellis")
+
+        assertEquals(before, coordinator.artists().size, "no second Fratellis")
+        val stored = coordinator.artists().single { it.name == "The Fratellis" }
+        assertEquals(Ids.song(stored.id, "Henrietta"), songId)
+        // The stored display name is left alone: an id is immutable and the canonical
+        // spelling is the one already there (decision 5).
+        assertEquals(
+            "The Fratellis",
+            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+        )
+
+        // And the same holds through punctuation.
+        insertSong("Thunderstruck", "AC/DC")
+        val artistsNow = coordinator.artists().size
+        coordinator.addSong("Back in Black", "AC DC")
+        assertEquals(artistsNow, coordinator.artists().size, "no second AC/DC")
+    }
+
+    /** Decision 28a: the escape hatch, not a blocked save. */
+    @Test
+    fun aBlankArtistResolvesToTheSeededUnknownArtist() {
+        val songId = coordinator.addSong("A Song With No Artist", "")
+
+        assertEquals(SongbookRepository.UNKNOWN_ARTIST_ID, coordinator.resolveArtist(""))
+        assertEquals(
+            Ids.derived("artist", "Unknown Artist"),
+            SongbookRepository.UNKNOWN_ARTIST_ID,
+        )
+        assertEquals(
+            "Unknown Artist",
+            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+        )
+    }
+
+    /** Adding the same song twice is one row: the id is derived from its identity. */
+    @Test
+    fun addingTheSameSongTwiceDoesNotForkIt() {
+        val first = coordinator.addSong("Wonderwall", "Oasis")
+        val second = coordinator.addSong("  wonderwall  ", "oasis")
+
+        assertEquals(first, second)
+        assertEquals(1, coordinator.rows(guitar).size)
+        // The first spelling is the one kept.
+        assertEquals("Wonderwall", coordinator.rows(guitar).single().title)
+    }
+
+    @Test
+    fun aSongAddedAgainstAPickedArtistUsesThatArtistId() {
+        insertSong("Chelsea Dagger", "The Fratellis")
+        val picked = coordinator.suggestArtists("fratellis").single()
+
+        val songId = coordinator.addSongWithArtistId("Henrietta", picked.id)
+
+        assertEquals(Ids.song(picked.id, "Henrietta"), songId)
+        assertEquals(
+            "The Fratellis",
+            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+        )
+    }
+
     // ---- Ordering, logging, undo ------------------------------------------------------
 
     @Test

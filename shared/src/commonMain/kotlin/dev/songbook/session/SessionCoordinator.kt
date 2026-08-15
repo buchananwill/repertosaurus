@@ -38,7 +38,22 @@ public class SessionCoordinator(
         preferences.rememberInstrument(instrumentId)
     }
 
-    /** Coldest first, never-practised leading, scoped to one instrument. */
+    /**
+     * The sort direction from the last session, defaulting to coldest first. Stored the
+     * same way as the instrument chip, because it is the same kind of thing: a view
+     * preference, never data. No row anywhere records it.
+     */
+    public fun initialOrder(): SessionOrder {
+        val stored = preferences.lastOrder()
+        return SessionOrder.values().firstOrNull { it.name == stored }
+            ?: SessionOrder.COLDEST_FIRST
+    }
+
+    public fun rememberOrder(order: SessionOrder) {
+        preferences.rememberOrder(order.name)
+    }
+
+    /** Scoped to one instrument. The direction is applied in [SessionState.pending]. */
     public fun rows(instrumentId: String): List<SessionRow> =
         repository.songsByStaleness(instrumentId).map { song ->
             SessionRow(
@@ -74,6 +89,51 @@ public class SessionCoordinator(
         note = tap.note,
         loggedOn = tap.loggedOn,
     )
+
+    // ---- Adding a song ----------------------------------------------------------------
+
+    /** Every live artist, for the type-ahead's near-match pass. */
+    public fun artists(): List<SongbookRepository.Artist> = repository.artists()
+
+    /**
+     * The type-ahead of decisions 16 and 17: near-matches surfaced *while typing*, so the
+     * user sees `The Fratellis` before they can commit a second one.
+     */
+    public fun suggestArtists(
+        query: String,
+        limit: Int = 6,
+    ): List<SongbookRepository.Artist> = ArtistSuggestions.search(query, artists(), limit)
+
+    /**
+     * Create a song from a title and a typed artist name. Both ids are derived (decisions
+     * 2, 4, 4d), so an artist that normalises to one already stored resolves to that same
+     * row rather than a second one, and two devices adding the same song converge.
+     *
+     * A blank artist resolves to the seeded `Unknown Artist` (decision 28a) rather than
+     * blocking the save: `song.artist_id` is NOT NULL and a musician mid-practice should
+     * not have to settle an attribution to log a song.
+     *
+     * Nothing else is asked for. Decisions 27 and 37 are explicit that no key may be
+     * required, and this is not the song editor.
+     */
+    public fun addSong(title: String, artistName: String): String {
+        val artistId = resolveArtist(artistName)
+        return repository.createSong(title = title, artistId = artistId)
+    }
+
+    /** The same, when the user picked an existing artist out of the suggestions. */
+    public fun addSongWithArtistId(title: String, artistId: String): String =
+        repository.createSong(title = title, artistId = artistId)
+
+    /** The typed name, an existing row by normalisation, or the seeded placeholder. */
+    public fun resolveArtist(artistName: String): String {
+        val trimmed = artistName.trim()
+        return if (trimmed.isEmpty()) {
+            SongbookRepository.UNKNOWN_ARTIST_ID
+        } else {
+            repository.findOrCreateArtist(trimmed)
+        }
+    }
 
     /** Undo: an append to `practice_event_void`, never a delete or an update (decision 8). */
     public fun voidEvent(practiceEventId: String) {
@@ -113,22 +173,82 @@ public object SessionInstruments {
 }
 
 /**
- * The one thing the Session screen remembers between launches (a phase 1 question in the
- * delivery spec: *should the app remember the discipline chip rather than asking each
- * session?* — this build says yes, and the fortnight of real use will confirm or refute it).
+ * The near-match pass behind the artist type-ahead — decisions 16 and 17, and the mechanism
+ * the whole artist-normalisation design rests on.
  *
- * An interface so the rule is testable without a device; Android backs it with
+ * Matching is on [normalise], never on the raw string. That is not a detail: `normalise`
+ * strips a leading `The `, folds `&` to `and` and turns punctuation into a space, so
+ * `Fratellis` finds `The Fratellis` and `AC DC` finds `AC/DC`. A prefix match over raw text
+ * finds neither, and the user creates a second artist that no merge rule can reconcile —
+ * which is precisely the failure the source workbook demonstrates 288 times.
+ *
+ * Because a derived id is `UUIDv5(namespace, normalise(name))`, an exact match here is also
+ * an exact match on the id: typing a name that normalises to an existing one resolves to
+ * that row whether or not the user notices the suggestion.
+ */
+public object ArtistSuggestions {
+
+    public fun search(
+        query: String,
+        artists: List<SongbookRepository.Artist>,
+        limit: Int = 6,
+    ): List<SongbookRepository.Artist> {
+        val needle = normalise(query)
+        if (needle.isEmpty()) return emptyList()
+        return artists
+            .mapNotNull { artist ->
+                val hay = normalise(artist.name)
+                val rank = when {
+                    hay == needle -> 0
+                    hay.startsWith(needle) -> 1
+                    hay.contains(needle) -> 2
+                    // Every word typed appears somewhere in the name: "kaiser chiefs"
+                    // finds "The Kaiser Chiefs", and so does "chiefs kaiser".
+                    needle.split(' ').all { hay.contains(it) } -> 3
+                    // Last resort, ignoring the spaces normalise put where punctuation
+                    // was, so "acdc" still finds "AC/DC". Matching may be lossy where
+                    // derivation may not (decision 17c) — this pass exists only here.
+                    hay.replace(" ", "").contains(needle.replace(" ", "")) -> 4
+                    else -> null
+                }
+                rank?.let { it to artist }
+            }
+            .sortedWith(compareBy({ it.first }, { it.second.name }))
+            .take(limit)
+            .map { it.second }
+    }
+}
+
+/**
+ * What the Session screen remembers between launches: the discipline chip (a phase 1
+ * question in the delivery spec — *should the app remember it rather than asking each
+ * session?* — this build says yes) and the sort direction. Both are view preferences and
+ * neither is data; nothing here is ever synced.
+ *
+ * An interface so the rules are testable without a device; Android backs it with
  * `SharedPreferences`.
  */
 public interface SessionPreferences {
     public fun lastInstrumentId(): String?
     public fun rememberInstrument(instrumentId: String)
+    public fun lastOrder(): String?
+    public fun rememberOrder(order: String)
 }
 
 /** For tests and previews. */
-public class InMemorySessionPreferences(private var value: String? = null) : SessionPreferences {
-    override fun lastInstrumentId(): String? = value
+public class InMemorySessionPreferences(
+    private var instrumentId: String? = null,
+    private var order: String? = null,
+) : SessionPreferences {
+    override fun lastInstrumentId(): String? = instrumentId
+
     override fun rememberInstrument(instrumentId: String) {
-        value = instrumentId
+        this.instrumentId = instrumentId
+    }
+
+    override fun lastOrder(): String? = order
+
+    override fun rememberOrder(order: String) {
+        this.order = order
     }
 }

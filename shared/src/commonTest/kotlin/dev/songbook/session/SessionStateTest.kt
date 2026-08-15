@@ -50,6 +50,55 @@ class SessionStateTest {
         assertEquals("today", warm.copy(daysSince = 0L).badge)
     }
 
+    /**
+     * The toggle. A never-practised song has no last practice at all, so it leads coldest
+     * first and trails hottest first — "never" is not "hot", and it must not sort to the
+     * top there merely because its value is missing.
+     */
+    @Test
+    fun hottestFirstReversesTheOrderAndSendsNeverPractisedToTheBottom() {
+        val hottest = loaded.withOrder(SessionOrder.HOTTEST_FIRST)
+
+        assertEquals(listOf("s-warm", "s-cold", "s-never"), hottest.pending.map { it.songId })
+        assertEquals("never", hottest.pending.last().badge)
+        assertEquals(
+            listOf("s-never", "s-cold", "s-warm"),
+            hottest.withOrder(SessionOrder.COLDEST_FIRST).pending.map { it.songId },
+        )
+    }
+
+    @Test
+    fun severalNeverPractisedSongsStayTogetherAtTheRightEnd() {
+        val alsoNever = SessionRow("s-never-2", "Dakota", "Stereophonics", null, 0L)
+        val state = loaded.copy(rows = loaded.rows + alsoNever)
+
+        // Alphabetical within the never group, at the top coldest-first...
+        assertEquals(
+            listOf("s-never-2", "s-never", "s-cold", "s-warm"),
+            state.pending.map { it.songId },
+        )
+        // ...and at the bottom hottest-first, in the same internal order.
+        assertEquals(
+            listOf("s-warm", "s-cold", "s-never-2", "s-never"),
+            state.withOrder(SessionOrder.HOTTEST_FIRST).pending.map { it.songId },
+        )
+    }
+
+    @Test
+    fun theDefaultOrderIsColdestFirst() {
+        assertEquals(SessionOrder.COLDEST_FIRST, SessionState().order)
+        assertEquals(SessionOrder.HOTTEST_FIRST, SessionOrder.COLDEST_FIRST.flipped)
+        assertEquals(SessionOrder.COLDEST_FIRST, SessionOrder.HOTTEST_FIRST.flipped)
+    }
+
+    @Test
+    fun theToggleDoesNotDisturbTheLoggedSection() {
+        val after = loaded.plusTap(tap("t1", cold)).withOrder(SessionOrder.HOTTEST_FIRST)
+
+        assertEquals(listOf("s-warm", "s-never"), after.pending.map { it.songId })
+        assertEquals(listOf("s-cold"), after.logged.map { it.row.songId })
+    }
+
     // ---- Tap --------------------------------------------------------------------------
 
     @Test

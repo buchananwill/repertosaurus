@@ -44,8 +44,9 @@ public class AppGraph private constructor(context: Context) {
 }
 
 /**
- * The instrument chip, remembered across launches. The rule itself lives in the shared core
- * and is tested there; this is only the storage.
+ * The instrument chip and the sort direction, remembered across launches. The rules live in
+ * the shared core and are tested there; this is only the storage. Neither is data, so
+ * neither is ever synced.
  */
 private class AndroidSessionPreferences(context: Context) : SessionPreferences {
 
@@ -58,7 +59,14 @@ private class AndroidSessionPreferences(context: Context) : SessionPreferences {
         preferences.edit().putString(KEY_INSTRUMENT, instrumentId).apply()
     }
 
+    override fun lastOrder(): String? = preferences.getString(KEY_ORDER, null)
+
+    override fun rememberOrder(order: String) {
+        preferences.edit().putString(KEY_ORDER, order).apply()
+    }
+
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
+        const val KEY_ORDER = "last_order"
     }
 }

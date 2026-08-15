@@ -24,6 +24,7 @@ public data class SessionState(
     val rows: List<SessionRow> = emptyList(),
     val taps: List<SessionTap> = emptyList(),
     val query: String = "",
+    val order: SessionOrder = SessionOrder.COLDEST_FIRST,
     val loading: Boolean = true,
     val undo: UndoOffer? = null,
     val message: String? = null,
@@ -40,11 +41,16 @@ public data class SessionState(
     }
 
     /**
-     * The main list: everything not yet logged in this session, in the database's
-     * staleness order, filtered by [query].
+     * The main list: everything not yet logged in this session, in [order], filtered by
+     * [query].
+     *
+     * The sort is applied here rather than in SQL so flipping the toggle is instant and
+     * needs no round trip — and so that both directions, including where a never-practised
+     * song lands, are decided in one tested place instead of two ORDER BY clauses that can
+     * drift apart.
      */
     public val pending: List<SessionRow> by lazy {
-        rows.filter { it.songId !in loggedCounts && matches(it) }
+        rows.filter { it.songId !in loggedCounts && matches(it) }.sortedWith(order.comparator)
     }
 
     /**
@@ -89,6 +95,9 @@ public data class SessionState(
 
     public fun withQuery(query: String): SessionState = copy(query = query)
 
+    /** A view preference, not data: it reorders the same rows and writes nothing. */
+    public fun withOrder(order: SessionOrder): SessionState = copy(order = order)
+
     /**
      * The tap path. Pure and instant: no database, no read, no suspension. The caller
      * persists [tap] afterwards, off the main thread (decision 44 — this is the interaction
@@ -116,6 +125,43 @@ public data class SessionState(
     public fun withoutUndo(): SessionState = copy(undo = null)
 
     public fun withMessage(message: String?): SessionState = copy(message = message)
+}
+
+/**
+ * Which end of the repertoire the session list starts from.
+ *
+ * Coldest first is the default and stays the default. The point of the toggle is that a
+ * never-practised song is not *hot*: it has no last practice at all, so it leads in one
+ * direction and trails in the other. Nulls are ordered explicitly in both comparators
+ * rather than being left to fall wherever a missing value happens to sort, which is how
+ * "never" ends up at the top of a hottest-first list and makes the toggle useless.
+ */
+public enum class SessionOrder {
+
+    /** Never practised, then longest ago. The order the product exists to produce. */
+    COLDEST_FIRST,
+
+    /** Most recently practised, with never-practised last. */
+    HOTTEST_FIRST,
+
+    ;
+
+    public val comparator: Comparator<SessionRow>
+        get() = when (this) {
+            COLDEST_FIRST -> compareBy(
+                { row: SessionRow -> if (row.daysSince == null) 0 else 1 },
+                { row: SessionRow -> -(row.daysSince ?: 0L) },
+                { row: SessionRow -> row.title },
+            )
+            HOTTEST_FIRST -> compareBy(
+                { row: SessionRow -> if (row.daysSince == null) 1 else 0 },
+                { row: SessionRow -> row.daysSince ?: 0L },
+                { row: SessionRow -> row.title },
+            )
+        }
+
+    public val flipped: SessionOrder
+        get() = if (this == COLDEST_FIRST) HOTTEST_FIRST else COLDEST_FIRST
 }
 
 /** One instrument chip, read from the `instrument` table — never a hardcoded enum. */

@@ -9,8 +9,12 @@ import dev.songbook.data.DatabaseHolder
 import dev.songbook.data.ImportPreview
 import dev.songbook.data.ImportRejected
 import dev.songbook.data.SampleData
+import dev.songbook.data.SongbookRepository
+import dev.songbook.session.InstrumentChip
 import dev.songbook.session.SessionCoordinator
+import dev.songbook.session.SessionOrder
 import dev.songbook.session.SessionPreferences
+import dev.songbook.session.SessionRow
 import dev.songbook.session.SessionState
 import dev.songbook.session.SessionTap
 import kotlinx.coroutines.CoroutineDispatcher
@@ -83,12 +87,31 @@ public class SessionViewModel(
                     ?.takeIf { id -> chips.any { it.id == id } }
                 val selected = keep ?: coordinator.initialInstrument(chips)
                 val rows = selected?.let { coordinator.rows(it) } ?: emptyList()
-                Triple(chips, selected, rows)
+                Loaded(chips, selected, rows, coordinator.initialOrder())
             }
             _state.update {
-                it.withInstruments(loaded.first, loaded.second).withRows(loaded.third)
+                it.withInstruments(loaded.chips, loaded.selected)
+                    .withOrder(loaded.order)
+                    .withRows(loaded.rows)
             }
         }
+    }
+
+    private data class Loaded(
+        val chips: List<InstrumentChip>,
+        val selected: String?,
+        val rows: List<SessionRow>,
+        val order: SessionOrder,
+    )
+
+    /**
+     * The sort toggle. Instant — it reorders rows already in memory, with no round trip —
+     * and remembered for the next launch exactly as the instrument chip is.
+     */
+    public fun setOrder(order: SessionOrder) {
+        if (_state.value.order == order) return
+        _state.update { it.withOrder(order) }
+        viewModelScope.launch { withContext(io) { coordinator().rememberOrder(order) } }
     }
 
     public fun selectInstrument(instrumentId: String) {
@@ -170,6 +193,60 @@ public class SessionViewModel(
 
     public fun clearMessage() {
         _state.update { it.withMessage(null) }
+    }
+
+    // ---- Adding a song ----------------------------------------------------------------
+
+    /**
+     * Every live artist, held in memory while the add-song sheet is open so the type-ahead
+     * filters on each keystroke with no database round trip and no chance of an older
+     * query's results landing after a newer one's. The repertoire has a few hundred
+     * artists; this costs nothing and makes decision 16's "surface near-matches while
+     * typing" literally true.
+     */
+    private val _artists = MutableStateFlow<List<SongbookRepository.Artist>>(emptyList())
+    public val artists: StateFlow<List<SongbookRepository.Artist>> = _artists.asStateFlow()
+
+    public fun loadArtists() {
+        viewModelScope.launch {
+            _artists.value = withContext(io) { runCatching { coordinator().artists() } }
+                .getOrDefault(emptyList())
+        }
+    }
+
+    /**
+     * Title and artist, nothing else (decisions 27, 37 — no key may be required). The song
+     * appears immediately as never-practised, at the top of a coldest-first list.
+     *
+     * [artistId] is set only when the user picked an existing artist out of the
+     * suggestions; otherwise the typed name is resolved by normalisation, which reuses an
+     * existing row whenever one normalises the same (decisions 2, 4, 17).
+     */
+    public fun addSong(title: String, artistName: String, artistId: String? = null) {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    val coordinator = coordinator()
+                    if (artistId != null) {
+                        coordinator.addSongWithArtistId(trimmed, artistId)
+                    } else {
+                        coordinator.addSong(trimmed, artistName)
+                    }
+                    _state.value.selectedInstrumentId?.let { coordinator.rows(it) } ?: emptyList()
+                }
+            }
+            _state.update { state ->
+                outcome.fold(
+                    onSuccess = { rows -> state.withRows(rows).withMessage("Added $trimmed") },
+                    onFailure = { failure ->
+                        state.withMessage("Could not add that song: ${failure.message}")
+                    },
+                )
+            }
+            loadArtists()
+        }
     }
 
     // ---- Import and export ------------------------------------------------------------

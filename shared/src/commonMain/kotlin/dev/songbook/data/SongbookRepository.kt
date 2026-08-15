@@ -40,6 +40,9 @@ public class SongbookRepository(
     /** One row of the `instrument` lookup (decisions 15, 18). */
     public data class Instrument(val id: String, val name: String)
 
+    /** One row of `artist`, for the type-ahead (decisions 16, 20, 21). */
+    public data class Artist(val id: String, val name: String, val sortName: String)
+
     /** The device's local today, `YYYY-MM-DD` (decision 45). */
     public fun today(): String = Timestamps.today(clock, timeZone)
 
@@ -50,6 +53,80 @@ public class SongbookRepository(
     public fun instruments(): List<Instrument> =
         database.instrumentQueries.selectAllLive().executeAsList()
             .map { Instrument(id = it.id, name = it.name) }
+
+    /** Live artists, ordered by `sort_name` — the article at the end, per decision 21. */
+    public fun artists(): List<Artist> =
+        database.artistQueries.selectAllLive().executeAsList()
+            .map { Artist(id = it.id, name = it.name, sortName = it.sort_name) }
+
+    /**
+     * The type-ahead's create-on-enter (decision 16), and the reason decision 17 exists.
+     *
+     * The id is `UUIDv5(namespace(artist), normalise(name))` (decisions 2, 4), so a name
+     * that normalises to one already stored — `Fratellis` against `The Fratellis`, `AC DC`
+     * against `AC/DC` — resolves to the *existing row* rather than creating a near
+     * duplicate no merge rule could reconcile. The stored display name is left alone: an
+     * id is immutable and the canonical spelling is the one already there (decision 5).
+     */
+    public fun findOrCreateArtist(name: String): String {
+        val display = name.trim()
+        require(display.isNotEmpty()) { "an artist needs a name" }
+        val id = Ids.derived("artist", display)
+        if (database.artistQueries.selectById(id).executeAsOneOrNull() == null) {
+            database.artistQueries.insert(
+                id = id,
+                name = display,
+                sort_name = sortName(display),
+                updated_at = Timestamps.now(clock),
+                deleted_at = null,
+                device_id = deviceId,
+            )
+        }
+        return id
+    }
+
+    /**
+     * Add a song: title and artist, nothing else. Every other column is left null, which
+     * decisions 27 and 37 require — no key may be mandatory, in phase 1 or later.
+     *
+     * The id is `UUIDv5(namespace(song), artist_id + "/" + normalise(title))` (decision
+     * 4d), so adding a song the repertoire already holds resolves to that row instead of
+     * forking it. An existing row is returned untouched rather than overwritten.
+     */
+    public fun createSong(title: String, artistId: String): String {
+        val display = title.trim()
+        require(display.isNotEmpty()) { "a song needs a title" }
+        val id = Ids.song(artistId, display)
+        if (database.songQueries.selectById(id).executeAsOneOrNull() == null) {
+            database.songQueries.insert(
+                id = id,
+                title = display,
+                artist_id = artistId,
+                reference_recording = null,
+                key_signature = null,
+                tonal_centre = null,
+                tonality_note = null,
+                tempo_bpm = null,
+                duration_seconds = null,
+                decade = null,
+                loop_length = null,
+                chord_count = null,
+                chord_pattern = null,
+                groove_id = null,
+                mashup_note = null,
+                notes = null,
+                chart_url = null,
+                updated_at = Timestamps.now(clock),
+                deleted_at = null,
+                device_id = deviceId,
+            )
+        }
+        return id
+    }
+
+    /** Article moved to the end, per decision 21. */
+    private fun sortName(name: String): String =
+        if (name.startsWith("The ")) name.substring(4) + ", The" else name
 
     /**
      * Staleness-ordered songs for one instrument: never-practised first, then coldest
@@ -171,4 +248,14 @@ public class SongbookRepository(
     /** Live count for a song, derived and never stored (decision 48). */
     public fun timesPractised(songId: String): Long =
         database.practice_eventQueries.countLiveBySong(songId).executeAsOne()
+
+    public companion object {
+        /**
+         * The seeded placeholder of decision 28a — `UUIDv5(namespace(artist), 'unknown
+         * artist')`, and the escape hatch when the user does not want to settle an
+         * attribution to log a song. A placeholder is honest; a null FK is not an option
+         * because `song.artist_id` is NOT NULL.
+         */
+        public const val UNKNOWN_ARTIST_ID: String = "cf06771d-4e8d-53fc-83fb-359be7dfaefc"
+    }
 }
