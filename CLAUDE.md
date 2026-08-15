@@ -52,6 +52,29 @@ decision specs, and the dispatch of work. It does **not** write production code.
 - The senior session writes documentation, specs, and journal entries directly. That is
   leadership work, not implementation.
 
+### Agent tool scoping — read before dispatching
+
+A general-purpose agent inherits **every** tool in the session, including browser automation.
+An agent told to fetch something will improvise a route if the one you named does not
+immediately work, and improvising against the user's authenticated accounts is not acceptable.
+This has already happened once: an agent briefed to use the Google Drive MCP reached for
+Playwright against the user's Google session on its own initiative.
+
+Rules:
+
+1. **Name the sanctioned route and forbid improvisation explicitly.** "Use tool X; if X fails,
+   STOP and report" is not sufficient — say *and do not attempt any other route, including
+   browser automation*.
+2. **Never let an agent drive a browser against the user's logged-in accounts.** Credentialed
+   access goes through an MCP tool the user has connected deliberately, or it does not happen.
+3. **Prefer a narrow agent type over `general-purpose`** when the work does not need write
+   access or the full toolset. `Explore` is read-only.
+4. **Acquire external data yourself, at the top level, before dispatching.** Hand the agent a
+   local file path. An agent that has the data has no reason to go looking for it.
+
+The Songs 2026 workbook is already downloaded to `.scratch/Songs2026.xlsx` (gitignored). Import
+agents read that file. They do not fetch it.
+
 ### Journalling
 
 Append to the journal at the end of any session that changes the design, lands code, or
