@@ -407,27 +407,22 @@ ANNOTATION_COLUMNS = {
 # resolved by the rulings below rather than read as a tick for the column's owner.
 CAPABILITY_MARKS = {"x", "y", "s", "*", "?", "1", "goal", "mp3", "k"}
 
-# SPARSE BEATS WRONG. Where an attribution cannot be confirmed, emit nothing. A missing
-# tag is recoverable — the user sees the gap in the app and fills it in. A wrong tag is
-# not, because nobody knows to look for it. The cost is low: every unattributed cell still
-# reaches Unresolved with its raw value, worksheet and cell reference, so a later ruling
-# plus a re-run recovers it.
+# SPARSE BEATS WRONG applies where nothing confirms a reading. It does NOT apply where
+# the user has ruled: a specific edit outranks a general preference.
+#
+# All four expansions are CONFIRMED. The user renamed the performer rows `R`, `T` and `p`
+# to Ryan, Tommy and Paul in their review copy, and those rows carried every mark bearing
+# the letter — so the rename is a direct statement that the letter IS that person, not an
+# inference from the roster. `W` is confirmed on the same footing and is corroborated
+# independently by `W/C` = Will/Coralie.
+INITIAL_EXPANSIONS = {"w": "Will", "r": "Ryan", "t": "Tommy", "p": "Paul"}
 
-# The ONLY confirmed single-letter expansion.
-INITIAL_EXPANSIONS = {"w": "Will"}
-
-# Ruled NOT performers. Discard the attribution; never guess at what they meant.
+# Ruled NOT performers, and that ruling is unchanged. Discard the attribution; never guess.
 INITIALS_NOT_PERFORMERS = {"a", "b", "c"}
 
-# Read as initials by an earlier pass and WITHDRAWN. Ryan, Tommy and Paul are real people
-# the user added, but that they are the R, T and P in a lead-vocal column was never
-# confirmed — it was inference from the roster. Under 'sparse beats wrong' these produce
-# no attribution at all.
-UNCONFIRMED_INITIALS = {"r", "t", "p"}
-
-# Real people the user added deliberately. They keep their `performer` rows even with no
-# song attributions, because deleting a person the user created would be a second error on
-# top of withdrawing the guess.
+# Real people the user added deliberately. Seeded ONLY if nothing else attributes them, so
+# a person the user created can never vanish from the roster while a duplicate row can
+# never appear either.
 USER_ADDED_PERFORMERS = ("Ryan", "Tommy", "Paul")
 
 # Inside a duet marker the letters mean something the standalone ruling does not cover.
@@ -1180,19 +1175,20 @@ class Extract(object):
                             "but holds no marks, so the performer has no songs",
                 })
 
-        # Real people the user added. Their only attributions came from the R/T/P initial
-        # expansion, which has been withdrawn under 'sparse beats wrong' — but withdrawing
-        # a guess must not delete the person the guess was about.
+        # Real people the user added. Now that the confirmed initial expansions attribute
+        # them, they arrive through the normal path — so seed only the ones nothing else
+        # names. A person the user created must never vanish from the roster, and must
+        # never appear twice either.
+        attributed = {normalise(m["performer"]) for m in self.performer_marks}
         for name in USER_ADDED_PERFORMERS:
+            if normalise(name) in attributed:
+                continue
             self.performer_marks.append({
                 "worksheet": "(user-added)", "cell": "-", "source": "user-added",
                 "column": "-", "performer": name, "is_lead": 1, "title": "", "artist": "",
                 "raw": "", "flag": "PERFORMER-NO-ATTRIBUTIONS",
-                "note": "added deliberately by the user and kept as a performer row. It "
-                        "has no songs: the single-letter initials that would have "
-                        "attributed them were never confirmed, and a missing attribution "
-                        "is recoverable where a wrong one is not. The raw letters are in "
-                        "Unresolved if this is ever ruled on.",
+                "note": "added deliberately by the user and kept as a performer row even "
+                        "though nothing in the workbook attributes them to a song.",
             })
 
         for record in self.setlists:
@@ -1609,28 +1605,27 @@ class Extract(object):
                                "single-letter lead-vocal initial, user ruled not a "
                                "performer")
                 return
-            if letter in UNCONFIRMED_INITIALS:
-                # Sparse beats wrong: emit no attribution at all. The raw letter, the
-                # worksheet and the cell reference are preserved here, so a future ruling
-                # plus a re-run recovers every one of these without re-deriving anything.
-                self.unresolve(sheet_name, cell_ref(ci, ri), text,
-                               "single-letter lead-vocal initial, unconfirmed - user "
-                               "prefers a missing tag to a guessed one")
-                return
             if letter in INITIAL_EXPANSIONS:
                 person = INITIAL_EXPANSIONS[letter]
+                # No flag. The `flag` column means "awaiting a human decision" — that is
+                # what the flag totals are reported as — and this mapping is decided: the
+                # user renamed these very performer rows in their review copy. Leaving
+                # ~470 settled rows flagged would dilute the items genuinely still open,
+                # which is the only thing the column is for. The provenance is kept in the
+                # note, so an auditor can still see the cell said %r and why it reads as
+                # a person.
                 self.performer_marks.append({
                     "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
                     "source": "annotation", "column": column_label,
                     "performer": person, "is_lead": is_lead, "title": title,
                     "artist": artist, "raw": text,
-                    "flag": "INITIAL-EXPANDED-UNCONFIRMED",
-                    "note": "%r in column %r read as %s, on two grounds: %s is the "
-                            "workbook owner, whose bare `Lead vocal` column this mostly "
-                            "is; and `W/C` is confirmed as Will/Coralie, which corroborates "
-                            "W = Will directly. Still flagged so it stays visible and "
-                            "correctable — the letter-to-person mapping itself was never "
-                            "stated outright." % (text, column_label, person, person),
+                    "flag": "",
+                    "note": "%r in column %r read as %s. CONFIRMED by the user, who "
+                            "renamed the performer row %r to %s in their review copy — "
+                            "that row carried every mark bearing the letter, so the "
+                            "rename states the letter is that person. A specific edit "
+                            "outranks a general preference for sparse data."
+                            % (text, column_label, person, text, person),
                 })
                 return
 
@@ -2776,6 +2771,26 @@ def build_practice_events(extract):
             "surviving_only_on": (sorted(e["sources"])[0] if len(e["sources"]) == 1 else ""),
             "flag": e["flag"], "note": e["note"],
         })
+
+    # [R18] Twitch is a CONTEXT, not a discipline, and the workbook never records which
+    # instrument was practised on stream. `practice_event.instrument_id` is NOT NULL, so
+    # the build pass cannot emit these and will not invent an instrument to make them fit.
+    # That is recoverable history being deliberately discarded, so every one of them is
+    # logged individually — a reader must not have to infer the loss from a row count.
+    for event in events:
+        if event["instrument"]:
+            continue
+        event["flag"] = "; ".join([f for f in (event["flag"],
+                                               "NOT-IMPORTABLE-NO-INSTRUMENT") if f])
+        extract.unresolve(
+            event["surviving_only_on"] or "(multiple worksheets)",
+            "Twitch %s" % event["date"],
+            "%s — %s" % (event["song"], event["date"]),
+            "Twitch practice event cannot be imported: practice_event.instrument_id is "
+            "NOT NULL, Twitch is a context and not a discipline [R18], and the workbook "
+            "never records which instrument was practised on stream. Approved for "
+            "discard rather than inventing an instrument — this row is the record of "
+            "what was dropped.")
     return events
 
 
