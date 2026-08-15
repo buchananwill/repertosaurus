@@ -65,10 +65,37 @@ Two passes with a human step between them.
    - **44 non-keys** (`0` ×25, `2010` ×17, `TRACK`, `28/05/24`) → discard, log for review.
 8. A transposition offset belongs on the **`setlist_item` of the tab it was written on**, not
    on the song.
-9. `key_signature` is **NULL for every song on import.** Nothing in the workbook records one.
-   Backfill later; it must not block phase 1. See decision 15 in
-   [data-model.md](../decisions/data-model.md).
-10. Suspect spellings to flag, not silently fix: `Bbb` (×2 — not a key), `Cb` (×7), `Fb` (×1).
+9. **Derive `key_signature` from the quality of every named key.** `Em` → `+1`, `E` → `+4`,
+   `Bbm` → `−5`, `Bb` → `−2`. This is arithmetic, not musical analysis, and it applies to all
+   2,121 plain-name cells. Without it every song imports with `key_signature NULL`, and since
+   mode is implied by the `(key_signature, tonal_centre)` pair (decision 35), `E` and `Em`
+   become the same row and major/minor is destroyed across the whole repertoire on day one.
+10. Leave `key_signature` NULL only for the 15 genuine unknowns and for any song where the
+    derived signature looks wrong against the chord content — flag those to the review sheet
+    rather than asserting a signature. A bare `E` in the workbook may mean "we play it in E"
+    rather than "E major", so the derivation is a strong default, not a certainty.
+11. Retain the **source spelling** of every key alongside the derived pitch class. Converting
+    `Gb` to the integer 6 and discarding the spelling loses information the app cannot
+    reconstruct when `key_signature` is null.
+12. Suspect spellings to flag, not silently fix: `Bbb` (×2 — not a key), `Cb` (×7), `Fb` (×1).
+
+### Performers
+
+Decisions 24–27 in [data-model.md](../decisions/data-model.md).
+
+13. One `performer` row per singer column in the workbook. Name comes from the column header
+    with the trailing instrument word removed: `Coralie Vox` → `Coralie`, `Sophie-Mae Vocal` →
+    `Sophie-Mae`, `Will Vocal` → `Will`, `Kendra Piper` → `Kendra Piper`. The master sheet's
+    bare `Lead vocal` column is the workbook owner; seed that performer as `Will`.
+14. One `song_performer` row per non-empty cell in those columns, with `is_lead` set from
+    whether the column is a lead or backing designation.
+15. `vocal_range` comes from the `Range` column's `H`/`L`, mapped to `1`/`0`, attached to the
+    owner's `song_performer` row — not to the song. With one performer this reproduces the
+    workbook exactly.
+16. Free-text performer annotations in set list tabs (`Andy`, `Andy?`, `FD`, `LV`, `Will B`)
+    resolve to `performer` rows through the same normalisation as artists. `Andy?` and `Andy`
+    must collapse to one performer — that pair is the reason this table exists. Flag any
+    annotation that is not obviously a name (`FD`, `LV`) to the review sheet.
 
 ### Practice events
 
@@ -85,16 +112,34 @@ Two passes with a human step between them.
 
 ### Set lists
 
-15. Each gig tab becomes a `setlist`. The tab's client name is usually in a header cell rather
-    than a column name — e.g. `Mr and Mrs Allen`, `Seal Bay - Selsey`, `SO42 7QB - Mr & Mrs
-    Anthony Horne`.
-16. Row order becomes `position`. Where an `Order` column holds a decimal (`0.2`, `1.09`,
-    `2.03`, `3.07`), split it: integer part → `set_no`, fractional part → `position`.
-17. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
-    set.position decimal; others hold values like `216`, `230`, `300` that look like duration
-    in seconds. Disambiguate per tab by inspecting the value range, and flag any tab that
-    cannot be classified confidently rather than importing it wrong.
-18. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
+17. Each gig tab becomes a `setlist`. The tab header carries the identity — e.g.
+    `Mr and Mrs Allen`, `Seal Bay - Selsey`, `SO42 7QB - Mr & Mrs Anthony Horne`.
+18. **Split the header into venue and client.** The location-shaped part (`Seal Bay - Selsey`,
+    the postcode `SO42 7QB`) creates or matches a `venue`; the person-shaped part
+    (`Mr & Mrs Anthony Horne`) becomes `client` free text. Flag ambiguous headers to the review
+    sheet rather than guessing. Without this every setlist imports with `venue_id NULL` and the
+    question that justifies the venue table — *what did we play here last time?* — has no rows
+    to answer over.
+19. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
+    with `target_minutes = M`. Default to a single set when the tab says nothing. Without this
+    no `setlist_set` exists, and `setlist_item.setlist_set_id` has nothing to point at.
+20. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
+    integers. Where an `Order` column holds a decimal (`0.2`, `1.09`, `2.03`, `3.07`), the
+    integer part selects the `setlist_set` and the fractional part orders within it.
+21. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
+    set.position decimal; others hold values like `216`, `230`, `300` that are duration in
+    seconds. Disambiguate per tab by inspecting the value range, and flag any tab that cannot
+    be classified confidently rather than importing it wrong.
+22. Where a tab's `Order` column is classified as duration, **write it to
+    `song.duration_seconds`.** It is the only source of duration anywhere in the workbook, and
+    the set list screen needs it to total against `target_minutes`. Discovering it and then
+    discarding it would be waste.
+23. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
+    that item's `setlist_item.tempo_override` rather than dropping it. Of 27 tempo
+    disagreements, 5 are rounding and 3 are half-time notation, but the remaining 19 are real —
+    and several are deliberate, a party arrangement taken faster. `tempo_override` is the
+    column designed for exactly that.
+24. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
     in five cells (`FD`/`LV`, and `Andy?`/`Andy` annotations). Import both, suffix the names,
     and flag for the user to delete one. Which was actually played is not recoverable.
 
@@ -109,9 +154,11 @@ Two passes with a human step between them.
 ## Non-Goals
 
 - No conflict-resolution UI.
-- No attempt to derive key signatures.
-- No attempt to resolve the 19 genuine tempo disagreements automatically. Of 27 tempo
-  conflicts, 5 are rounding (`147`/`150`), 3 are half-time notation (`100`/`200`), and 19 are
-  real differences — several of which are probably deliberate, a party arrangement taken
-  faster. These are **questions, not errors**; most will resolve to "both were right, for
-  different gigs".
+- No attempt to **backfill** key signatures beyond what a named key already implies (rule 9).
+  Songs whose workbook key carries no quality, or which are genuinely modal, stay NULL for a
+  human to resolve later.
+- No attempt to *decide* the 19 genuine tempo disagreements. Both values are retained — master
+  on the song, gig value on the item (rule 23) — because most will resolve to "both were right,
+  for different gigs". These are **questions, not errors**.
+- No import of the set-list triage columns. See *Deliberately not modelled* in
+  [data-model.md](../decisions/data-model.md).
