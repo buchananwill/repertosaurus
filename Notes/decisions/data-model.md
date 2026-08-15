@@ -322,8 +322,8 @@ It is equally a design error to make a table out of something that does not repe
 
 ### setlist_item
 
-52. Columns: `id`, `setlist_set_id`, `song_id`, `position`, `transpose`, `lead_performer_id`,
-    `tempo_override`, `note`, plus the standard three.
+52. Columns: `id`, `setlist_set_id`, `song_id`, `position`, `transpose`, `tempo_override`,
+    `note`, plus the standard three. **There is no `lead_performer_id`** — see decision 58.
 53. Set membership is the **foreign key `setlist_set_id`**, not an integer compared by value.
     `setlist_id` and `set_no` are not repeated on the item; both are reachable through the FK.
     Carrying `set_no` in two tables that merge independently lets two devices each add "set 3"
@@ -349,9 +349,32 @@ It is equally a design error to make a table out of something that does not repe
     would display as D♭ major and never show what was entered. Display stored data as stored;
     respell only what transposition actually moved.
 57. This arithmetic lives in the shared core with tests, never in a UI layer.
-58. `lead_performer_id` is a foreign key to `performer`, per performance. Distinct from decision
-    26: `song_performer` says who *can* sing it, `setlist_item.lead_performer_id` says who
-    *did*, at this gig, possibly a dep.
+58. **Who performs a set list item is a junction table, not a column.**
+    `setlist_item_performer (id, setlist_item_id, performer_id, position, …)` with the standard
+    three. `position` orders them — 1 is the lead, 2 the co-lead — so a printed set list is
+    deterministic rather than alphabetical by accident.
+
+58a. **The two performer tables answer different questions and must never be merged.**
+    `song_performer` records who **knows** a song — a capability, true independently of any
+    gig. `setlist_item_performer` records who it is **staged with** on one night. Any song can
+    be staged as a duet without being "a duet song"; duet-ness is a property of the
+    performance, so there is no `is_duet` flag anywhere.
+
+58b. **A capped pair of columns was rejected.** `lead_performer_id` plus a nullable
+    `duet_performer_id` is cheaper and needs no join, but it is structurally identical to the
+    workbook growing a column per singer — `Coralie Vox`, `Carla Vox`, `Sophie-Mae Vocal`,
+    `Kendra Piper` — which is the failure this project exists to end. A cap of two is a guess
+    about the future, not a design. The first trio, or a guest sitting in for one number, would
+    reintroduce the disease on day one of the cure.
+
+58c. The accepted cost: "who is singing this tonight" becomes an aggregate over the junction,
+    ordered by `position`, rather than a column read. That is one query written once, and a
+    permanent tax on the common case of a single performer. Taken deliberately.
+
+58d. **Not added:** a `role` column (lead / harmony / feature) — no defined vocabulary, so it
+    would become free text and drift; `position` already carries what is needed. Nor
+    `instrument_id`, which belongs to the deferred full gig line-up and is the natural
+    extension of this same junction when that arrives.
 59. A set list reads song facts **through the foreign key**. Facts are never copied onto a
     `setlist_item`. `transpose` and `tempo_override` are the only sanctioned per-gig
     divergences.
