@@ -1,0 +1,83 @@
+# CLAUDE.md
+
+Guidance for Claude Code when working in this repository.
+
+## Project Overview
+
+**Songbook** is a repertoire and practice-tracking app for working musicians. It replaces a
+57-tab Google Sheet (`Songs 2026`) that the user has maintained since 2022 and which became
+too high-friction to keep updated.
+
+The core interaction is **tap-to-log**: recording "I went over this song today" must take one
+tap, offline, on a phone, mid-practice. Everything else in the product is subordinate to that.
+
+Target platforms in delivery order: **Android** → **Dropbox sync** → **Desktop** → **Web** →
+(optionally) Play Store → (optionally) native iOS.
+
+## Start Here
+
+Read these, in order, before doing anything:
+
+1. [Notes/journal/_index-journal.md](./Notes/journal/_index-journal.md) — the leadership thread.
+   Read the most recent entry first; it states where we are and what is in flight.
+2. [Notes/decisions/data-model.md](./Notes/decisions/data-model.md) — the schema contract.
+3. [Notes/platform/stack-and-delivery.md](./Notes/platform/stack-and-delivery.md) — what we
+   build on and in what order.
+
+The journal is the load-bearing document. It exists so a session with no prior context can
+resume the thread without re-deriving it from scratch.
+
+## Core Rules
+
+**DO NOT use the `AskUserQuestion` tool.** The user drives the design trajectory and the
+multiple-choice interview flow obstructs it. When something is genuinely ambiguous, ask in
+plain prose inline, keep it brief, and otherwise proceed with a sensible default and state the
+assumption so the user can correct it in passing.
+
+**DO NOT ADD BOM TO FILES.**
+
+**Do not invent product decisions.** Every decision of consequence is recorded in
+`Notes/decisions/`. If the answer is not there, it has not been decided — ask, or state the
+assumption explicitly in the journal.
+
+## Operating Model
+
+The main session acts as **senior engineer**: it owns the design thread, the journal, the
+decision specs, and the dispatch of work. It does **not** write production code.
+
+- **All coding is delegated to sub-agents.** Give each agent a scoped brief that names the
+  files it owns, the contract it implements, and what "done" means.
+- **All review is delegated to sub-agents**, and to a *different* agent than the one that wrote
+  the code.
+- The senior session writes documentation, specs, and journal entries directly. That is
+  leadership work, not implementation.
+
+### Journalling
+
+Append to the journal at the end of any session that changes the design, lands code, or
+resolves an open question. One file per session, named `YYYY-MM-DD-session-NN.md`.
+
+Each entry must carry, at minimum:
+
+- **Where we are** — the state a fresh context needs to resume.
+- **Decisions made this session**, and the reasoning, especially where a prior decision was
+  reversed.
+- **Open questions** — what is genuinely undecided, phrased so it can be picked up cold.
+- **In flight** — work dispatched but not landed.
+
+Reversals matter more than confirmations. Several early decisions in this project have already
+been overturned (Postgres → SQLite, PWA → native, Flutter → Kotlin Multiplatform); record why,
+so a future session does not relitigate settled ground or resurrect a rejected option.
+
+## Documentation Conventions
+
+`Notes/` follows the front-matter and indexing schema defined in
+[Notes/_schema.md](./Notes/_schema.md). Every markdown file carries YAML front matter; every
+domain folder carries an `_index-<domain>.md`. Reference files as relative markdown links, not
+backticked paths.
+
+## Engineering Conventions
+
+To be established with the first code. Language is Kotlin; the shared core is Kotlin
+Multiplatform, Android UI is Compose, and the local store is SQLDelight over SQLite. Schema
+lives in real `.sq` files so it reads as SQL.
