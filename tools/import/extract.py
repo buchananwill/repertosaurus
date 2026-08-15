@@ -372,7 +372,19 @@ ANNOTATION_COLUMNS = {
 }
 
 # Marks that mean 'yes, this performer' rather than naming somebody else.
-CAPABILITY_MARKS = {"x", "y", "s", "p", "*", "?", "1", "goal", "mp3", "k", "r"}
+# `p` and `r` are deliberately NOT here: the user ruled them initials for Paul and Ryan,
+# so they must reach the initial expansion below rather than be read as a tick.
+CAPABILITY_MARKS = {"x", "y", "s", "*", "?", "1", "goal", "mp3", "k"}
+
+# Single-letter lead-vocal initials, ruled by the user.
+#
+# The user added Paul, Ryan and Tommy as performers, which is the basis for this mapping,
+# but did not explicitly confirm the letter-to-person assignment. Every row it touches
+# therefore keeps INITIAL-EXPANDED-UNCONFIRMED so the user can still correct it.
+INITIAL_EXPANSIONS = {"w": "Will", "r": "Ryan", "t": "Tommy", "p": "Paul"}
+
+# Ruled NOT performers. Discard the attribution; never guess at what they meant.
+INITIALS_NOT_PERFORMERS = {"a", "b", "c"}
 
 # Tag columns [D19]. Header -> seeded tag name.
 TAG_COLUMNS = {
@@ -402,6 +414,25 @@ SETLIST_COLUMNS = {"order", "position", "set", "+/-", "change", "no.", "num", "o
 # [R29] Above this many songs with no ordering at all, a tab reads as a repertoire
 # snapshot rather than a performance.
 REPERTOIRE_ROW_THRESHOLD = 200
+
+# A medley is not a song — the user ruled it out. Detected by pattern, not by name, so
+# any further one is caught rather than only the two already known. `\bmedley\b` will not
+# fire on `Stand By Me`, and the slash rule wants a title on each side, so `AC/DC` in an
+# artist cell and `w/c` in a performer cell are untouched.
+RE_MEDLEY = re.compile(r"\bmedle?y\b", re.IGNORECASE)
+RE_JOINED_TITLES = re.compile(r"^\s*\S.*\S\s*/\s*\S.*\S\s*$")
+
+
+def medley_reason(title):
+    """Return why a title is not a song, or '' if it is one."""
+    text = str(title).strip()
+    if RE_MEDLEY.search(text):
+        return "title says medley"
+    if "/" in text and RE_JOINED_TITLES.match(text):
+        left, right = [p.strip() for p in text.split("/", 1)]
+        if len(left.split()) >= 2 and len(right.split()) >= 2:
+            return "two titles joined by '/' (%r and %r)" % (left, right)
+    return ""
 
 SET_DIVIDER = re.compile(
     r"^\s*(set\s*\d+|first\s*dance|extras?|encore)\s*(/\s*extras?)?\s*:?\s*$",
@@ -583,6 +614,7 @@ class Extract(object):
         self.master_titles = set()
         self.master_artists = set()
         self.text_first_columns = set()  # sheets whose unheaded column A holds text
+        self.medley_titles = set()    # normalised titles the user ruled are not songs
         self.known_pairs = set()      # (norm artist, norm title) from headed columns only
         self.misaligned = {}          # sheet -> alignment finding for an inferred column
         self.dropped_attributions = 0
@@ -836,6 +868,15 @@ class Extract(object):
             artist = str(artist_raw).strip() if not is_blank(artist_raw) else ""
             nt, na = normalise(title), normalise(artist)
 
+            # USER RULING: a medley is not a song. Detected by pattern so a third one is
+            # caught too, and logged rather than dropped.
+            reason = medley_reason(title)
+            if reason:
+                self.medley_titles.add(nt)
+                self.unresolve(sheet_name, cell_ref(ti, ri), title,
+                               "medley, user ruled not a song (%s)" % reason)
+                continue
+
             if inline_key:
                 self.unresolve(sheet_name, cell_ref(ti, ri), str(title_raw).strip(),
                                "title cell carries the key inline; split into title %r "
@@ -1038,6 +1079,8 @@ class Extract(object):
                     continue
                 if ci in (roles.get("title"), roles.get("artist")):
                     continue
+                if self.is_dropped_column(sheet_name, ci):
+                    continue
                 values = [r[ci] for r in rows if not is_blank(r[ci])]
                 if len(values) < 5:
                     continue
@@ -1174,7 +1217,7 @@ class Extract(object):
         facts = {}
         for ci, h in enumerate(lower):
             v = row[ci]
-            if is_blank(v):
+            if is_blank(v) or self.is_dropped_column(sheet_name, ci):
                 continue
             if h == "tempo":
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
@@ -1363,7 +1406,7 @@ class Extract(object):
     def read_performers(self, sheet_name, headers, lower, row, ri, title, artist):
         for ci, h in enumerate(lower):
             v = row[ci]
-            if is_blank(v):
+            if is_blank(v) or self.is_dropped_column(sheet_name, ci):
                 continue
 
             if h in PERFORMER_COLUMNS:
@@ -1395,11 +1438,24 @@ class Extract(object):
             elif h == "" and self.is_annotation_column(sheet_name, ci):
                 self.record_annotation(sheet_name, headers, ci, ri, v, title, artist, 1)
 
+    def is_dropped_column(self, sheet_name, ci):
+        """True for a column dropped as COLUMN-MISALIGNED-SUSPECTED.
+
+        A column whose rows are offset against the titles is unusable by EVERY reader, not
+        just the artist path. The first version of this fix dropped it as an artist source
+        only, and the same six names promptly reappeared as performers through the unheaded
+        annotation column. Every consumer of an unheaded column asks this first.
+        """
+        finding = self.misaligned.get(sheet_name)
+        return finding is not None and finding["column"] == ci
+
     def is_annotation_column(self, sheet_name, ci):
         """The unheaded column A of the gig tabs whose Title header carries the client
         name holds free-text performer annotations: FD, LV, Andy?, Andy, Kita [R16, R35].
         The same position on other tabs holds a row number, so require text content."""
         if ci != 0:
+            return False
+        if self.is_dropped_column(sheet_name, ci):
             return False
         roles = self.sheet_columns.get(sheet_name, {})
         if ci in (roles.get("title"), roles.get("artist")):
@@ -1420,14 +1476,72 @@ class Extract(object):
             self.unresolve(sheet_name, cell_ref(ci, ri), text,
                            "performer annotation column holds a non-name value [R16]")
             return
+
+        column_label = headers[ci] or "(unheaded)"
+
+        # A duet marker names two people. USER RULING: do not collapse these into one
+        # invented performer and do not split them — a schema change is under discussion.
+        # Leave the row exactly as the workbook has it and flag it as pending.
+        if "/" in text:
+            left, right = [p.strip() for p in text.split("/", 1)]
+            if left and right:
+                self.performer_marks.append({
+                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                    "source": "annotation", "column": column_label,
+                    "performer": text, "is_lead": is_lead, "title": title,
+                    "artist": artist, "raw": text,
+                    "flag": "DUET-PENDING-SCHEMA",
+                    "note": "%r names two performers at once (%r and %r) in column %r. "
+                            "The pairing is intentional and is held as written: the schema "
+                            "has no way to record a duet on one setlist item yet, and both "
+                            "collapsing it into a single invented performer and splitting "
+                            "it into two rows would assert something the workbook does not "
+                            "say. Awaiting a schema decision."
+                            % (text, left, right, column_label),
+                })
+                return
+
+        # USER RULING on single-letter lead-vocal initials.
+        if len(text) == 1 and text.isalpha():
+            letter = text.lower()
+            if letter in INITIALS_NOT_PERFORMERS:
+                self.unresolve(sheet_name, cell_ref(ci, ri), text,
+                               "single-letter lead-vocal initial, user ruled not a "
+                               "performer")
+                return
+            if letter in INITIAL_EXPANSIONS:
+                person = INITIAL_EXPANSIONS[letter]
+                self.performer_marks.append({
+                    "worksheet": sheet_name, "cell": cell_ref(ci, ri),
+                    "source": "annotation", "column": column_label,
+                    "performer": person, "is_lead": is_lead, "title": title,
+                    "artist": artist, "raw": text,
+                    "flag": "INITIAL-EXPANDED-UNCONFIRMED",
+                    "note": "%r in column %r read as %s. The user added %s as a performer, "
+                            "which is the basis for this reading, but did not confirm the "
+                            "letter-to-person mapping itself — correct it here if it is "
+                            "wrong." % (text, column_label, person, person),
+                })
+                return
+
+        # A leading marker character is almost certainly not part of the name.
+        if text.startswith("*") and len(letters) > 1:
+            flags.append("PERFORMER-SPELLING-COLLISION")
+            notes.append("%r is read as %r. The leading asterisk is almost certainly a "
+                         "marker the user added rather than part of the name, but the "
+                         "workbook does not say so — it folds to the same performer under "
+                         "[D17] either way, so nothing is lost if that reading is wrong."
+                         % (text, text.lstrip("*").strip()))
+            text = text.lstrip("*").strip()
+
         if len(letters) <= 2 and letters.upper() == letters:
             flags.append("ANNOTATION-NOT-OBVIOUSLY-A-NAME")
             notes.append("%r is an initialism or a role code, not obviously a name [R16]; "
                          "confirm before it becomes a performer" % text)
-        if re.search(r"[/\d]", text):
+        if re.search(r"\d", text):
             flags.append("ANNOTATION-NOT-A-SINGLE-NAME")
-            notes.append("%r contains a separator or a digit [R16]; it may name two "
-                         "performers, or none" % text)
+            notes.append("%r contains a digit [R16]; it may name two performers, or none"
+                         % text)
         if text.endswith("?"):
             flags.append("ANNOTATION-UNCERTAIN")
             notes.append("%r carries the workbook's own uncertainty [R16]; it must "
@@ -1444,7 +1558,7 @@ class Extract(object):
 
     def read_tags(self, sheet_name, headers, lower, row, ri, title, artist):
         for ci, h in enumerate(lower):
-            if h not in TAG_COLUMNS:
+            if h not in TAG_COLUMNS or self.is_dropped_column(sheet_name, ci):
                 continue
             v = row[ci]
             if is_blank(v):
@@ -1997,6 +2111,11 @@ class Extract(object):
                     # from "no transpose stated".
                     transpose = None
                     item_flags, item_notes = [], []
+                    if normalise(str(row[ti])) in self.medley_titles:
+                        item_flags.append("MEDLEY-NOT-A-SONG")
+                        item_notes.append("the user ruled this a medley rather than a "
+                                          "song, so it has no row in Songs and this item "
+                                          "has no song_id to point at")
                     if item_pool_flag:
                         item_flags.append("POSITION-UNSPECIFIED")
                         item_notes.append("Order %g names set %d but gives no position "
@@ -2302,7 +2421,7 @@ def fold_songs(extract, artists_by_key):
     return songs
 
 
-def build_song_performers(extract, performers_by_key):
+def build_song_performers(extract, performers_by_key, names_by_key):
     """[R14] one row per non-empty cell in a singer column, deduped per (song, performer).
     [R15, D27] `vocal_range` lives HERE, on the owner's row, never on the song: range is
     only meaningful for a particular voice."""
@@ -2316,12 +2435,26 @@ def build_song_performers(extract, performers_by_key):
             continue
         ident = (normalise(mark["artist"]), normalise(mark["title"]), key)
         if ident in rows:
+            existing = rows[ident]
             if mark["is_lead"]:
-                rows[ident]["is_lead"] = 1
+                existing["is_lead"] = 1
+            # Merge the flags rather than keeping only the first cell's. An expanded
+            # initial that lands on a song the same performer already holds must still
+            # carry INITIAL-EXPANDED-UNCONFIRMED, or the user cannot see and correct it.
+            merged = [f for f in existing["flag"].split("; ") if f]
+            for flag in [f for f in mark["flag"].split("; ") if f]:
+                if flag not in merged:
+                    merged.append(flag)
+            existing["flag"] = "; ".join(merged)
+            if mark["note"] and mark["note"] not in existing["note"]:
+                existing["note"] = " | ".join(
+                    [n for n in (existing["note"], mark["note"]) if n])
             continue
         rows[ident] = {
             "song": mark["title"], "artist": mark["artist"],
-            "performer": mark["performer"].rstrip("?"),
+            # The folded canonical name, not this cell's spelling: '*Stef' and 'Stef' are
+            # one performer under [D17] and must read as one here too.
+            "performer": names_by_key.get(key, mark["performer"].rstrip("?")),
             "performer_id": performers_by_key.get(key, ""),
             "is_lead": mark["is_lead"], "vocal_range": "",
             "source": "%s:%s" % (mark["source"], mark["column"]),
@@ -2672,7 +2805,8 @@ def main():
     songs = fold_songs(extract, artists_by_key)
     performers = fold_performers(extract)
     performers_by_key = {p["normalised_key"]: p["performer_id"] for p in performers}
-    song_performers = build_song_performers(extract, performers_by_key)
+    names_by_key = {p["normalised_key"]: p["name"] for p in performers}
+    song_performers = build_song_performers(extract, performers_by_key, names_by_key)
     events = build_practice_events(extract)
     tags = build_tags(extract)
     accounting = account_cells(extract)
