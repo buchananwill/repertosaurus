@@ -33,7 +33,14 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 
 DEFAULT_IN = os.path.join(".scratch", "Songs2026.xlsx")
-DEFAULT_OUT = os.path.join(".scratch", "review.xlsx")
+
+# NOT review.xlsx. That file is the common ancestor of the user's edited working copy and
+# is required as the base for a three-way merge; overwriting it destroys the merge base and
+# the hand resolutions become unmergeable. This pass writes a sibling.
+DEFAULT_OUT = os.path.join(".scratch", "review-next.xlsx")
+
+# Paths this script must never touch. The user's working copy is off limits.
+FORBIDDEN_OUTPUTS = (os.path.join(".scratch", "review.xlsx"),)
 
 
 # --------------------------------------------------------------------------------------
@@ -119,6 +126,25 @@ def table_ns(table: str) -> uuid.UUID:
 
 def derived_id(table: str, canonical_key: str) -> str:
     return str(uuid.uuid5(table_ns(table), canonical_key))
+
+
+# [D28a] the seeded placeholder for songs the workbook never attributes. The id is derived
+# here, not copied from artist.sq — if the two ever disagree the migration must fail loudly
+# rather than write an orphan FK. Verified equal to the seed row at import time below.
+UNKNOWN_ARTIST_NAME = "Unknown Artist"
+UNKNOWN_ARTIST_ID = derived_id("artist", normalise(UNKNOWN_ARTIST_NAME))
+
+# The value seeded in shared/.../db/artist.sq. Asserted, never copied into a variable that
+# feeds an id: a mismatch means the two implementations have diverged and the migration
+# would write songs pointing at an artist row that does not exist.
+UNKNOWN_ARTIST_SEED_ID = "cf06771d-4e8d-53fc-83fb-359be7dfaefc"
+assert UNKNOWN_ARTIST_ID == UNKNOWN_ARTIST_SEED_ID, (
+    "Unknown Artist id %s does not match the seed row %s in artist.sq [D28a]"
+    % (UNKNOWN_ARTIST_ID, UNKNOWN_ARTIST_SEED_ID))
+
+# [R23] user-confirmed bands. Seed data, not guesses. Ids are derived per [D4/4a/4b]:
+# UUIDv5(namespace("band"), normalise(name)).
+CONFIRMED_BANDS = ("Blue Lion", "Radiant Lanterns", "LPT with Ryan")
 
 
 def sort_name(name: str) -> str:
@@ -456,6 +482,25 @@ def parse_tab_date(name):
                 "worksheet name gives a year only [R22]; day and month are unrecoverable, "
                 "so performed_on holds the year and nothing more")
     return (None, None, "none", "no date in the worksheet name [R22]")
+
+
+def confirmed_band(remainder):
+    """Return the confirmed band a worksheet-name remainder carries, or None.
+
+    Matches the whole remainder or a leading run of its words, so `Blue Lion ACOUSTIC`
+    resolves to `Blue Lion` — the qualifier marks a configuration of the same band [R28].
+    Only the three names [R23] confirms are eligible; nothing here is inferred.
+    """
+    key = normalise(remainder)
+    words = remainder.split()
+    for name in CONFIRMED_BANDS:
+        band_key = normalise(name)
+        if key == band_key or key.startswith(band_key + " "):
+            for take in range(1, len(words) + 1):
+                if normalise(" ".join(words[:take])) == band_key:
+                    return name
+            return name
+    return None
 
 
 def classify_remainder(remainder):
@@ -1424,6 +1469,34 @@ class Extract(object):
                             self.nxm_examples.append(
                                 "%s!%s=%r" % (sheet_name, cell_ref(ci, ri), value[:40]))
 
+    def build_bands(self):
+        """[D49a] `band` is a first-class lookup table; [R23] confirms exactly three.
+
+        Only the three the user confirmed are emitted. `Acoustic`, `easier` and the rest
+        are configurations or unclassified remainders and stay out of this table — [D49b]
+        is explicit that band and venue are different dimensions and that a wrong guess
+        here silently corrupts band_id for the whole history.
+        """
+        usage = collections.Counter()
+        for record in self.setlists:
+            if record["band_id"]:
+                usage[record["band_id"]] += 1
+
+        self.bands = []
+        for name in CONFIRMED_BANDS:
+            band_id = derived_id("band", normalise(name))
+            self.bands.append({
+                "band_id": band_id,
+                "name": name,
+                "normalised_key": normalise(name),
+                "setlists": usage.get(band_id, 0),
+                "source": "user-confirmed [R23]",
+                "flag": "" if usage.get(band_id) else "BAND-WITH-NO-SETLIST",
+                "note": "confirmed by the user as a band, not a venue or a client [R23, "
+                        "D49b]; id is UUIDv5(namespace('band'), %r) [D4, D4a, D4b]"
+                        % normalise(name),
+            })
+
     def build_sets(self):
         """[R30, D51, D53] Emit one setlist_set per distinct set_no so that
         setlist_item.setlist_set_id has something to point at. Where a tab shows no set
@@ -1653,6 +1726,14 @@ class Extract(object):
                          "%d matches. setlist_set rows are still created; target_minutes "
                          "stays NULL." % (len(self.wb.sheetnames), self.nxm_hits))
 
+        # [D49a] band_id is set only where [R23] confirmed the name. Everywhere else it
+        # stays null and the remainder keeps its existing REMAINDER-UNCLASSIFIED flag —
+        # guessing here corrupts band_id for the whole history with no way to catch it.
+        band = confirmed_band(remainder) if purpose == "setlist" else None
+        band_id = derived_id("band", normalise(band)) if band else ""
+        if band:
+            notes.append("band_id set to the confirmed band %r [R23, D49a]" % band)
+
         return {
             "worksheet": sheet_name,
             "purpose": purpose,
@@ -1661,6 +1742,8 @@ class Extract(object):
             "remainder": remainder,
             "proposed_classification": classification,
             "confidence": confidence,
+            "band": band or "",
+            "band_id": band_id,
             "proposed_venue": venue,
             "proposed_client": client_proposal or client,
             "in_sheet_header": in_sheet_header,
@@ -1986,6 +2069,24 @@ def fold_artists(artist_cells):
             "flag": "; ".join(flags),
             "note": " | ".join(notes),
         })
+
+    # [D28a] The placeholder every unattributed song points at. It is not a workbook
+    # spelling, so it is appended rather than folded — and it is deliberately excluded
+    # from [R1]'s 288/278 census, which counts the Artist column only.
+    if normalise(UNKNOWN_ARTIST_NAME) not in groups:
+        artists.append({
+            "artist_id": UNKNOWN_ARTIST_ID,
+            "canonical_name": UNKNOWN_ARTIST_NAME,
+            "sort_name": UNKNOWN_ARTIST_NAME,
+            "normalised_key": normalise(UNKNOWN_ARTIST_NAME),
+            "spelling_count": 0,
+            "total_occurrences": 0,
+            "variants": "",
+            "flag": "SEEDED-PLACEHOLDER",
+            "note": "seeded row from artist.sq, not a workbook spelling [D28a]; every "
+                    "song the workbook never attributes points here so artist_id can be "
+                    "NOT NULL. Not counted in [R1]'s artist census.",
+        })
     return artists
 
 
@@ -2034,10 +2135,16 @@ def fold_songs(extract, artists_by_key):
 
         flags, notes = [], []
         if not artist:
+            # [D28a] artist_id is NOT NULL because [D4d] makes it half the song's
+            # canonical key. The placeholder is a structural requirement, NOT a
+            # resolution — the flag stays so the user still sees these rows.
             flags.append("ARTIST-MISSING")
-            notes.append("no artist anywhere in the workbook; attach the seeded "
-                         "'Unknown Artist' row rather than a null FK [D28a]")
-            artist_id = derived_id("artist", normalise("Unknown Artist"))
+            notes.append("no artist anywhere in the workbook; attached to the seeded "
+                         "'%s' row (%s) rather than a null FK [D28a]. This is a "
+                         "placeholder, not an answer — the real artist is still unknown."
+                         % (UNKNOWN_ARTIST_NAME, UNKNOWN_ARTIST_ID))
+            artist = UNKNOWN_ARTIST_NAME
+            artist_id = UNKNOWN_ARTIST_ID
         else:
             artist_id = artists_by_key.get(na, "")
 
@@ -2149,6 +2256,7 @@ def fold_songs(extract, artists_by_key):
             "song_id": derived_id("song", "%s/%s" % (artist_id, nt)),
             "title": title,
             "artist": artist,
+            "artist_id": artist_id,
             "tonal_centre": "" if tonal_centre is None else tonal_centre,
             "key_signature": "" if key_signature is None else key_signature,
             "source_key_spelling": source_spelling,
@@ -2515,6 +2623,14 @@ def main():
     if not os.path.isfile(args.source):
         sys.exit("FATAL: source workbook not found: %s" % args.source)
 
+    # Loud refusal beats a quiet overwrite: review.xlsx is a merge base carrying the
+    # user's hand resolutions in a derived copy, and it cannot be regenerated.
+    target = os.path.normcase(os.path.abspath(args.target))
+    for forbidden in FORBIDDEN_OUTPUTS:
+        if target == os.path.normcase(os.path.abspath(forbidden)):
+            sys.exit("FATAL: %s is the merge base for the user's edited copy and must not "
+                     "be overwritten. Write to review-next.xlsx instead." % args.target)
+
     print("reading %s" % args.source)
     wb = openpyxl.load_workbook(args.source, data_only=True)
 
@@ -2528,6 +2644,7 @@ def main():
     extract.seed_declared_performers()
     extract.build_setlist_items()
     extract.build_sets()
+    extract.build_bands()
     extract.flag_position_collisions()
 
     artists = fold_artists(extract.artist_cells)
@@ -2552,7 +2669,7 @@ def main():
     write_sheet(out, "Counts", counts,
                 ["section", "metric", "spec_ref", "expected", "found", "delta", "verdict"])
     write_sheet(out, "Songs", songs,
-                ["song_id", "title", "artist", "tonal_centre", "key_signature",
+                ["song_id", "title", "artist", "artist_id", "tonal_centre", "key_signature",
                  "source_key_spelling", "tonality_note", "tempo_bpm", "duration_seconds",
                  "decade", "loop_length", "chord_count", "chord_pattern",
                  "bass_difficulty", "groove", "keys_patch", "instrument_notes",
@@ -2564,11 +2681,13 @@ def main():
     write_sheet(out, "Performers", performers,
                 ["performer_id", "name", "normalised_key", "spellings", "lead_marks",
                  "backing_marks", "total_marks", "sources", "flag", "note"])
+    write_sheet(out, "Bands", extract.bands,
+                ["band_id", "name", "normalised_key", "setlists", "source", "flag", "note"])
     write_sheet(out, "Setlists", extract.setlists,
                 ["worksheet", "purpose", "performed_on", "date_source", "remainder",
-                 "proposed_classification", "confidence", "proposed_venue",
-                 "proposed_client", "in_sheet_header", "row_count", "sets_seen",
-                 "order_convention", "flag", "note"])
+                 "proposed_classification", "confidence", "band", "band_id",
+                 "proposed_venue", "proposed_client", "in_sheet_header", "row_count",
+                 "sets_seen", "order_convention", "flag", "note"])
     write_sheet(out, "Sets", extract.sets,
                 ["worksheet", "setlist_name", "set_no", "target_minutes", "item_count",
                  "source", "flag", "note"])
@@ -2619,6 +2738,7 @@ def main():
     flagged = collections.Counter()
     for name, rows in (("Songs", songs), ("Artists", artists), ("Performers", performers),
                        ("SongPerformers", song_performers), ("Sets", extract.sets),
+                       ("Bands", extract.bands),
                        ("Setlists", extract.setlists), ("SetlistItems",
                        extract.setlist_items), ("PracticeEvents", events), ("Tags", tags)):
         for row in rows:

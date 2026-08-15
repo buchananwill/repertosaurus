@@ -152,6 +152,19 @@ It is equally a design error to make a table out of something that does not repe
     produce the decomposed form. Without normalisation the two spellings of *Michael Bublé*
     derive different ids, on different devices, permanently — and nothing would look wrong on
     either screen. Normalise before doing anything else, in every implementation.
+
+17b. **NFC, not NFKC, and every implementation must agree.** NFKC additionally applies
+    compatibility folding — ligatures, full-width forms, roman-numeral characters, `™` — which
+    is meaning-changing and, because decision 5 makes ids immutable, unrecoverable. Id
+    derivation must be the least lossy transform that fixes the real keyboard-reachable fork.
+    Measured on the source workbook by two independent implementations: only three non-ASCII
+    code points occur (`é` ×21, `’` ×5, NBSP ×1), nothing is decomposed, and NFC and NFKC
+    produce identical output on every one of 24,705 text cells. **The choice is therefore free
+    today and expensive later** — compatibility characters arrive by paste, not by keyboard,
+    and one pasted `ﬂ` forks an id permanently.
+
+17c. **Matching may be lossy; derivation must not be.** If ligature-tolerant search is ever
+    wanted, add NFKC as an *extra pass in the type-ahead only*. Never in the id path.
 18. `instrument` is seeded with `vocal`, `backing vocal`, `guitar`, `bass`, `keys`. **Voice is
     an instrument here** — it behaves identically everywhere in this schema, and two parallel
     vocabularies (one for practice, one for line-ups) would drift apart. `backing vocal` is

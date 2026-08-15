@@ -2,9 +2,70 @@ package dev.songbook.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
-/** Decision 17, and the consequences decision 4c calls out by name. */
+/** Decision 17, and the consequences decisions 4c, 4e and 17a call out by name. */
 class NormaliseTest {
+
+    // Decision 17a. `e`-acute is either one code point (U+00E9) or `e` followed by a
+    // combining acute (U+0065 U+0301), and macOS and iOS input methods routinely emit the
+    // decomposed form. The characters are built from their code points rather than typed
+    // as literals: the two spellings look identical in an editor, so a literal would leave
+    // this test unable to fail, and a file re-encoding could silently rewrite one into the
+    // other.
+    private val eAcute = Char(0x00E9)
+    private val oAcute = Char(0x00F3)
+    private val combiningAcute = Char(0x0301)
+
+    private val bubleComposed = "Michael Bubl" + eAcute
+    private val bubleDecomposed = "Michael Buble" + combiningAcute
+    private val sandeComposed = "Emily Sand" + eAcute
+    private val sandeDecomposed = "Emily Sande" + combiningAcute
+
+    /** Decision 17a: NFC runs first, or the two spellings of an accent fork an id. */
+    @Test
+    fun composedAndDecomposedAccentsNormaliseIdentically() {
+        // The inputs really are different strings — the test is worthless otherwise.
+        assertNotEquals(bubleComposed, bubleDecomposed)
+        assertNotEquals(sandeComposed, sandeDecomposed)
+
+        assertEquals("michael bubl" + eAcute, normalise(bubleComposed))
+        assertEquals("michael bubl" + eAcute, normalise(bubleDecomposed))
+        assertEquals(normalise(bubleComposed), normalise(bubleDecomposed))
+
+        assertEquals("emily sand" + eAcute, normalise(sandeComposed))
+        assertEquals("emily sand" + eAcute, normalise(sandeDecomposed))
+        assertEquals(normalise(sandeComposed), normalise(sandeDecomposed))
+    }
+
+    /**
+     * Decision 4e: accented characters are letters and survive. NFC folds the combining
+     * mark back into its letter; the failure mode this guards is the mark surviving to the
+     * punctuation pass and leaving `beyonce ` with a stray space.
+     */
+    @Test
+    fun accentsSurviveNormalisation() {
+        assertEquals("beyonc" + eAcute, normalise("Beyonc" + eAcute))
+        assertEquals("beyonc" + eAcute, normalise("Beyonce" + combiningAcute))
+        assertEquals("sigur r" + oAcute + "s", normalise("Sigur R" + oAcute + "s"))
+    }
+
+    /**
+     * NFC is a no-op on pure ASCII. Every ratified id in decisions 4a and 4b keys on an
+     * ASCII name, so if this moves, they all move — see IdsTest.
+     */
+    @Test
+    fun nfcLeavesAsciiAlone() {
+        val ascii = listOf(
+            "vocal", "backing vocal", "guitar", "bass", "keys",
+            "party", "christmas", "cw-duet", "target", "need-to-learn",
+            "practice", "twitch", "rehearsal", "gig",
+            "The Fratellis", "AC/DC", "Florence & the Machine", "Unknown Artist",
+        )
+        for (value in ascii) {
+            assertEquals(value, unicodeNormalise(value), "NFC must not touch '$value'")
+        }
+    }
 
     // The five cases decision 4c states explicitly. These are the contract.
     @Test
@@ -54,7 +115,13 @@ class NormaliseTest {
 
     @Test
     fun isIdempotent() {
-        val inputs = listOf("The Fratellis", "AC/DC", "Florence & the Machine", "cw-duet")
+        val inputs = listOf(
+            "The Fratellis",
+            "AC/DC",
+            "Florence & the Machine",
+            "cw-duet",
+            bubleDecomposed,
+        )
         for (input in inputs) {
             assertEquals(normalise(input), normalise(normalise(input)))
         }

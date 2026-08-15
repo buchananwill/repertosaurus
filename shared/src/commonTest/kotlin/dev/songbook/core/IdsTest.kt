@@ -89,6 +89,61 @@ class IdsTest {
         )
     }
 
+    /**
+     * Decision 17a. The composed and decomposed spellings of an accent must derive the
+     * **same** id, or an iPhone and an Android phone fork the artist permanently —
+     * decision 5 makes an id immutable once written. The characters are built from code
+     * points because the two spellings are indistinguishable in an editor.
+     *
+     * Both artists are in the source workbook: `Michael Bublé` x18, `Emily Sandé` x3.
+     */
+    @Test
+    fun composedAndDecomposedAccentsDeriveTheSameId() {
+        val eAcute = Char(0x00E9)
+        val combiningAcute = Char(0x0301)
+
+        assertEquals(
+            "42f5d102-136f-59eb-bb4e-fc113027743e",
+            Ids.derived("artist", "Michael Bubl" + eAcute),
+        )
+        assertEquals(
+            Ids.derived("artist", "Michael Bubl" + eAcute),
+            Ids.derived("artist", "Michael Buble" + combiningAcute),
+        )
+
+        assertEquals(
+            "eec18a86-ef0d-5ee5-a8a4-3d43d71042c4",
+            Ids.derived("artist", "Emily Sand" + eAcute),
+        )
+        assertEquals(
+            Ids.derived("artist", "Emily Sand" + eAcute),
+            Ids.derived("artist", "Emily Sande" + combiningAcute),
+        )
+    }
+
+    /**
+     * The NFC step of decision 17 must not disturb a single ratified id: every seed name
+     * is ASCII, and NFC is a no-op on ASCII. The 14 seed ids themselves are asserted
+     * above, one table at a time; this pins the property they all rest on.
+     */
+    @Test
+    fun theNfcStepIsANoOpOnEverySeedName() {
+        val seedNames = listOf(
+            "vocal", "backing vocal", "guitar", "bass", "keys",
+            "party", "christmas", "cw-duet", "target", "need-to-learn",
+            "practice", "twitch", "rehearsal", "gig",
+        )
+        assertEquals(14, seedNames.size)
+        for (name in seedNames) {
+            assertEquals(name, unicodeNormalise(name), "NFC must not touch the seed '$name'")
+        }
+        // And the placeholder decision 28a seeds into `artist`.
+        assertEquals(
+            "cf06771d-4e8d-53fc-83fb-359be7dfaefc",
+            Ids.derived("artist", "Unknown Artist"),
+        )
+    }
+
     /** Decision 2: two devices creating the same logical row must converge on one id. */
     @Test
     fun derivationIsDeterministic() {

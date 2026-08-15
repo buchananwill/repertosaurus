@@ -109,8 +109,11 @@ Per-table namespaces, so that the tag `guitar` and the instrument `guitar` canno
 | `band` | `ff2f3f80-7e27-5303-b760-a36ba4655a9b` |
 | `practice_context` | `414530ce-0bcb-5557-a96a-f532ccac4bfa` |
 
-`normalise` is the single shared-core function: lowercase, trim, strip a leading `The `, fold
-`&` to `and`, strip punctuation, collapse whitespace. Note the consequence for tags — `cw-duet`
+`normalise` is the single shared-core function: **Unicode-normalise to NFC** (decision 17a),
+then lowercase, trim, strip a leading `The `, fold `&` to `and`, strip punctuation, collapse
+whitespace. The NFC step is first and is not optional — without it the composed and decomposed
+spellings of `Bublé` derive different ids — and it is a no-op on every ASCII seed name above,
+so none of the ids in this file move. Note the consequence for tags — `cw-duet`
 keys on `cw duet` and `need-to-learn` on `need to learn`, while the stored display name keeps
 its hyphens.
 
