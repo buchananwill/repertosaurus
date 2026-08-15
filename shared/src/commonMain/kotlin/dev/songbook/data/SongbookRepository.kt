@@ -54,6 +54,75 @@ public class SongbookRepository(
         database.instrumentQueries.selectAllLive().executeAsList()
             .map { Instrument(id = it.id, name = it.name) }
 
+    /**
+     * Create on enter, for the instrument type-ahead (decisions 15, 16). The id is
+     * `UUIDv5(namespace(instrument), normalise(name))` (decisions 2, 4), so two devices
+     * adding `mandolin` independently converge on one row instead of forking it.
+     *
+     * A name that normalises to an existing row returns that row's id and leaves its
+     * stored spelling alone. If that row had been removed, this brings it back: asking for
+     * it again is the clearest possible statement that the tombstone was wrong, and a
+     * separate row is not on offer anyway — the derived id is the same one.
+     */
+    public fun addInstrument(name: String): String {
+        val display = name.trim()
+        require(display.isNotEmpty()) { "an instrument needs a name" }
+        val id = Ids.derived("instrument", display)
+        val existing = database.instrumentQueries.selectById(id).executeAsOneOrNull()
+        when {
+            existing == null -> database.instrumentQueries.insert(
+                id = id,
+                name = display,
+                updated_at = Timestamps.now(clock),
+                deleted_at = null,
+                device_id = deviceId,
+            )
+            existing.deleted_at != null -> database.instrumentQueries.applyMerged(
+                id = id,
+                name = existing.name,
+                updated_at = Timestamps.now(clock),
+                deleted_at = null,
+                device_id = deviceId,
+            )
+        }
+        return id
+    }
+
+    /**
+     * Rename an instrument. The id is **not** re-derived: an id is opaque and immutable
+     * once written (decision 5), and every `practice_event` row points at this one. A
+     * re-derived id would orphan every event, silently.
+     */
+    public fun renameInstrument(id: String, name: String) {
+        val display = name.trim()
+        require(display.isNotEmpty()) { "an instrument needs a name" }
+        database.instrumentQueries.update(
+            name = display,
+            updated_at = Timestamps.now(clock),
+            device_id = deviceId,
+            id = id,
+        )
+    }
+
+    /**
+     * Remove an instrument: a tombstone, never a `DELETE` (decision 9). A hard delete gets
+     * reinserted by any stale device on the next merge, and the practice events pointing
+     * at it must survive either way — they do, and they keep counting.
+     */
+    public fun removeInstrument(id: String) {
+        val now = Timestamps.now(clock)
+        database.instrumentQueries.softDelete(
+            deleted_at = now,
+            updated_at = now,
+            device_id = deviceId,
+            id = id,
+        )
+    }
+
+    /** Live practice events on one instrument — what removing it would put out of sight. */
+    public fun practiceEventsOn(instrumentId: String): Long =
+        database.practice_eventQueries.countLiveByInstrument(instrumentId).executeAsOne()
+
     /** Live artists, ordered by `sort_name` — the article at the end, per decision 21. */
     public fun artists(): List<Artist> =
         database.artistQueries.selectAllLive().executeAsList()

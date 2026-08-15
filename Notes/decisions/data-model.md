@@ -170,6 +170,21 @@ It is equally a design error to make a table out of something that does not repe
 
 17c. **Matching may be lossy; derivation must not be.** If ligature-tolerant search is ever
     wanted, add NFKC as an *extra pass in the type-ahead only*. Never in the id path.
+
+17d. **Normalisation does not catch typos, and the difference decides who protects the user.**
+    Two cases look alike and behave oppositely:
+    - `Fratellis` / `The Fratellis`, `AC DC` / `AC/DC`, `Florence & the Machine` — these
+      normalise to the *same* string, so they derive the *same* id and converge **on their own**.
+      The type-ahead suggestion is a courtesy; the derived id is the guarantee. A user who
+      ignores the suggestion still gets one row.
+    - `Ukelele` / `Ukulele`, `Beyonce` / `Beyoncé` — these normalise to *different* strings, so
+      they derive *different* ids and **never converge**. Nothing downstream will ever merge
+      them.
+
+    For the second class the UI is the only defence, so the type-ahead carries a capped
+    edit-distance pass — one edit, or two at eight characters or more — surfacing the existing
+    row before a duplicate is committed. **Matching only; it must never reach id derivation**
+    (17c), or two genuinely different names one edit apart would collapse into one row.
 18. `instrument` is seeded with `vocal`, `backing vocal`, `guitar`, `bass`, `keys`, **in that
     display order**. The schema cannot currently express it — there is no ordering column, and
     sorting by name gives *backing vocal, bass, guitar, keys, vocal*, which puts the most-used

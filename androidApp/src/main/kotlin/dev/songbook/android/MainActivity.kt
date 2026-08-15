@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
- * One screen, one Activity. Navigation arrives with the library browser and song detail,
- * neither of which is in phase 1.
+ * One Activity. Routing is a `when` inside [SongbookApp]; a navigation library arrives with
+ * the library browser and song detail, neither of which is in phase 1.
  *
  * Nothing is opened here: the database lives in [AppGraph] for the life of the process, so
  * a rotation does not reopen SQLite and an import can close and swap the file underneath.
@@ -27,7 +27,7 @@ public class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val model: SessionViewModel =
                         viewModel(factory = SessionViewModel.factory(graph))
-                    SessionScreen(model)
+                    SongbookApp(model)
                 }
             }
         }

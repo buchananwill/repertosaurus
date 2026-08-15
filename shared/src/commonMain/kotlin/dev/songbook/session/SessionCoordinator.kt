@@ -1,6 +1,7 @@
 package dev.songbook.session
 
 import dev.songbook.core.Ids
+import dev.songbook.core.NearMatches
 import dev.songbook.core.normalise
 import dev.songbook.data.SongbookRepository
 
@@ -173,18 +174,21 @@ public object SessionInstruments {
 }
 
 /**
- * The near-match pass behind the artist type-ahead — decisions 16 and 17, and the mechanism
- * the whole artist-normalisation design rests on.
+ * The artist type-ahead — decisions 16 and 17, and the mechanism the whole
+ * artist-normalisation design rests on.
  *
- * Matching is on [normalise], never on the raw string. That is not a detail: `normalise`
- * strips a leading `The `, folds `&` to `and` and turns punctuation into a space, so
- * `Fratellis` finds `The Fratellis` and `AC DC` finds `AC/DC`. A prefix match over raw text
- * finds neither, and the user creates a second artist that no merge rule can reconcile —
- * which is precisely the failure the source workbook demonstrates 288 times.
+ * The matching itself is [NearMatches], shared with the instrument type-ahead and with
+ * every lookup wired later. Matching runs over [normalise], never the raw string: it strips
+ * a leading `The `, folds `&` to `and` and turns punctuation into a space, so `Fratellis`
+ * finds `The Fratellis` and `AC DC` finds `AC/DC`. A prefix match over raw text finds
+ * neither, and the user creates a second artist that no merge rule can reconcile — which is
+ * precisely the failure the source workbook demonstrates 288 times.
  *
- * Because a derived id is `UUIDv5(namespace, normalise(name))`, an exact match here is also
- * an exact match on the id: typing a name that normalises to an existing one resolves to
- * that row whether or not the user notices the suggestion.
+ * Because a derived id is `UUIDv5(namespace, normalise(name))`, a match that normalises
+ * equal is also a match on the id: typing a name that normalises to an existing one
+ * resolves to that row whether or not the user notices the suggestion. A *typo* does not —
+ * `Beyonce` and `Beyoncé` derive different ids — which is why [NearMatches] also surfaces
+ * near misses by edit distance.
  */
 public object ArtistSuggestions {
 
@@ -192,31 +196,8 @@ public object ArtistSuggestions {
         query: String,
         artists: List<SongbookRepository.Artist>,
         limit: Int = 6,
-    ): List<SongbookRepository.Artist> {
-        val needle = normalise(query)
-        if (needle.isEmpty()) return emptyList()
-        return artists
-            .mapNotNull { artist ->
-                val hay = normalise(artist.name)
-                val rank = when {
-                    hay == needle -> 0
-                    hay.startsWith(needle) -> 1
-                    hay.contains(needle) -> 2
-                    // Every word typed appears somewhere in the name: "kaiser chiefs"
-                    // finds "The Kaiser Chiefs", and so does "chiefs kaiser".
-                    needle.split(' ').all { hay.contains(it) } -> 3
-                    // Last resort, ignoring the spaces normalise put where punctuation
-                    // was, so "acdc" still finds "AC/DC". Matching may be lossy where
-                    // derivation may not (decision 17c) — this pass exists only here.
-                    hay.replace(" ", "").contains(needle.replace(" ", "")) -> 4
-                    else -> null
-                }
-                rank?.let { it to artist }
-            }
-            .sortedWith(compareBy({ it.first }, { it.second.name }))
-            .take(limit)
-            .map { it.second }
-    }
+    ): List<SongbookRepository.Artist> =
+        NearMatches.search(query, artists, limit) { it.name }
 }
 
 /**

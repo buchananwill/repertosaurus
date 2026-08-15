@@ -11,6 +11,10 @@ import dev.songbook.data.ImportRejected
 import dev.songbook.data.SampleData
 import dev.songbook.data.SongbookRepository
 import dev.songbook.session.InstrumentChip
+import dev.songbook.session.LookupItem
+import dev.songbook.session.LookupKind
+import dev.songbook.session.LookupStore
+import dev.songbook.session.LookupStores
 import dev.songbook.session.SessionCoordinator
 import dev.songbook.session.SessionOrder
 import dev.songbook.session.SessionPreferences
@@ -248,6 +252,82 @@ public class SessionViewModel(
             loadArtists()
         }
     }
+
+    // ---- Managing a lookup table (instruments today) -----------------------------------
+
+    private val _lookups = MutableStateFlow(LookupsState())
+    public val lookups: StateFlow<LookupsState> = _lookups.asStateFlow()
+
+    private fun store(kind: LookupKind) = LookupStores.of(kind, holder.repository)
+
+    public fun loadLookups(kind: LookupKind) {
+        _lookups.update { it.copy(kind = kind, busy = true) }
+        viewModelScope.launch {
+            val outcome = withContext(io) { runCatching { store(kind).items() } }
+            _lookups.update { state ->
+                outcome.fold(
+                    onSuccess = { state.copy(items = it, busy = false) },
+                    onFailure = { failure ->
+                        state.copy(busy = false, message = "Could not load: ${failure.message}")
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * Create on enter (decision 16). Every mutation reloads the session list as well: the
+     * chip row *is* the instrument table and must not lag behind it.
+     */
+    public fun addLookup(kind: LookupKind, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        mutate(kind, "Added $trimmed") { it.add(trimmed) }
+    }
+
+    public fun renameLookup(kind: LookupKind, id: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        mutate(kind, "Renamed to $trimmed") { it.rename(id, trimmed) }
+    }
+
+    public fun removeLookup(kind: LookupKind, id: String, name: String) {
+        mutate(kind, "Removed $name") { it.remove(id) }
+    }
+
+    private fun mutate(kind: LookupKind, done: String, block: (LookupStore) -> Unit) {
+        _lookups.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    val store = store(kind)
+                    block(store)
+                    store.items()
+                }
+            }
+            _lookups.update { state ->
+                outcome.fold(
+                    onSuccess = { state.copy(items = it, busy = false, message = done) },
+                    onFailure = { failure ->
+                        state.copy(busy = false, message = "That did not work: ${failure.message}")
+                    },
+                )
+            }
+            if (outcome.isSuccess) reload()
+        }
+    }
+
+    public fun clearLookupMessage() {
+        _lookups.update { it.copy(message = null) }
+    }
+
+    /** The manage screen's state. It does not know which lookup it is showing. */
+    public data class LookupsState(
+        val kind: LookupKind = LookupKind.INSTRUMENT,
+        val items: List<LookupItem> = emptyList(),
+        val busy: Boolean = false,
+        val message: String? = null,
+    )
 
     // ---- Import and export ------------------------------------------------------------
 

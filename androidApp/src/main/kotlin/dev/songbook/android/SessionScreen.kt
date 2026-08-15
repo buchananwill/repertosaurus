@@ -1,7 +1,5 @@
 package dev.songbook.android
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -49,7 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,36 +64,27 @@ import kotlinx.datetime.LocalDate
  *
  * Layout follows the target device and the posture: a Galaxy S20 on a music stand, one
  * hand, mid-practice. The list fills the bottom two thirds where the thumb lands, because
- * tapping a row is the only thing that happens often. Import — the one destructive control
- * in the app — sits in the top bar, as far from a mis-tap as the screen allows.
+ * tapping a row is the only thing that happens often. Everything that is not the tap path
+ * lives in the drawer, out of the way — except Export, which stays in the top bar because
+ * it is the only backup the user has until phase 2 sync exists.
  *
  * No state is owned here. Everything comes from [SessionViewModel], and the rules it
  * enforces live in the shared core.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-public fun SessionScreen(viewModel: SessionViewModel) {
+public fun SessionScreen(
+    viewModel: SessionViewModel,
+    onOpenDrawer: () -> Unit,
+    onExport: () -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     val transfer by viewModel.transfer.collectAsState()
-    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var feelFor by remember { mutableStateOf<SessionRow?>(null) }
     var addingSong by remember { mutableStateOf(false) }
     var addSongTitle by remember { mutableStateOf("") }
     val artists by viewModel.artists.collectAsState()
-
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { uri ->
-        if (uri != null) viewModel.export { context.contentResolver.openOutputStream(uri) }
-    }
-    val importLauncher = rememberLauncherForActivityResult(
-        // Anything: a `.db` file has no registered MIME type on most providers, and
-        // filtering by one is the fastest way to make the user's own backup unpickable.
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) viewModel.stageImport { context.contentResolver.openInputStream(uri) }
-    }
 
     val undo = state.undo
     LaunchedEffect(undo?.tapId) {
@@ -142,15 +130,13 @@ public fun SessionScreen(viewModel: SessionViewModel) {
         topBar = {
             TopAppBar(
                 title = { Text("Songbook") },
+                navigationIcon = {
+                    TextButton(onClick = onOpenDrawer) { Text("Menu") }
+                },
                 actions = {
                     // Export is the only backup there is until phase 2 sync exists, so it
-                    // is on the surface, not behind an overflow.
-                    TextButton(onClick = { exportLauncher.launch(viewModel.exportFileName()) }) {
-                        Text("Export")
-                    }
-                    TextButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
-                        Text("Import")
-                    }
+                    // stays on the surface as well as being the first item in the drawer.
+                    TextButton(onClick = onExport) { Text("Export") }
                 },
             )
         },
