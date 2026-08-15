@@ -12,6 +12,14 @@ The chronological thread of leadership, newest first. Entries are append-only an
 edited to reflect later understanding — a decision that was later reversed stays written as it
 was made, and the reversal is recorded where it happened.
 
+- [2026-08-16 — Session 04: The App Runs on Real Data](2026-08-16-session-04.md)
+  — Phase 1 functionally complete. Session screen, add-song with the artist type-ahead, sort
+  toggle, drawer and instrument management; the build pass emitting a verified database of 479
+  songs and 826 practice events, delivered to the user with an APK. Duets became the
+  `setlist_item_performer` junction. A junction id fork that would have silently doubled every
+  staging row was found by cross-checking the two implementations against each other and closed
+  across 789 ids. 19 tables, 124 tests.
+
 - [2026-08-15 — Session 03: Phase 0 Built and Corrected, Phase 1 Foundation Landed](2026-08-15-session-03.md)
   — First code. Schema (18 `.sq`), shared core (57 tests) and a building APK; the phase 0
   extract complete after three rounds of correction, with cell accounting closed to zero. The

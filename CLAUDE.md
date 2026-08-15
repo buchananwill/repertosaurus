@@ -101,6 +101,28 @@ backticked paths.
 
 ## Engineering Conventions
 
-To be established with the first code. Language is Kotlin; the shared core is Kotlin
-Multiplatform, Android UI is Compose, and the local store is SQLDelight over SQLite. Schema
-lives in real `.sq` files so it reads as SQL.
+Kotlin throughout. The shared core is Kotlin Multiplatform, Android UI is Compose, the local
+store is SQLDelight over SQLite, and the schema lives in real `.sq` files so it reads as SQL.
+The one-off migration is throwaway Python in `tools/import/` and never ships.
+
+**Two implementations derive ids — the Kotlin core and the Python migration — and they must
+agree byte for byte.** This has forked twice. Both times a decision was amended and only one
+side was updated, and neither time did anything fail loudly. When you touch id derivation,
+normalisation, or a decision either depends on:
+
+1. Change **both** implementations in the same piece of work.
+2. **Cross-check against real data** — recompute the migration's emitted ids with the Kotlin
+   implementation and compare, rather than reasoning that they agree.
+3. Pin the result in a test using values **lifted from the migration's output**, not from your
+   own derivation. A test that agrees with its own author cannot catch this class of bug.
+4. Grep for stale comments. A comment beside the implementation outlives the spec paragraph it
+   contradicts, and reads as more authoritative.
+
+**minSdk 26 means SQLite 3.19** — no ordered aggregates, window functions or UPSERT. See
+[Notes/platform/stack-and-delivery.md](./Notes/platform/stack-and-delivery.md) before writing
+anything clever in SQL, and test ordering by inserting rows in the wrong order.
+
+**Verification is the definition of done, not "the code is written."** Every agent brief should
+say what must be *demonstrated* — tests passing, a query's real output quoted, a build produced
+— and every report should state plainly what could not be verified. Nothing has run on physical
+hardware; anything visual or tactile is untested by definition.

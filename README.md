@@ -10,8 +10,16 @@ offline, on a phone, mid-practice. Everything else is subordinate to that.
 
 ## Status
 
-Design complete, no code yet. See [Notes/journal](Notes/journal/_index-journal.md) for the
-current state.
+**Phase 1 is functionally complete on Android.** Tap-to-log with undo, `feel` on long-press,
+coldest/hottest sort, search, add-song with a near-match artist type-ahead, instrument
+management behind a drawer, and import/export. 19 tables, 124 tests.
+
+The migration out of the old workbook runs end to end: 479 songs, 826 practice events and 54
+set lists, into a database the app imports.
+
+Next is phase 2, sync through the user's own Dropbox. See
+[Notes/journal](Notes/journal/_index-journal.md) for the current state — the most recent entry
+is always the place to start.
 
 ## Stack
 
