@@ -45,22 +45,30 @@ CREATE INDEX song_groove ON song(groove_id);
 
 -- The Session screen (decisions 8, 44, 48).
 --
--- Coldest first for one discipline: every live song, ordered by days since its last
--- practice on :instrumentId, never-practised songs first. Voided events are removed by
--- the LEFT JOIN against practice_event_void plus the IS NULL test — a left anti-join.
--- A union merge cannot suppress a row, so this anti-join is the only correct way to
--- honour an undo (decision 8).
+-- Coldest first for one discipline: every live song, ordered by its last practice on
+-- :instrumentId, never-practised songs first. Voided events are excluded by the
+-- NOT EXISTS anti-join against practice_event_void. A union merge cannot suppress a row,
+-- so this anti-join is the only correct way to honour an undo (decision 8).
 --
 -- last_practised and times_practised are derived here, never stored (decision 48).
+--
+-- The anti-join sits inside the practice_event ON clause rather than in the WHERE
+-- clause. In the WHERE clause it filters the *song* away once every one of its events is
+-- voided, so undoing the only log for a song would drop the song out of the session list
+-- altogether instead of returning it to never-practised — the opposite of decision 8.
+--
+-- days_since is NOT selected here. SQLDelight's SQLite dialect types
+-- `julianday(a) - julianday(b)` as a non-null TEXT, and a CAST to INTEGER as a non-null
+-- INTEGER, while SQLite itself yields NULL for a never-practised song — which is exactly
+-- the row this ordering puts first. It is computed from last_practised in the shared
+-- core instead, per decisions 48 and 57.
 selectByStaleness:
 SELECT
     song.id                AS song_id,
     song.title             AS title,
     artist.name            AS artist_name,
     MAX(practice_event.logged_on)   AS last_practised,
-    COUNT(practice_event.id)        AS times_practised,
-    CAST(julianday(:today) - julianday(MAX(practice_event.logged_on)) AS INTEGER)
-                                    AS days_since
+    COUNT(practice_event.id)        AS times_practised
 FROM song
 LEFT JOIN artist
        ON artist.id = song.artist_id
@@ -68,10 +76,11 @@ LEFT JOIN artist
 LEFT JOIN practice_event
        ON practice_event.song_id = song.id
       AND practice_event.instrument_id = :instrumentId
-LEFT JOIN practice_event_void
-       ON practice_event_void.practice_event_id = practice_event.id
+      AND NOT EXISTS (
+              SELECT 1 FROM practice_event_void
+              WHERE practice_event_void.practice_event_id = practice_event.id
+          )
 WHERE song.deleted_at IS NULL
-  AND practice_event_void.id IS NULL
 GROUP BY song.id, song.title, artist.name
 ORDER BY last_practised IS NOT NULL, last_practised ASC, song.title ASC;
 
@@ -82,9 +91,7 @@ SELECT
     song.title             AS title,
     artist.name            AS artist_name,
     MAX(practice_event.logged_on)   AS last_practised,
-    COUNT(practice_event.id)        AS times_practised,
-    CAST(julianday(:today) - julianday(MAX(practice_event.logged_on)) AS INTEGER)
-                                    AS days_since
+    COUNT(practice_event.id)        AS times_practised
 FROM song
 JOIN setlist_item
        ON setlist_item.song_id = song.id
@@ -99,10 +106,11 @@ LEFT JOIN artist
 LEFT JOIN practice_event
        ON practice_event.song_id = song.id
       AND practice_event.instrument_id = :instrumentId
-LEFT JOIN practice_event_void
-       ON practice_event_void.practice_event_id = practice_event.id
+      AND NOT EXISTS (
+              SELECT 1 FROM practice_event_void
+              WHERE practice_event_void.practice_event_id = practice_event.id
+          )
 WHERE song.deleted_at IS NULL
-  AND practice_event_void.id IS NULL
 GROUP BY song.id, song.title, artist.name
 ORDER BY last_practised IS NOT NULL, last_practised ASC, song.title ASC;
 

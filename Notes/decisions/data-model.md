@@ -91,6 +91,17 @@ It is equally a design error to make a table out of something that does not repe
 4c. Decision 17's normalisation strips punctuation, so the seeded tags `cw-duet` and
     `need-to-learn` key on `cw duet` and `need to learn`. Display names keep their hyphens.
     This is correct — it means a user typing "CW Duet" matches the existing tag.
+
+4d. **The `song` canonical key is `artist_id + "/" + normalise(title)`.** The separator is
+    ratified, not incidental: the Kotlin core and the Python migration must concatenate
+    identically or the same song gets two ids and the devices never converge.
+
+4e. **"Punctuation" means anything that is not a Unicode letter or digit.** Accented characters
+    are letters and survive — `Beyoncé` normalises with its `é` intact. Two consequences to
+    hold both implementations to: Python's `\w` also matches Unicode letters, so the two agree
+    on accents; but Python's `\w` includes `_` while "letter or digit" does not, so **the
+    underscore must be handled explicitly** in whichever implementation would otherwise keep
+    it. Any divergence here silently forks an id.
 5. An id is opaque and immutable once written. Renaming an artist changes `name`, never the id;
    the derived id only has to converge at creation time, which is the moment duplicates are
    created.
@@ -306,6 +317,12 @@ It is equally a design error to make a table out of something that does not repe
     with the smaller absolute value, breaking a 6-versus-−6 tie toward flats.** Without this
     rule C major transposed up a semitone renders as C♯ major with seven sharps rather than
     D♭ major with five flats. Unit-test the full 15 × 12 grid.
+56a. **The respelling rule fires only when `transpose ≠ 0`.** `key_signature` is already
+    constrained to −7..+7, so at zero there is nothing out of range to reduce and
+    `soundingKeySignature(ks, 0)` must be the identity. Applying it uniformly would silently
+    re-spell a stored value the user chose deliberately — a song genuinely notated in C♯ major
+    would display as D♭ major and never show what was entered. Display stored data as stored;
+    respell only what transposition actually moved.
 57. This arithmetic lives in the shared core with tests, never in a UI layer.
 58. `lead_performer_id` is a foreign key to `performer`, per performance. Distinct from decision
     26: `song_performer` says who *can* sing it, `setlist_item.lead_performer_id` says who
