@@ -123,58 +123,81 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
     the only source of gig dates anywhere in the workbook and fills a `setlist` column that
     previously had no source at all.
 23. **Do not infer what the non-date remainder is.** It is heterogeneous and nothing in it is
-    self-describing. It may be:
-    - a **band** — `Blue Lion` is an act the user performs in, not a pub. Earlier gig sheets
-      name others outright: *The Fleet*, *The Gifted*, *Three Lance*, *Jukebox Nation*.
-    - a **venue** — plausibly `Chigwell School`, `St Lawrence`, and the holiday parks that
-      appear in in-sheet headers (`Seal Bay - Selsey`, `Haven - Allhallows`).
-    - an **event** — `Jukefest 2025`, `Radiant Lanterns 2022`.
-    - a **configuration** — `Acoustic`, the `ACOUSTIC` suffix, `easier`,
-      `70s-disco-oriented`, `Bass-vox Rep`.
-    - a **client** — `MRS & Mrs Dale`, `Mr & Mrs Brinkley`, `Emma Munro-Faure & Dha…`.
+    self-describing. An early pass took `Blue Lion` for a venue; it is a band. **A wrong guess
+    here silently corrupts `band_id` and `venue_id` for the whole history**, and unlike a key
+    or a tempo there is no musical check that would catch it later.
 
-    An early pass took `Blue Lion` for a venue and was wrong. Emit every distinct remainder to
-    the review sheet with a proposed classification and a confidence, and let the human decide.
-    **A wrong guess here silently corrupts `band_id` and `venue_id` for the whole history**, and
-    unlike a key or a tempo there is no musical check that would catch it later.
-24. In-sheet header rows are equally mixed — `Seal Bay - Selsey` (venue),
+    These are **confirmed by the user** and are seed data, not guesses:
+
+    | Remainder | Classification |
+    |---|---|
+    | `Blue Lion` | band |
+    | `Radiant Lanterns` | band |
+    | `LPT with Ryan` | band |
+    | `Chigwell School`, `St Lawrence`, `Jukefest`, `50 Shades of Grant` | gig / client |
+
+    Everything else is emitted to the review sheet with a proposed classification and a
+    confidence, for the human to decide. The candidate types are **band**, **venue**,
+    **client**, **event**, and **configuration** (`Acoustic`, the `ACOUSTIC` suffix, `easier`,
+    `70s-disco-oriented`).
+24. Within a gig remainder, splitting **venue** from **client** stays a flagged decision.
+    Organisation-shaped names (`Chigwell School`, `St Lawrence`, and the holiday parks in
+    in-sheet headers — `Seal Bay - Selsey`, `Haven - Allhallows`) are plausibly both the venue
+    and the client; person-shaped names (`MRS & Mrs Dale`, `Mr & Mrs Brinkley`) are clients
+    only. Propose, do not decide.
+25. **Event names get no table.** `Jukefest 2025` and similar go in `setlist.name`, with
+    `venue_id` and `client` left null unless separately recoverable. A one-off festival name is
+    not a repeating entity and fails the normalisation test.
+26. In-sheet header rows are equally mixed — `Seal Bay - Selsey` (venue),
     `GU19 5PJ - Adam & Anna Scott` (postcode plus client), `SO42 7QB - Mr & Mrs Anthony Horne`
     (postcode plus client), `Kendra Piper` (a person), `50 Shades of Grant` (an act). Same
     treatment: propose, flag, do not assume.
-25. **Excel truncates worksheet names to 31 characters.** At least two are cut off
+27. **Excel truncates worksheet names to 31 characters.** At least two are cut off
     (`Filtered 24-8-24 70s-disco-orie`, `15-6-24 Emma Munro-Faure &  Dha`). Recover the full
     name from the in-sheet header where one exists; flag to the review sheet where it does not.
-26. **Not every tab is a gig.** Classify before importing, and flag anything unclassifiable:
+28. **Not every tab is a gig.** Classify before importing, and flag anything unclassifiable:
     - `Everything` — the master song list, not a setlist. Source for song facts.
     - `Sheet2` — junk, skip.
-    - `Bass-vox Rep`, `LPT with Ryan` — repertoire views or working lists, not performances.
-      Import as setlists only if they carry an ordered song list; otherwise skip and report.
+    - **`Bass-vox Rep` is not a setlist and must not be imported as one.** It is the user
+      working out which songs are easier to *play bass and sing at the same time*. Import it as
+      a **tag** — seed `bass-vox` — with one `song_tag` row per song listed. See rule 29.
+    - `LPT with Ryan` — a band (rule 23). Whether the tab is a performance or a working
+      repertoire for that band is unresolved; import as a setlist if it carries an ordered song
+      list, otherwise as a `band`-scoped tag, and flag either way.
     - `Copy of 1-7-23`, `Copy of 1-7-23 1`, `Copy of 20-5-23` — literal duplicate tabs. Import,
       suffix, and flag for deletion, exactly as with the two Anthony Horne tabs.
     - Variant tabs of one gig — `Blue Lion 7-6-25` and `Blue Lion 7-6-25 ACOUSTIC`,
       `15-10-22` and `15-10-22 easier`, `24-8-24 70s-disco-oriented` and its `Filtered`
       counterpart. These are **not** duplicates; they are alternative sets for the same booking.
       Import both, keep the qualifier in `setlist.name`, and flag the pair.
-27. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
+29. **Capability lists become tags, not setlists.** A tab that enumerates songs meeting a
+    playing constraint rather than an ordered performance is a filter over the repertoire.
+    `Bass-vox Rep` is the known case; treat any similar tab the same way and flag it.
+
+    This is worth stating because the schema cannot derive it. `song_instrument.difficulty`
+    records how hard a song is on bass, and separately how hard it is to sing — but the
+    difficulty of doing *both at once* is emergent and is not a function of either. A tag
+    captures it honestly; a computed field would be a lie.
+30. **Parse `NxM` set structure** (`2 x 60mins`, `3x40`) from the tab into N `setlist_set` rows
     with `target_minutes = M`. Default to a single set when the tab says nothing. Without this
     no `setlist_set` exists, and `setlist_item.setlist_set_id` has nothing to point at.
-28. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
+31. Row order becomes `position`, allocated as fractional ordering keys (decision 54), not
     integers. Where an `Order` column holds a decimal (`0.2`, `1.09`, `2.03`, `3.07`), the
     integer part selects the `setlist_set` and the fractional part orders within it.
-29. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
+32. **`Order` is ambiguous across tabs** and this is not fully resolved. Some tabs use the
     set.position decimal; others hold values like `216`, `230`, `300` that are duration in
     seconds. Disambiguate per tab by inspecting the value range, and flag any tab that cannot
     be classified confidently rather than importing it wrong.
-30. Where a tab's `Order` column is classified as duration, **write it to
+33. Where a tab's `Order` column is classified as duration, **write it to
     `song.duration_seconds`.** It is the only source of duration anywhere in the workbook, and
     the set list screen needs it to total against `target_minutes`. Discovering it and then
     discarding it would be waste.
-31. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
+34. Where a song's tempo on a gig tab differs from the master value, write the tab's value to
     that item's `setlist_item.tempo_override` rather than dropping it. Of 27 tempo
     disagreements, 5 are rounding and 3 are half-time notation, but the remaining 19 are real —
     and several are deliberate, a party arrangement taken faster. `tempo_override` is the
     column designed for exactly that.
-32. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
+35. Two tabs carry the client name `SO42 7QB - Mr & Mrs Anthony Horne`, 56 rows each, differing
     in five cells (`FD`/`LV`, and `Andy?`/`Andy` annotations). Import both, suffix the names,
     and flag for the user to delete one. Which was actually played is not recoverable.
 
