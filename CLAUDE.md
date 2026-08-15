@@ -75,6 +75,27 @@ Rules:
 The Songs 2026 workbook is already downloaded to `.scratch/Songs2026.xlsx` (gitignored). Import
 agents read that file. They do not fetch it.
 
+### Reviewers
+
+Three project-scoped review agents live in [.claude/agents/](./.claude/agents/). They are
+translations of the UE/C++ and React reviewers into Kotlin, and they carry the same mandate
+discipline: strictly read-only, narrow lane, no cross-concern commentary, BLOCKING/NOTE output with
+`file:line` evidence.
+
+| Agent | Owns | Explicitly not |
+|---|---|---|
+| `kotlin-safety-correctness-reviewer` | nullability, coroutines, mutability escape, persistence, KMP target reach, logic, spec compliance, test gaps | style, decomposition |
+| `kotlin-style-decomposition-reviewer` | idiom, file bloat, DRY, nesting, module placement, God objects | safety, correctness |
+| `compose-quality-reviewer` | state hoisting, recomposition, effect and list keys, modifier convention, UI/core placement | everything above |
+
+Run the safety and style reviewers on any non-trivial Kotlin change, and always as a **different
+agent than wrote the code**. Two of them each read `Notes/decisions/` and the latest journal entry
+first, so a recorded decision is not reported as a defect.
+
+Two habits are worth keeping when briefing them: name the **features that are coming** so the review
+is predictive rather than generic, and ask for the **"Deliberately Fine"** section, so a later reader
+does not "fix" a deliberate decision.
+
 ### Journalling
 
 Append to the journal at the end of any session that changes the design, lands code, or
