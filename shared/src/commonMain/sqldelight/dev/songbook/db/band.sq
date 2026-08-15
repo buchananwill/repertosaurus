@@ -1,0 +1,67 @@
+-- band — lookup, user-extensible, derived id (decisions 15, 16, 49a, 49b, 49c).
+-- The user performs under several acts and configurations, and a set list belongs to one
+-- of them: `Blue Lion` recurs across four workbook tabs, `Acoustic`/`ACOUSTIC` mark a
+-- different configuration of the same booking.
+--
+-- Band and venue are different dimensions and must not be conflated (decision 49b).
+-- Per-band repertoire is not a junction in phase 1 — use `tag` for it (decision 49c).
+--
+-- Not seeded: the vocabulary arrives from the migration and the type-ahead.
+
+CREATE TABLE band (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    notes       TEXT,
+
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    device_id   TEXT NOT NULL,
+
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX band_name ON band(name);
+
+selectAllLive:
+SELECT *
+FROM band
+WHERE deleted_at IS NULL
+ORDER BY name;
+
+selectById:
+SELECT *
+FROM band
+WHERE id = ?;
+
+selectChangedSince:
+SELECT *
+FROM band
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+-- Decision 49: a set list belongs to one act.
+selectSetlistsForBand:
+SELECT setlist.id, setlist.name, setlist.performed_on, setlist.client
+FROM setlist
+WHERE setlist.band_id = ?
+  AND setlist.deleted_at IS NULL
+ORDER BY setlist.performed_on DESC;
+
+insert:
+INSERT INTO band(id, name, notes, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO band(id, name, notes, updated_at, deleted_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE band
+SET name = ?, notes = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+softDelete:
+UPDATE band
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

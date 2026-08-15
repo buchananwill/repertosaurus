@@ -23,10 +23,15 @@ class KeysTest {
         }
     }
 
+    /**
+     * The respelling rule only governs a real transposition (decision 56a), so the grid of
+     * non-zero transposes is 1..12. At transpose 0 the stored signature is displayed as
+     * stored — see [transposeZeroIsTheIdentityForEveryKeySignature].
+     */
     @Test
     fun theGridNeverPrefersALargerSpellingThanNecessary() {
         for (keySignature in -7..7) {
-            for (transpose in 0..11) {
+            for (transpose in 1..12) {
                 val sounding = Keys.soundingKeySignature(keySignature, transpose)
                 val alternative = if (sounding > 0) sounding - 12 else sounding + 12
                 assertTrue(
@@ -43,7 +48,7 @@ class KeysTest {
         // A sounding signature and a sounding pitch class must describe the same key, so
         // two routes to the same sounding key must agree.
         for (keySignature in -7..7) {
-            for (transpose in 0..11) {
+            for (transpose in 1..12) {
                 val once = Keys.soundingKeySignature(keySignature, transpose)
                 val twice = Keys.soundingKeySignature(
                     Keys.soundingKeySignature(keySignature, transpose - 1),
@@ -52,6 +57,35 @@ class KeysTest {
                 assertEquals(once, twice, "ks=$keySignature transpose=$transpose")
             }
         }
+    }
+
+    // ---- Transpose 0 is the identity (decision 56a) -----------------------------------
+
+    /**
+     * Decision 56a. `key_signature` is already constrained to -7..+7, so at zero there is
+     * nothing out of range to reduce. A stored C-sharp major (+7) must display as C-sharp
+     * major, not be silently re-spelled to D-flat major.
+     */
+    @Test
+    fun transposeZeroIsTheIdentityForEveryKeySignature() {
+        for (keySignature in -7..7) {
+            assertEquals(
+                keySignature,
+                Keys.soundingKeySignature(keySignature, 0),
+                "ks=$keySignature must survive transpose 0 unchanged",
+            )
+        }
+    }
+
+    /** The cases the uniform rule used to break: +/-6 and +/-7 at rest. */
+    @Test
+    fun storedSixAndSevenAccidentalKeysAreNotRespelledAtRest() {
+        assertEquals(7, Keys.soundingKeySignature(7, 0))
+        assertEquals(-7, Keys.soundingKeySignature(-7, 0))
+        assertEquals(6, Keys.soundingKeySignature(6, 0))
+        assertEquals(-6, Keys.soundingKeySignature(-6, 0))
+        // C-sharp major stays C-sharp major.
+        assertEquals("C♯", Keys.soundingKeyName(keySignature = 7, tonalCentre = 1, transpose = 0))
     }
 
     // ---- The cases the rule exists for (decision 56) ---------------------------------

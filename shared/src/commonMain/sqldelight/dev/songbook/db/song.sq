@@ -7,11 +7,17 @@
 --
 -- reference_recording, chord_pattern, mashup_note, tonality_note and chart_url are free
 -- text on purpose (decisions 29, 30, 39) — they do not repeat, so they do not earn tables.
+--
+-- artist_id is NOT NULL (decision 28a). Decision 4 makes it half of the song's canonical
+-- key, so a null artist yields an unstable derived id and two devices never converge.
+-- Where the workbook has no artist the migration attaches the seeded `Unknown Artist` row
+-- (see artist.sq); a placeholder is honest, a null FK spreads LEFT JOIN through every
+-- screen.
 
 CREATE TABLE song (
     id                   TEXT NOT NULL PRIMARY KEY,
     title                TEXT NOT NULL,
-    artist_id            TEXT,
+    artist_id            TEXT NOT NULL,
     reference_recording  TEXT,
     key_signature        INTEGER,
     tonal_centre         INTEGER,

@@ -99,7 +99,13 @@ def normalise(value) -> str:
     # on `cw duet`; deleting the separator instead would give `cwduet`, and `acdc`,
     # `blink182`, `ah a`. These ids are permanent once written [D4a, D5] and this same
     # function backs the app's type-ahead [D17], so "AC DC" must match the migrated row.
-    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
+    #
+    # [D4e] punctuation is anything that is not a Unicode letter or digit. Python's `\w`
+    # matches Unicode letters, so accents agree with the Kotlin core for free — `Beyoncé`
+    # keeps its `é` in both. But `\w` ALSO matches `_`, which is neither a letter nor a
+    # digit, so the underscore is added to the class explicitly. Without the `|_` the two
+    # implementations disagree on every name containing one and silently fork its id.
+    s = re.sub(r"[^\w\s]|_", " ", s, flags=re.UNICODE)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -2136,7 +2142,11 @@ def fold_songs(extract, artists_by_key):
                          % (key_signature, source_spelling))
 
         songs.append({
-            "song_id": derived_id("song", "%s|%s" % (artist_id, nt)),
+            # [D4d] the song canonical key is artist_id + "/" + normalise(title). The
+            # separator is ratified, and `artist_id` is the artist's DERIVED ID, never its
+            # normalised name — the Kotlin core and this script must concatenate
+            # identically or the same song gets two ids and the devices never converge.
+            "song_id": derived_id("song", "%s/%s" % (artist_id, nt)),
             "title": title,
             "artist": artist,
             "tonal_centre": "" if tonal_centre is None else tonal_centre,

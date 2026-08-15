@@ -20,6 +20,13 @@ CREATE TABLE artist (
 
 CREATE INDEX artist_sort_name ON artist(sort_name);
 
+-- Seed (decision 28a). `song.artist_id` is NOT NULL, so the migration attaches this row
+-- wherever the workbook has no artist rather than leaving the column null.
+-- The id is UUIDv5(namespace(artist), normalise('Unknown Artist')) = UUIDv5(namespace,
+-- 'unknown artist'), per decisions 4/4a/4b; see ../../../../README.md.
+INSERT INTO artist(id, name, sort_name, updated_at, deleted_at, device_id) VALUES
+    ('cf06771d-4e8d-53fc-83fb-359be7dfaefc', 'Unknown Artist', 'Unknown Artist', '2026-08-15T00:00:00.000Z', NULL, 'seed');
+
 selectAllLive:
 SELECT *
 FROM artist

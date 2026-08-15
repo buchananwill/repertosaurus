@@ -76,6 +76,14 @@ class SongbookDatabaseTest {
         for (tag in tags) {
             assertEquals(Ids.derived("tag", tag.name), tag.id, "tag '${tag.name}'")
         }
+        // Decision 28a: the seeded `Unknown Artist` placeholder the migration attaches
+        // wherever the workbook has no artist.
+        val unknownArtist = Ids.derived("artist", "Unknown Artist")
+        assertEquals(
+            unknownArtist,
+            database.artistQueries.selectAllLive().executeAsList().single().id,
+        )
+
         val contexts = database.practice_contextQueries.selectAllLive().executeAsList()
         for (context in contexts) {
             assertEquals(

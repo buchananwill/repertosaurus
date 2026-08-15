@@ -5,7 +5,9 @@
 -- `Guitar comments`, `BV Comments`, `C GTR` and `Wavestate Patches` columns, so
 -- "how hard is this on keys" costs no schema change.
 --
--- difficulty maps the workbook's a/b/c to 1/2/3.
+-- difficulty maps the workbook's a-e to 1-5 (decision 42). The range is five, not three:
+-- the extract pass found `d` x31 and `e` x24 in `bass difficulty`, so a three-value
+-- constraint would fail the migration on 55 rows and silently discard those cells.
 
 CREATE TABLE song_instrument (
     id             TEXT NOT NULL PRIMARY KEY,
@@ -21,7 +23,7 @@ CREATE TABLE song_instrument (
 
     FOREIGN KEY (song_id) REFERENCES song(id),
     FOREIGN KEY (instrument_id) REFERENCES instrument(id),
-    CHECK (difficulty IS NULL OR difficulty BETWEEN 1 AND 3),
+    CHECK (difficulty IS NULL OR difficulty BETWEEN 1 AND 5),
     CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
     CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
 );

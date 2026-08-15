@@ -142,10 +142,16 @@ It is equally a design error to make a table out of something that does not repe
 16. All follow the same UI rule: **a type-ahead that creates on enter, surfacing near-matches
     while typing.** No admin screens. Friction in adding a lookup value is how you get `Party`
     and `party`.
-17. The normalisation function — lowercase, trim, strip a leading `The `, fold `&` to `and`,
-    strip punctuation, collapse whitespace — is used in three places and must be one
-    implementation in the shared core: to match near-duplicates in the type-ahead, to generate
-    derived ids (decision 2), and by the migration.
+17. The normalisation function — **Unicode-normalise to NFC**, lowercase, trim, strip a leading
+    `The `, fold `&` to `and`, strip punctuation, collapse whitespace — is used in three places
+    and must be one implementation in the shared core: to match near-duplicates in the
+    type-ahead, to generate derived ids (decision 2), and by the migration.
+
+17a. **The NFC step is not optional and its absence is a latent id fork.** `é` can be a single
+    code point or `e` followed by a combining acute, and macOS and iOS input methods routinely
+    produce the decomposed form. Without normalisation the two spellings of *Michael Bublé*
+    derive different ids, on different devices, permanently — and nothing would look wrong on
+    either screen. Normalise before doing anything else, in every implementation.
 18. `instrument` is seeded with `vocal`, `backing vocal`, `guitar`, `bass`, `keys`. **Voice is
     an instrument here** — it behaves identically everywhere in this schema, and two parallel
     vocabularies (one for practice, one for line-ups) would drift apart. `backing vocal` is

@@ -51,6 +51,27 @@ the duplicate tabs. Six exact matches on rare values is strong evidence both rea
 same file, which is why the divergences above are attributed to the export rather than to a
 parser fault.
 
+## The review file is the human's, not the pipeline's
+
+**[E] Once the user has begun editing the review workbook, the extract must not overwrite it.**
+This was learned the hard way: the workbook was regenerated twice mid-review, and because the
+song id derivation changed in between (decision 4d), the two files no longer joined on
+`song_id` at all. The user's ~25 hand resolutions survived only because they could be
+re-matched on title — and title is one of the fields they were editing.
+
+Rules from here:
+
+1. The user's copy is **canonical** once touched. The extract writes to a fresh path; it never
+   writes over a file the user holds.
+2. Machine-side corrections are **merged forward into** the user's copy, never applied by
+   regenerating it.
+3. The review workbook needs a **stable provenance key** that survives both regeneration and
+   the user editing `title` or `artist` — the source worksheet and cell reference where the row
+   first appeared. A derived id is unsuitable: it is a function of exactly the fields under
+   human revision, so it changes the moment the human does their job.
+4. Where a merge is genuinely ambiguous, present both values and flag it. Never silently prefer
+   the machine's.
+
 ## Shape
 
 Two passes with a human step between them.

@@ -26,9 +26,16 @@ public object Keys {
     /**
      * Sounding key signature: `key_signature + 7 * transpose`, reduced into -7..+7
      * (decision 56).
+     *
+     * **The respelling fires only when [transpose] is non-zero** (decision 56a).
+     * `key_signature` is already constrained to -7..+7, so at zero there is nothing out of
+     * range to reduce and this must be the identity. Applying [reduce] uniformly would
+     * silently re-spell a stored value the user chose deliberately — a song genuinely
+     * notated in C-sharp major (+7) would display as D-flat major (-5) and never show what
+     * was entered. Display stored data as stored; respell only what transposition moved.
      */
     public fun soundingKeySignature(keySignature: Int, transpose: Int): Int =
-        reduce(keySignature + 7 * transpose)
+        if (transpose == 0) keySignature else reduce(keySignature + 7 * transpose)
 
     /**
      * Reduce a raw sharp/flat count into -7..+7 by +/-12, then pick the spelling.

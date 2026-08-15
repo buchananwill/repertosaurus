@@ -1,10 +1,14 @@
--- setlist — mutable record, random id (decisions 49, 50).
+-- setlist — mutable record, random id (decisions 49, 49a, 49b, 50).
 -- client stays free text: a wedding couple is a one-off and does not repeat.
+--
+-- band_id and venue_id are different dimensions and must not be conflated (decision 49b):
+-- `Blue Lion` is an act, not a pub. Both are nullable — an old sheet may name neither.
 
 CREATE TABLE setlist (
     id            TEXT NOT NULL PRIMARY KEY,
     name          TEXT NOT NULL,
     performed_on  TEXT,
+    band_id       TEXT,
     venue_id      TEXT,
     client        TEXT,
     notes         TEXT,
@@ -13,12 +17,14 @@ CREATE TABLE setlist (
     deleted_at    TEXT,
     device_id     TEXT NOT NULL,
 
+    FOREIGN KEY (band_id) REFERENCES band(id),
     FOREIGN KEY (venue_id) REFERENCES venue(id),
     CHECK (performed_on IS NULL OR performed_on GLOB '????-??-??'),
     CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
     CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
 );
 
+CREATE INDEX setlist_band ON setlist(band_id);
 CREATE INDEX setlist_venue ON setlist(venue_id);
 CREATE INDEX setlist_performed_on ON setlist(performed_on DESC);
 
@@ -27,11 +33,14 @@ SELECT
     setlist.id,
     setlist.name,
     setlist.performed_on,
+    setlist.band_id,
+    band.name AS band_name,
     setlist.venue_id,
     venue.name AS venue_name,
     setlist.client,
     setlist.notes
 FROM setlist
+LEFT JOIN band ON band.id = setlist.band_id AND band.deleted_at IS NULL
 LEFT JOIN venue ON venue.id = setlist.venue_id AND venue.deleted_at IS NULL
 WHERE setlist.deleted_at IS NULL
 ORDER BY setlist.performed_on DESC, setlist.name;
@@ -49,17 +58,19 @@ ORDER BY updated_at, device_id, id;
 
 insert:
 INSERT INTO setlist(
-    id, name, performed_on, venue_id, client, notes, updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, name, performed_on, band_id, venue_id, client, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 applyMerged:
 INSERT OR REPLACE INTO setlist(
-    id, name, performed_on, venue_id, client, notes, updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, name, performed_on, band_id, venue_id, client, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 update:
 UPDATE setlist
-SET name = ?, performed_on = ?, venue_id = ?, client = ?, notes = ?,
+SET name = ?, performed_on = ?, band_id = ?, venue_id = ?, client = ?, notes = ?,
     updated_at = ?, device_id = ?
 WHERE id = ?;
 

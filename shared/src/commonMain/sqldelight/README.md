@@ -19,13 +19,14 @@ file carries, in order:
 
 | File | Table | Nature |
 |---|---|---|
-| [artist.sq](./dev/songbook/db/artist.sq) | `artist` | mutable record |
+| [artist.sq](./dev/songbook/db/artist.sq) | `artist` | mutable record, seeded (`Unknown Artist`) |
 | [artist_alias.sq](./dev/songbook/db/artist_alias.sq) | `artist_alias` | child of artist |
 | [performer.sq](./dev/songbook/db/performer.sq) | `performer` | mutable record |
 | [instrument.sq](./dev/songbook/db/instrument.sq) | `instrument` | lookup, seeded |
 | [tag.sq](./dev/songbook/db/tag.sq) | `tag` | lookup, seeded |
 | [groove.sq](./dev/songbook/db/groove.sq) | `groove` | lookup |
 | [venue.sq](./dev/songbook/db/venue.sq) | `venue` | lookup |
+| [band.sq](./dev/songbook/db/band.sq) | `band` | lookup |
 | [practice_context.sq](./dev/songbook/db/practice_context.sq) | `practice_context` | lookup, seeded |
 | [song.sq](./dev/songbook/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
 | [song_performer.sq](./dev/songbook/db/song_performer.sq) | `song_performer` | junction |
@@ -80,8 +81,11 @@ Create tables in that table order if you replay the DDL by hand; it is dependenc
 ## Seed data and derived ids
 
 `instrument`, `tag` and `practice_context` carry seed rows as unlabelled `INSERT` statements,
-which SQLDelight runs as part of `Schema.create()`. `groove` and `venue` are unseeded — their
-vocabulary arrives from the migration and the type-ahead.
+which SQLDelight runs as part of `Schema.create()`. `artist` carries exactly one seed row,
+`Unknown Artist` (`cf06771d-4e8d-53fc-83fb-359be7dfaefc`), because `song.artist_id` is
+`NOT NULL` (decision 28a) and the migration attaches that row where the workbook has no
+artist. `groove`, `venue` and `band` are unseeded — their vocabulary arrives from the
+migration and the type-ahead.
 
 Seed ids are UUIDv5 so that a device creating the same lookup value by hand converges on the
 same row. The derivation used to generate them:
@@ -102,6 +106,7 @@ Per-table namespaces, so that the tag `guitar` and the instrument `guitar` canno
 | `tag` | `2e80c13e-b285-5e54-b5c8-b556ba347362` |
 | `groove` | `84fa607d-e399-5f04-8a32-7b3d81104268` |
 | `venue` | `d14fa03f-4788-55a6-9b2c-e675c56c8829` |
+| `band` | `ff2f3f80-7e27-5303-b760-a36ba4655a9b` |
 | `practice_context` | `414530ce-0bcb-5557-a96a-f532ccac4bfa` |
 
 `normalise` is the single shared-core function: lowercase, trim, strip a leading `The `, fold
