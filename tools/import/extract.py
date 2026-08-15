@@ -95,9 +95,23 @@ EXPECTED = [
 # --------------------------------------------------------------------------------------
 
 def normalise(value) -> str:
-    """lowercase, trim, strip leading 'The ', fold '&' to 'and', strip punctuation,
-    collapse whitespace.  [D17]  Must match the shared-core implementation exactly."""
-    s = unicodedata.normalize("NFKC", "" if value is None else str(value))
+    """NFC, lowercase, trim, strip leading 'The ', fold '&' to 'and', strip punctuation,
+    collapse whitespace.  [D17]  Must match the shared-core implementation exactly.
+
+    This is the ID DERIVATION path. [D17c]: matching may be lossy, derivation must not be.
+    """
+    # [D17a] NFC first, before anything else. `é` can be one code point or `e` plus a
+    # combining acute, and macOS/iOS input methods routinely produce the decomposed form;
+    # without this the two spellings of the same artist derive different ids on different
+    # devices, permanently, with nothing looking wrong on either screen.
+    #
+    # [D17b] NFC, NOT NFKC. Compatibility folding is meaning-changing — ligatures,
+    # full-width forms, roman-numeral characters, the trademark sign — and [D5] makes ids
+    # immutable, so it is unrecoverable. Derivation takes the least lossy transform that
+    # fixes the real keyboard-reachable fork. Free to adopt today (measured: NFC and NFKC
+    # agree on all 24,705 text cells in the source), expensive to adopt later, because
+    # compatibility characters arrive by paste and one pasted ligature forks an id forever.
+    s = unicodedata.normalize("NFC", "" if value is None else str(value))
     s = s.strip().lower()
     s = s.replace("&", " and ")
     if s.startswith("the "):
@@ -270,6 +284,12 @@ def classify_key(value):
         reading.note = "number in the Key column [R7]; discarded"
         return reading
 
+    # NFKC is deliberate and correct HERE, and must not be changed to NFC to match
+    # normalise(). This is a parsing/matching path, not an id path [D17c]: the output is
+    # a pitch class, a signature and a signed offset — all integers — and the source
+    # spelling is retained separately from the untouched cell value [R11]. Compatibility
+    # folding is harmless and mildly helpful, letting a full-width or otherwise
+    # compatibility-encoded key name still parse as a key rather than land in Unresolved.
     text = unicodedata.normalize("NFKC", str(value)).strip()
     if not text:
         reading.kind = "empty"
