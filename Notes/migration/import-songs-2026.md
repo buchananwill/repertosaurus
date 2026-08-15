@@ -72,6 +72,20 @@ Rules from here:
 4. Where a merge is genuinely ambiguous, present both values and flag it. Never silently prefer
    the machine's.
 
+## Sparse beats wrong
+
+**[E] User ruling, and it governs every ambiguous attribution in this migration.** Where an
+attribution cannot be confirmed, emit **nothing** rather than a best guess. A missing tag is
+recoverable — the user notices it while using the app and fills it in. A wrong tag is not,
+because nobody knows to go looking for it.
+
+This is cheap here and that is the point: an unattributed cell goes to `Unresolved` carrying its
+raw value, worksheet and cell reference, so nothing is destroyed. A later ruling plus a re-run
+recovers it. The asymmetry only runs one way — a wrong attribution silently becomes the record.
+
+Applies to performer initials, artist backfill, venue/client classification, and any future
+case of the same shape.
+
 ## Shape
 
 Two passes with a human step between them.
