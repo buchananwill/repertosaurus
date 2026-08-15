@@ -308,6 +308,15 @@ Decisions 24–27 in [data-model.md](../decisions/data-model.md).
 
 ## Output
 
+**[E] The emitted database MUST stamp `PRAGMA user_version` to the SQLDelight schema version.**
+This is not cosmetic. Android's `SQLiteOpenHelper` reads `user_version = 0` as "brand new file"
+and runs `SongbookDatabase.Schema.create` over tables that already exist, so an imported
+database throws on its **first open** — the migration would appear to succeed and the app would
+die the moment it touched the data. The Android import path stamps it defensively when it finds
+zero and rejects anything from a newer schema, but the build pass must set it at source rather
+than relying on that.
+
+
 19. The build pass emits a SQLite file matching [data-model.md](../decisions/data-model.md),
     loadable by the phase 1 Android app through its import path.
 20. The same script should also be able to emit NDJSON in the sync layout, so that once phase 2

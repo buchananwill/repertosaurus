@@ -165,8 +165,14 @@ It is equally a design error to make a table out of something that does not repe
 
 17c. **Matching may be lossy; derivation must not be.** If ligature-tolerant search is ever
     wanted, add NFKC as an *extra pass in the type-ahead only*. Never in the id path.
-18. `instrument` is seeded with `vocal`, `backing vocal`, `guitar`, `bass`, `keys`. **Voice is
-    an instrument here** — it behaves identically everywhere in this schema, and two parallel
+18. `instrument` is seeded with `vocal`, `backing vocal`, `guitar`, `bass`, `keys`, **in that
+    display order**. The schema cannot currently express it — there is no ordering column, and
+    sorting by name gives *backing vocal, bass, guitar, keys, vocal*, which puts the most-used
+    chip last. For phase 1 the order is applied in the shared core: seeded instruments in the
+    order above, user-added ones appended alphabetically. **If display order needs to become
+    data — user-reorderable chips — that is a schema change (`sort_order INTEGER`) and should be
+    made deliberately rather than by accreting special cases in the UI.** Deferred, not decided.
+    **Voice is an instrument here** — it behaves identically everywhere in this schema, and two parallel
     vocabularies (one for practice, one for line-ups) would drift apart. `backing vocal` is
     separate from `vocal` so a song can carry both a lead and a backing-vocal note without
     needing two rows for the same `(song, instrument)` pair.

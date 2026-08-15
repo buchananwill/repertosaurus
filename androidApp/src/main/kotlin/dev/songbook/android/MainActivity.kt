@@ -3,66 +3,33 @@ package dev.songbook.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import dev.songbook.core.Ids
-import dev.songbook.data.SampleData
-import dev.songbook.data.SongbookRepository
-import dev.songbook.data.createDatabase
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
- * Phase 1 foundation.
+ * One screen, one Activity. Navigation arrives with the library browser and song detail,
+ * neither of which is in phase 1.
  *
- * This exists to prove the app launches and the database opens. It is **not** the Session
- * screen, and no part of it should be treated as a starting point for one: there is no
- * state management, no view model and no navigation here on purpose.
- *
- * The database work runs on the main thread in [onCreate] because the data set is a
- * handful of rows and the alternative is the state plumbing this dispatch deliberately
- * does not build.
+ * Nothing is opened here: the database lives in [AppGraph] for the life of the process, so
+ * a rotation does not reopen SQLite and an import can close and swap the file underneath.
  */
-class MainActivity : ComponentActivity() {
+public class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val database = createDatabase(applicationContext)
-        SampleData.installIfEmpty(database, deviceId = deviceId())
-        val repository = SongbookRepository(database, deviceId())
-
-        val counts = listOf(
-            "instrument" to database.instrumentQueries.selectAllLive().executeAsList().size,
-            "tag" to database.tagQueries.selectAllLive().executeAsList().size,
-            "practice_context" to
-                database.practice_contextQueries.selectAllLive().executeAsList().size,
-            "artist" to database.artistQueries.selectAllLive().executeAsList().size,
-            "song" to database.songQueries.selectAllLive().executeAsList().size,
-        )
-
-        val today = repository.today()
-        val staleness = repository.songsByStaleness(SampleData.GUITAR, today)
-        val liveEvents = staleness.sumOf { it.timesPractised }
+        val graph = AppGraph.of(applicationContext)
 
         setContent {
-            FoundationScreen(
-                today = today,
-                counts = counts + ("practice_event (live, guitar)" to liveEvents.toInt()),
-                songs = staleness,
-            )
+            MaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    val model: SessionViewModel =
+                        viewModel(factory = SessionViewModel.factory(graph))
+                    SessionScreen(model)
+                }
+            }
         }
-    }
-
-    /**
-     * A per-install device id. Every table carries `device_id` for the merge total order
-     * of decisions 11 and 12; a real one arrives with the sync layer in phase 2.
-     */
-    private fun deviceId(): String {
-        val preferences = getSharedPreferences("songbook", MODE_PRIVATE)
-        preferences.getString(KEY_DEVICE_ID, null)?.let { return it }
-        val generated = Ids.random()
-        preferences.edit().putString(KEY_DEVICE_ID, generated).apply()
-        return generated
-    }
-
-    private companion object {
-        const val KEY_DEVICE_ID = "device_id"
     }
 }

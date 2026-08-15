@@ -37,8 +37,19 @@ public class SongbookRepository(
         val daysSince: Long?,
     )
 
+    /** One row of the `instrument` lookup (decisions 15, 18). */
+    public data class Instrument(val id: String, val name: String)
+
     /** The device's local today, `YYYY-MM-DD` (decision 45). */
     public fun today(): String = Timestamps.today(clock, timeZone)
+
+    /**
+     * Live instruments, for the Session screen's chip row. Read from the table, never a
+     * hardcoded list: decision 15 says adding one must never require a code change.
+     */
+    public fun instruments(): List<Instrument> =
+        database.instrumentQueries.selectAllLive().executeAsList()
+            .map { Instrument(id = it.id, name = it.name) }
 
     /**
      * Staleness-ordered songs for one instrument: never-practised first, then coldest
