@@ -161,18 +161,35 @@ assert UNKNOWN_ARTIST_ID == UNKNOWN_ARTIST_SEED_ID, (
 CONFIRMED_BANDS = ("Blue Lion", "Radiant Lanterns", "LPT with Ryan")
 
 
+def junction_id(table: str, fk_a: str, fk_b: str) -> str:
+    """[D4] EVERY junction: `UUIDv5(namespace(table), fk_a + "/" + fk_b)`.
+
+    One implementation for `song_instrument`, `song_tag`, `song_performer` and
+    `setlist_item_performer` — the amended decision 4 makes them all the same shape.
+
+    This CORRECTS an earlier form, `UUIDv5(fk_a, fk_b)`, which used the first foreign key
+    directly as the namespace with no separator. That form was inconsistent with 4a's
+    per-table namespaces and 4d's separator, and — carrying no table identity — gave two
+    different junctions over the same pair of ids the SAME id. Do not reintroduce it.
+    """
+    return derived_id(table, "%s/%s" % (fk_a, fk_b))
+
+
 def setlist_item_performer_id(item_id: str, performer_id: str) -> str:
     """[D4, D58] `UUIDv5(namespace("setlist_item_performer"), item_id + "/" + performer_id)`.
 
     `position` is deliberately NOT in the key: moving somebody from lead to co-lead must
-    update the row, not mint a second one alongside it.
+    update the row, not mint a second one alongside it. [D58e] that position is a plain
+    INTEGER, unlike `setlist_item.position`, which is a fractional TEXT key — one orders a
+    long list two devices reorder independently, the other orders two or three people
+    inside a single item.
 
     The extract pass cannot call this. `setlist_item.id` is **random** per the type roster,
     minted by the build pass, so any value computed here would change on every run and
     break idempotence. The formula lives here so the build pass has one implementation to
     call, and the review sheet carries a stable `item_key` to join on instead.
     """
-    return derived_id("setlist_item_performer", "%s/%s" % (item_id, performer_id))
+    return junction_id("setlist_item_performer", item_id, performer_id)
 
 
 def sort_name(name: str) -> str:
@@ -386,24 +403,37 @@ ANNOTATION_COLUMNS = {
 }
 
 # Marks that mean 'yes, this performer' rather than naming somebody else.
-# `p` and `r` are deliberately NOT here: the user ruled them initials for Paul and Ryan,
-# so they must reach the initial expansion below rather than be read as a tick.
+# `p` and `r` are deliberately NOT here: they are single letters, and single letters are
+# resolved by the rulings below rather than read as a tick for the column's owner.
 CAPABILITY_MARKS = {"x", "y", "s", "*", "?", "1", "goal", "mp3", "k"}
 
-# Single-letter lead-vocal initials, ruled by the user.
-#
-# The user added Paul, Ryan and Tommy as performers, which is the basis for this mapping,
-# but did not explicitly confirm the letter-to-person assignment. Every row it touches
-# therefore keeps INITIAL-EXPANDED-UNCONFIRMED so the user can still correct it.
-INITIAL_EXPANSIONS = {"w": "Will", "r": "Ryan", "t": "Tommy", "p": "Paul"}
+# SPARSE BEATS WRONG. Where an attribution cannot be confirmed, emit nothing. A missing
+# tag is recoverable — the user sees the gap in the app and fills it in. A wrong tag is
+# not, because nobody knows to look for it. The cost is low: every unattributed cell still
+# reaches Unresolved with its raw value, worksheet and cell reference, so a later ruling
+# plus a re-run recovers it.
+
+# The ONLY confirmed single-letter expansion.
+INITIAL_EXPANSIONS = {"w": "Will"}
 
 # Ruled NOT performers. Discard the attribution; never guess at what they meant.
 INITIALS_NOT_PERFORMERS = {"a", "b", "c"}
 
-# Inside a duet marker the letters mean something the standalone ruling does not cover:
-# the user read `w/c` as Will and Coralie, so `c` here is Coralie even though a bare `C`
-# was ruled not a performer at all. The two rulings are about different things — a lone
-# initial in a lead-vocal column, versus one half of an explicit pairing.
+# Read as initials by an earlier pass and WITHDRAWN. Ryan, Tommy and Paul are real people
+# the user added, but that they are the R, T and P in a lead-vocal column was never
+# confirmed — it was inference from the roster. Under 'sparse beats wrong' these produce
+# no attribution at all.
+UNCONFIRMED_INITIALS = {"r", "t", "p"}
+
+# Real people the user added deliberately. They keep their `performer` rows even with no
+# song attributions, because deleting a person the user created would be a second error on
+# top of withdrawing the guess.
+USER_ADDED_PERFORMERS = ("Ryan", "Tommy", "Paul")
+
+# Inside a duet marker the letters mean something the standalone ruling does not cover.
+# `W/C` is CONFIRMED as Will/Coralie, so `c` is Coralie here — while a lone `C` remains
+# ruled not a performer at all. The user is explicit that the pairing tells them nothing
+# about a standalone letter, so the two vocabularies stay separate.
 DUET_INITIALS = dict(INITIAL_EXPANSIONS, c="Coralie")
 
 # Ruled garbage by the user in their review pass. These are rulings, not accidents: the
@@ -1150,6 +1180,21 @@ class Extract(object):
                             "but holds no marks, so the performer has no songs",
                 })
 
+        # Real people the user added. Their only attributions came from the R/T/P initial
+        # expansion, which has been withdrawn under 'sparse beats wrong' — but withdrawing
+        # a guess must not delete the person the guess was about.
+        for name in USER_ADDED_PERFORMERS:
+            self.performer_marks.append({
+                "worksheet": "(user-added)", "cell": "-", "source": "user-added",
+                "column": "-", "performer": name, "is_lead": 1, "title": "", "artist": "",
+                "raw": "", "flag": "PERFORMER-NO-ATTRIBUTIONS",
+                "note": "added deliberately by the user and kept as a performer row. It "
+                        "has no songs: the single-letter initials that would have "
+                        "attributed them were never confirmed, and a missing attribution "
+                        "is recoverable where a wrong one is not. The raw letters are in "
+                        "Unresolved if this is ever ruled on.",
+            })
+
         for record in self.setlists:
             header = record["in_sheet_header"]
             if not header or not re.match(r"^[A-Z][a-z]+ [A-Z][a-z]+$", header.strip()):
@@ -1564,6 +1609,14 @@ class Extract(object):
                                "single-letter lead-vocal initial, user ruled not a "
                                "performer")
                 return
+            if letter in UNCONFIRMED_INITIALS:
+                # Sparse beats wrong: emit no attribution at all. The raw letter, the
+                # worksheet and the cell reference are preserved here, so a future ruling
+                # plus a re-run recovers every one of these without re-deriving anything.
+                self.unresolve(sheet_name, cell_ref(ci, ri), text,
+                               "single-letter lead-vocal initial, unconfirmed - user "
+                               "prefers a missing tag to a guessed one")
+                return
             if letter in INITIAL_EXPANSIONS:
                 person = INITIAL_EXPANSIONS[letter]
                 self.performer_marks.append({
@@ -1572,10 +1625,12 @@ class Extract(object):
                     "performer": person, "is_lead": is_lead, "title": title,
                     "artist": artist, "raw": text,
                     "flag": "INITIAL-EXPANDED-UNCONFIRMED",
-                    "note": "%r in column %r read as %s. The user added %s as a performer, "
-                            "which is the basis for this reading, but did not confirm the "
-                            "letter-to-person mapping itself — correct it here if it is "
-                            "wrong." % (text, column_label, person, person),
+                    "note": "%r in column %r read as %s, on two grounds: %s is the "
+                            "workbook owner, whose bare `Lead vocal` column this mostly "
+                            "is; and `W/C` is confirmed as Will/Coralie, which corroborates "
+                            "W = Will directly. Still flagged so it stays visible and "
+                            "correctable — the letter-to-person mapping itself was never "
+                            "stated outright." % (text, column_label, person, person),
                 })
                 return
 
@@ -2443,6 +2498,7 @@ def fold_songs(extract, artists_by_key):
                          % (key_signature, source_spelling))
 
         songs.append({
+            "_norm_key": key,
             # [D4d] the song canonical key is artist_id + "/" + normalise(title). The
             # separator is ratified, and `artist_id` is the artist's DERIVED ID, never its
             # normalised name — the Kotlin core and this script must concatenate
@@ -2561,7 +2617,7 @@ def build_setlist_item_performers(extract, performers_by_key, names_by_key):
     return ordered
 
 
-def build_song_performers(extract, performers_by_key, names_by_key):
+def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
     """[R14] one row per non-empty cell in a singer column, deduped per (song, performer).
     [R15, D27] `vocal_range` lives HERE, on the owner's row, never on the song: range is
     only meaningful for a particular voice."""
@@ -2596,11 +2652,18 @@ def build_song_performers(extract, performers_by_key, names_by_key):
                     [n for n in (existing["note"], mark["note"]) if n])
             continue
         rows[ident] = {
-            "song": mark["title"], "artist": mark["artist"],
+            "song": mark["title"],
+            # Match the Songs sheet: an unattributed song reads 'Unknown Artist' there
+            # [D28a], so it must read the same here or the two sheets appear to disagree.
+            "artist": mark["artist"] or UNKNOWN_ARTIST_NAME,
             # The folded canonical name, not this cell's spelling: '*Stef' and 'Stef' are
             # one performer under [D17] and must read as one here too.
             "performer": names_by_key.get(key, mark["performer"].rstrip("?")),
             "performer_id": performers_by_key.get(key, ""),
+            # [D4, amended] every junction: UUIDv5(namespace(table), fk_a + "/" + fk_b).
+            "song_performer_id": junction_id(
+                "song_performer", song_ids.get(ident[:2], ""),
+                performers_by_key.get(key, "")) if song_ids.get(ident[:2]) else "",
             "is_lead": mark["is_lead"], "vocal_range": "",
             "source": "%s:%s" % (mark["source"], mark["column"]),
             "flag": mark["flag"], "note": mark["note"],
@@ -2716,7 +2779,7 @@ def build_practice_events(extract):
     return events
 
 
-def build_tags(extract):
+def build_tags(extract, song_ids):
     """[D19] flag columns, plus the bass-vox tag from the Bass-vox Rep tab [R29]."""
     rows = []
     seen = set()
@@ -2725,8 +2788,14 @@ def build_tags(extract):
         if key in seen:
             continue
         seen.add(key)
+        song_id = song_ids.get((key[1], key[2]), "")
+        tag_id = derived_id("tag", normalise(mark["tag"]))
         rows.append({
-            "tag": mark["tag"], "song": mark["title"], "artist": mark["artist"],
+            "tag": mark["tag"], "song": mark["title"],
+            "artist": mark["artist"] or UNKNOWN_ARTIST_NAME,
+            "tag_id": tag_id,
+            # [D4, amended] every junction shares one shape.
+            "song_tag_id": junction_id("song_tag", song_id, tag_id) if song_id else "",
             "source": mark["source"], "flag": mark["flag"], "note": mark["note"],
         })
 
@@ -2738,8 +2807,13 @@ def build_tags(extract):
         if key in seen:
             continue
         seen.add(key)
+        song_id = song_ids.get((key[1], key[2]), "")
+        tag_id = derived_id("tag", normalise("bass-vox"))
         rows.append({
-            "tag": "bass-vox", "song": row["title"], "artist": row["artist"],
+            "tag": "bass-vox", "song": row["title"],
+            "artist": row["artist"] or UNKNOWN_ARTIST_NAME,
+            "tag_id": tag_id,
+            "song_tag_id": junction_id("song_tag", song_id, tag_id) if song_id else "",
             "source": "worksheet Bass-vox Rep",
             "flag": "",
             "note": "capability list, not a setlist [R29]. The difficulty of playing bass "
@@ -2951,11 +3025,13 @@ def main():
     performers = fold_performers(extract)
     performers_by_key = {p["normalised_key"]: p["performer_id"] for p in performers}
     names_by_key = {p["normalised_key"]: p["name"] for p in performers}
-    song_performers = build_song_performers(extract, performers_by_key, names_by_key)
+    song_ids = {s["_norm_key"]: s["song_id"] for s in songs}
+    song_performers = build_song_performers(extract, performers_by_key, names_by_key,
+                                            song_ids)
     item_performers = build_setlist_item_performers(extract, performers_by_key,
                                                     names_by_key)
     events = build_practice_events(extract)
-    tags = build_tags(extract)
+    tags = build_tags(extract, song_ids)
     accounting = account_cells(extract)
     counts = build_counts(extract, artists, songs, events, accounting)
 
@@ -2999,12 +3075,14 @@ def main():
                 ["setlist", "item_key", "item_row", "song", "artist", "performer",
                  "performer_id", "position", "source", "flag", "note"])
     write_sheet(out, "SongPerformers", song_performers,
-                ["song", "artist", "performer", "performer_id", "is_lead", "vocal_range",
-                 "source", "flag", "note"])
+                ["song", "artist", "performer", "performer_id", "song_performer_id",
+                 "is_lead", "vocal_range", "source", "flag", "note"])
     write_sheet(out, "PracticeEvents", events,
                 ["song", "artist", "instrument", "context", "date", "source_worksheets",
                  "surviving_only_on", "flag", "note"])
-    write_sheet(out, "Tags", tags, ["tag", "song", "artist", "source", "flag", "note"])
+    write_sheet(out, "Tags", tags,
+                ["tag", "song", "artist", "tag_id", "song_tag_id", "source", "flag",
+                 "note"])
     write_sheet(out, "KeyCells", sorted(
         extract.key_cells, key=lambda c: (c["kind"], c["raw"], c["worksheet"], c["cell"])),
         ["worksheet", "cell", "column", "position", "title", "artist", "raw", "kind",
