@@ -1,5 +1,7 @@
 # Repertaurus
 
+**Don't let your repertoire fossilize.**
+
 A repertoire and practice-tracking app for working musicians.
 
 Replaces a 57-tab Google Sheet maintained since 2022, which became too high-friction to keep

@@ -28,11 +28,20 @@ everywhere: store listing, launcher label, package namespace, repository, docume
 **N2. It is pronounced `re-per-TAU-rus`** — four syllables, primary stress on the third. The
 metre is a two-syllable pickup into a falling close.
 
-**N3. The brand idea is "makes you a monster performer", carried by a dinosaur logo.** The
-**exact tagline is not yet decided** and is recorded here as open, not assumed. Whatever it
-becomes, it is load-bearing rather than decorative: the name is a coinage and does not describe
-the product on its own, so wherever the name appears cold — store listing, first-run screen,
-README — the tagline appears with it.
+**N3. The tagline is "Don't let your repertoire fossilize."** It is load-bearing rather than
+decorative: the name is a coinage and does not describe the product on its own, so wherever the
+name appears cold — store listing, first-run screen, README — the tagline appears with it.
+
+It also does something the name cannot. **It names the mechanic the app already implements**: the
+Session screen sorts coldest-first, so a song going cold *is* the thing being tracked. The
+dinosaur stops being a decorative pun and becomes the product's own metaphor — a repertoire left
+alone fossilises. The "monster performer" idea that motivated the name survives as brand voice,
+not as copy.
+
+Spelling note: recorded with the `-ize` ending as the user wrote it. The codebase otherwise uses
+British `-ise` (`Normalise.kt`, `unicodeNormalise`). Both are valid in British English — `-ize` is
+Oxford spelling — but the two conventions now coexist. This is deliberate, not drift: the tagline
+is copy, the code is code. Do not "align" them.
 
 **N4. The word and the logo point at different animals, and this is a known, accepted tension.**
 `-taurus` is Latin for *bull* — Taurus the zodiac sign, the Minotaur. Dinosaurs are `-saurus`,
