@@ -1,4 +1,4 @@
-# Songbook
+# Repertaurus
 
 A repertoire and practice-tracking app for working musicians.
 

@@ -42,7 +42,7 @@ kotlin {
 }
 
 android {
-    namespace = "dev.songbook.shared"
+    namespace = "dev.repertaurus.shared"
     compileSdk = 34
 
     defaultConfig {
@@ -57,8 +57,8 @@ android {
 
 sqldelight {
     databases {
-        create("SongbookDatabase") {
-            packageName.set("dev.songbook.db")
+        create("RepertaurusDatabase") {
+            packageName.set("dev.repertaurus.db")
         }
     }
 }

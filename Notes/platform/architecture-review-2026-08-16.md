@@ -41,7 +41,7 @@ They already diverge: `newTap` uses the repository's **injected** clock and time
 `Timestamps.today()`, the system clock. Every test that fixes the clock exercises a path the app
 never runs. A test asserting blank-note-becomes-null protects a function nothing calls.
 
-Feature 1 adds `contextId` to the tap — and `SongbookRepository.logPractice` already accepts it while
+Feature 1 adds `contextId` to the tap — and `RepertaurusRepository.logPractice` already accepts it while
 `SessionCoordinator.persist` does not pass it, which is why every event is currently NULL. Editing
 one copy and not the other silently reproduces that. **Two lines net; do it before feature 1 touches
 either copy.**
@@ -49,7 +49,7 @@ either copy.**
 ### 3. Generalise the lookup layer — before the second kind exists
 
 `Lookups.kt` genuinely generalises at the top: `LookupKind`, `LookupStore` and `ManageLookupScreen`
-know nothing about instruments. The layer beneath does not — `SongbookRepository` carries five
+know nothing about instruments. The layer beneath does not — `RepertaurusRepository` carries five
 methods hardcoded to `instrumentQueries`, and SQLDelight generates each table's `Queries` class with
 no common supertype, so no generic method can span them.
 
@@ -58,7 +58,7 @@ derived-id logic that must not drift. The `.sq` layer already supports all seven
 has the identical query set. Only Kotlin is refusing the generalisation.
 
 Fix: a `LookupTable` value holding the five function references bound to the right generated
-`Queries`, and one `SongbookRepository.lookup(kind)`. Per-kind variation that genuinely survives —
+`Queries`, and one `RepertaurusRepository.lookup(kind)`. Per-kind variation that genuinely survives —
 decision 18's seed ordering — stays as an override. ~40 lines added, ~60 deleted; marginal cost of
 kinds 3–7 drops to one enum entry each.
 
@@ -73,7 +73,7 @@ both call sites to a line and makes the rule testable. **~15 lines.**
 
 ## Fix when the feature needs it
 
-- **`SongbookRepository` will become a god object — split by aggregate, at feature 2.** Not yet: 330
+- **`RepertaurusRepository` will become a god object — split by aggregate, at feature 2.** Not yet: 330
   lines, 16 members. But sync alone adds ~76 methods (`selectChangedSince` + `applyMerged` × 19
   tables). Split by *aggregate* — Song, Practice, Setlist, Lookup, Sync — not by screen (two screens
   read staleness, two read songs) and not by read/write (which would separate the derived-id rule
@@ -101,7 +101,7 @@ both call sites to a line and makes the rule testable. **~15 lines.**
 
 ## Smaller, real
 
-- `sortName` is character-identical in `SongbookRepository` and `SampleData` — decision 21's article
+- `sortName` is character-identical in `RepertaurusRepository` and `SampleData` — decision 21's article
   rule in two places.
 - `SessionState.matches` calls `normalise(query).split(' ')` **per row**: ~960 NFC passes per
   keystroke at 479 songs. Hoist to a `by lazy val`; feature 4 makes this the browser's hot path on a
@@ -145,7 +145,7 @@ currently arrives only transitively through `androidApp`.
    and 57 agree.
 4. **`Keys.kt` has no production caller.** 138 lines of transposition arithmetic, tested across the
    15×12 grid, before the screen that needs it exists. That is decision 57 done in the right order.
-5. **`SongbookRepository` never returns a SQLDelight-generated type** — every method maps to a
+5. **`RepertaurusRepository` never returns a SQLDelight-generated type** — every method maps to a
    hand-written data class. That is why extracting an interface for the web tier's non-SQLite store
    will be mechanical. **Hold this line: no generated row type in a public signature, ever.**
 6. **`AppGraph` as a hand-rolled singleton.** Three dependencies; a DI framework would be more

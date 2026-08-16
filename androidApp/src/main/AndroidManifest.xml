@@ -5,7 +5,7 @@
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Songbook">
+        android:theme="@style/Theme.Repertaurus">
 
         <activity
             android:name=".MainActivity"

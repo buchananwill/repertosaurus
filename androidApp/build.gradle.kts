@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.songbook.android"
+    namespace = "dev.repertaurus.android"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "dev.songbook"
+        applicationId = "dev.repertaurus"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

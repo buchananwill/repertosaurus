@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "songbook"
+rootProject.name = "repertaurus"
 
 include(":shared")
 include(":androidApp")

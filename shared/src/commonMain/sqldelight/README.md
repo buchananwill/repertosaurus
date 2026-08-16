@@ -1,6 +1,6 @@
 # SQLDelight schema
 
-The Songbook local store. This is the implementation of
+The Repertaurus local store. This is the implementation of
 [Notes/decisions/data-model.md](../../../../Notes/decisions/data-model.md) — that document is
 the contract, this directory is the code. Where the two disagree, the decision spec wins and
 this directory is wrong.
@@ -8,7 +8,7 @@ this directory is wrong.
 ## Layout
 
 SQLDelight treats the directory under `sqldelight/` as the generated Kotlin package, so the
-schema lives in `dev/songbook/db/`. **One `.sq` file per table, named after the table.** Each
+schema lives in `dev/repertaurus/db/`. **One `.sq` file per table, named after the table.** Each
 file carries, in order:
 
 1. A header comment citing the decisions it implements.
@@ -19,25 +19,25 @@ file carries, in order:
 
 | File | Table | Nature |
 |---|---|---|
-| [artist.sq](./dev/songbook/db/artist.sq) | `artist` | mutable record, seeded (`Unknown Artist`) |
-| [artist_alias.sq](./dev/songbook/db/artist_alias.sq) | `artist_alias` | child of artist |
-| [performer.sq](./dev/songbook/db/performer.sq) | `performer` | mutable record |
-| [instrument.sq](./dev/songbook/db/instrument.sq) | `instrument` | lookup, seeded |
-| [tag.sq](./dev/songbook/db/tag.sq) | `tag` | lookup, seeded |
-| [groove.sq](./dev/songbook/db/groove.sq) | `groove` | lookup |
-| [venue.sq](./dev/songbook/db/venue.sq) | `venue` | lookup |
-| [band.sq](./dev/songbook/db/band.sq) | `band` | lookup |
-| [practice_context.sq](./dev/songbook/db/practice_context.sq) | `practice_context` | lookup, seeded |
-| [song.sq](./dev/songbook/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
-| [song_performer.sq](./dev/songbook/db/song_performer.sq) | `song_performer` | junction |
-| [song_instrument.sq](./dev/songbook/db/song_instrument.sq) | `song_instrument` | junction, carries facts |
-| [song_tag.sq](./dev/songbook/db/song_tag.sq) | `song_tag` | junction |
-| [practice_event.sq](./dev/songbook/db/practice_event.sq) | `practice_event` | **append-only** |
-| [practice_event_void.sq](./dev/songbook/db/practice_event_void.sq) | `practice_event_void` | **append-only** |
-| [setlist.sq](./dev/songbook/db/setlist.sq) | `setlist` | mutable record |
-| [setlist_set.sq](./dev/songbook/db/setlist_set.sq) | `setlist_set` | child of setlist |
-| [setlist_item.sq](./dev/songbook/db/setlist_item.sq) | `setlist_item` | mutable record |
-| [setlist_item_performer.sq](./dev/songbook/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
+| [artist.sq](./dev/repertaurus/db/artist.sq) | `artist` | mutable record, seeded (`Unknown Artist`) |
+| [artist_alias.sq](./dev/repertaurus/db/artist_alias.sq) | `artist_alias` | child of artist |
+| [performer.sq](./dev/repertaurus/db/performer.sq) | `performer` | mutable record |
+| [instrument.sq](./dev/repertaurus/db/instrument.sq) | `instrument` | lookup, seeded |
+| [tag.sq](./dev/repertaurus/db/tag.sq) | `tag` | lookup, seeded |
+| [groove.sq](./dev/repertaurus/db/groove.sq) | `groove` | lookup |
+| [venue.sq](./dev/repertaurus/db/venue.sq) | `venue` | lookup |
+| [band.sq](./dev/repertaurus/db/band.sq) | `band` | lookup |
+| [practice_context.sq](./dev/repertaurus/db/practice_context.sq) | `practice_context` | lookup, seeded |
+| [song.sq](./dev/repertaurus/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
+| [song_performer.sq](./dev/repertaurus/db/song_performer.sq) | `song_performer` | junction |
+| [song_instrument.sq](./dev/repertaurus/db/song_instrument.sq) | `song_instrument` | junction, carries facts |
+| [song_tag.sq](./dev/repertaurus/db/song_tag.sq) | `song_tag` | junction |
+| [practice_event.sq](./dev/repertaurus/db/practice_event.sq) | `practice_event` | **append-only** |
+| [practice_event_void.sq](./dev/repertaurus/db/practice_event_void.sq) | `practice_event_void` | **append-only** |
+| [setlist.sq](./dev/repertaurus/db/setlist.sq) | `setlist` | mutable record |
+| [setlist_set.sq](./dev/repertaurus/db/setlist_set.sq) | `setlist_set` | child of setlist |
+| [setlist_item.sq](./dev/repertaurus/db/setlist_item.sq) | `setlist_item` | mutable record |
+| [setlist_item_performer.sq](./dev/repertaurus/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
 
 Create tables in that table order if you replay the DDL by hand; it is dependency-ordered.
 
@@ -165,5 +165,5 @@ Both of these must hold:
 - every labelled query compiles (`EXPLAIN <query>` with placeholder bindings) against the
   created schema.
 
-Once the Gradle module lands, `./gradlew :shared:generateCommonMainSongbookDatabaseInterface`
+Once the Gradle module lands, `./gradlew :shared:generateCommonMainRepertaurusDatabaseInterface`
 replaces this and will additionally type-check the queries.

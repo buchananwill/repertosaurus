@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Songbook migration, phase 0, pass 1: EXTRACT.
+Repertaurus migration, phase 0, pass 1: EXTRACT.
 
 Reads the downloaded `Songs 2026` workbook and writes a human review workbook with one
 sheet per concern and a FLAG/NOTE column on everything that needs a human decision.
@@ -3053,7 +3053,7 @@ def main():
     out = openpyxl.Workbook()
     out.remove(out.active)
     # Pinned so two runs differ only in the zip container's own member timestamps.
-    out.properties.creator = "songbook tools/import/extract.py"
+    out.properties.creator = "repertaurus tools/import/extract.py"
     out.properties.title = "Songs 2026 migration review"
     out.properties.created = datetime.datetime(2026, 1, 1)
     out.properties.modified = datetime.datetime(2026, 1, 1)

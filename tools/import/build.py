@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Songbook migration, phase 0, pass 2: BUILD.
+Repertaurus migration, phase 0, pass 2: BUILD.
 
 Three-way merges the human review workbook and emits the SQLite database the phase 1
 Android app imports.
@@ -8,9 +8,9 @@ Android app imports.
     base    .scratch/review.xlsx              the common ancestor, READ ONLY
     user    D:/Dropbox/Work/Gigs/review.xlsx  human decisions, READ ONLY, never written
     next    .scratch/review-next.xlsx         machine's current output, READ ONLY
-    out     .scratch/songbook.db
+    out     .scratch/repertaurus.db
 
-Schema is read from shared/src/commonMain/sqldelight/dev/songbook/db/*.sq, which is
+Schema is read from shared/src/commonMain/sqldelight/dev/repertaurus/db/*.sq, which is
 authoritative. Nothing in this file restates it.
 
     python tools/import/build.py
@@ -43,11 +43,11 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 BASE_XLSX = os.path.join(REPO, ".scratch", "review.xlsx")
 USER_XLSX = os.path.join("D:", os.sep, "Dropbox", "Work", "Gigs", "review.xlsx")
 NEXT_XLSX = os.path.join(REPO, ".scratch", "review-next.xlsx")
-OUT_DB = os.path.join(REPO, ".scratch", "songbook.db")
-SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", "songbook", "db")
+OUT_DB = os.path.join(REPO, ".scratch", "repertaurus.db")
+SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", "repertaurus", "db")
 
 # The version SQLDelight actually generates, read from its own generated Schema object at
-# shared/build/generated/.../SongbookDatabaseImpl.kt, not assumed. Android compares this
+# shared/build/generated/.../RepertaurusDatabaseImpl.kt, not assumed. Android compares this
 # against PRAGMA user_version; a 0 there means "brand new file" and it would run schema
 # creation over populated tables and throw on first open.
 SCHEMA_VERSION = 1

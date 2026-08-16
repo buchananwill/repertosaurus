@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-**Songbook** is a repertoire and practice-tracking app for working musicians. It replaces a
+**Repertaurus** is a repertoire and practice-tracking app for working musicians. It replaces a
 57-tab Google Sheet (`Songs 2026`) that the user has maintained since 2022 and which became
 too high-friction to keep updated.
 
