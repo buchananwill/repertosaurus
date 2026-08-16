@@ -12,6 +12,14 @@ The chronological thread of leadership, newest first. Entries are append-only an
 edited to reflect later understanding — a decision that was later reversed stays written as it
 was made, and the reversal is recorded where it happened.
 
+- [2026-08-16 — Session 05: The App Gets Its Name](2026-08-16-session-05.md)
+  — No feature work. `Songbook` became **Repertaurus**, "Don't let your repertoire fossilize",
+  with a dinosaur logo still undrawn. A three-lane naming spike and four clearance dossiers; one
+  name chosen, committed and then reversed while still on an unmerged branch. The rename ran
+  twice, and the second pass was better because the first's near-misses became instructions.
+  Reusable technique: un-rename the diff mechanically and compare — 63 of 64 files byte-identical.
+  `songbook.dev` survives as the UUID root namespace, permanently and deliberately.
+
 - [2026-08-16 — Session 04: The App Runs on Real Data](2026-08-16-session-04.md)
   — Phase 1 functionally complete. Session screen, add-song with the artist type-ahead, sort
   toggle, drawer and instrument management; the build pass emitting a verified database of 479
