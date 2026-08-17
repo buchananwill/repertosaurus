@@ -115,8 +115,9 @@ class SessionCoordinatorTest {
         repository.logPractice(cold, guitar, loggedOn = "2026-06-01")
 
         val loaded = SessionState()
-            .withInstruments(coordinator.instruments(), guitar)
-            .withRows(coordinator.rows(guitar))
+            .withInstruments(coordinator.instruments())
+            .switchingTo(unfiltered(guitar))
+            .withRows(coordinator.rows(unfiltered(guitar)))
 
         assertEquals(listOf(unplayed, cold, warm), loaded.pending.map { it.songId })
         assertEquals(
@@ -130,7 +131,7 @@ class SessionCoordinatorTest {
     @Test
     fun addingASongMakesItAppearImmediatelyAsNeverPractised() {
         val songId = coordinator.addSong("Wonderwall", "Oasis")
-        val rows = coordinator.rows(guitar)
+        val rows = coordinator.rows(unfiltered(guitar))
 
         assertEquals(songId, rows.single().songId)
         assertEquals("never", rows.single().badge)
@@ -140,7 +141,7 @@ class SessionCoordinatorTest {
 
         // And it is immediately loggable, like any other row.
         coordinator.persist(coordinator.newTap(songId, guitar))
-        assertEquals("today", coordinator.rows(guitar).single().badge)
+        assertEquals("today", coordinator.rows(unfiltered(guitar)).single().badge)
     }
 
     /** Decisions 4 and 4d: the id is derived, not random, so two devices converge. */
@@ -171,7 +172,7 @@ class SessionCoordinatorTest {
         // spelling is the one already there (decision 5).
         assertEquals(
             "The Fratellis",
-            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+            coordinator.rows(unfiltered(guitar)).single { it.songId == songId }.artistName,
         )
 
         // And the same holds through punctuation.
@@ -193,7 +194,7 @@ class SessionCoordinatorTest {
         )
         assertEquals(
             "Unknown Artist",
-            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+            coordinator.rows(unfiltered(guitar)).single { it.songId == songId }.artistName,
         )
     }
 
@@ -204,9 +205,9 @@ class SessionCoordinatorTest {
         val second = coordinator.addSong("  wonderwall  ", "oasis")
 
         assertEquals(first, second)
-        assertEquals(1, coordinator.rows(guitar).size)
+        assertEquals(1, coordinator.rows(unfiltered(guitar)).size)
         // The first spelling is the one kept.
-        assertEquals("Wonderwall", coordinator.rows(guitar).single().title)
+        assertEquals("Wonderwall", coordinator.rows(unfiltered(guitar)).single().title)
     }
 
     @Test
@@ -219,7 +220,7 @@ class SessionCoordinatorTest {
         assertEquals(Ids.song(picked.id, "Henrietta"), songId)
         assertEquals(
             "The Fratellis",
-            coordinator.rows(guitar).single { it.songId == songId }.artistName,
+            coordinator.rows(unfiltered(guitar)).single { it.songId == songId }.artistName,
         )
     }
 
@@ -233,7 +234,7 @@ class SessionCoordinatorTest {
         repository.logPractice(warm, guitar, loggedOn = "2026-08-14")
         repository.logPractice(cold, guitar, loggedOn = "2026-06-01")
 
-        val rows = coordinator.rows(guitar)
+        val rows = coordinator.rows(unfiltered(guitar))
 
         assertEquals(listOf(unplayed, cold, warm), rows.map { it.songId })
         assertEquals(listOf("never", "75d", "1d"), rows.map { it.badge })
@@ -252,19 +253,19 @@ class SessionCoordinatorTest {
         repository.logPractice(warm, guitar, loggedOn = "2026-08-14")
         repository.logPractice(cold, guitar, loggedOn = "2026-06-01")
 
-        val before = coordinator.rows(guitar)
+        val before = coordinator.rows(unfiltered(guitar))
         assertEquals(listOf(unplayed, cold, warm), before.map { it.songId })
 
         val tap = coordinator.newTap(unplayed, guitar)
         val eventId = coordinator.persist(tap)
 
-        val logged = coordinator.rows(guitar)
+        val logged = coordinator.rows(unfiltered(guitar))
         assertEquals(listOf(cold, warm, unplayed), logged.map { it.songId })
         assertEquals("today", logged.last().badge)
 
         coordinator.voidEvent(eventId)
 
-        val after = coordinator.rows(guitar)
+        val after = coordinator.rows(unfiltered(guitar))
         assertEquals(before.map { it.songId }, after.map { it.songId })
         assertEquals("never", after[0].badge)
         assertNull(after[0].daysSince)
@@ -278,10 +279,10 @@ class SessionCoordinatorTest {
         repository.logPractice(song, guitar, loggedOn = "2026-06-01")
         val mistake = coordinator.persist(coordinator.newTap(song, guitar))
 
-        assertEquals("today", coordinator.rows(guitar).single().badge)
+        assertEquals("today", coordinator.rows(unfiltered(guitar)).single().badge)
         coordinator.voidEvent(mistake)
 
-        val row = coordinator.rows(guitar).single()
+        val row = coordinator.rows(unfiltered(guitar)).single()
         assertEquals("75d", row.badge)
         assertEquals(1L, row.timesPractised)
     }
@@ -299,14 +300,14 @@ class SessionCoordinatorTest {
         assertEquals(2, repository.practiceHistory(song).size)
 
         // Still one row on the screen, badged today.
-        val row = coordinator.rows(guitar).single()
+        val row = coordinator.rows(unfiltered(guitar)).single()
         assertEquals("today", row.badge)
         assertEquals(2L, row.timesPractised)
 
         // And undoing one of them leaves the other standing.
         coordinator.voidEvent(second)
         assertEquals(1L, repository.timesPractised(song))
-        assertEquals("today", coordinator.rows(guitar).single().badge)
+        assertEquals("today", coordinator.rows(unfiltered(guitar)).single().badge)
     }
 
     @Test
@@ -314,8 +315,8 @@ class SessionCoordinatorTest {
         val song = insertSong("Valerie", "The Zutons")
         coordinator.persist(coordinator.newTap(song, guitar))
 
-        assertEquals("today", coordinator.rows(guitar).single().badge)
-        assertEquals("never", coordinator.rows(vocal).single().badge)
+        assertEquals("today", coordinator.rows(unfiltered(guitar)).single().badge)
+        assertEquals("never", coordinator.rows(unfiltered(vocal)).single().badge)
     }
 
     @Test
@@ -350,9 +351,11 @@ class SessionCoordinatorTest {
         val selected = coordinator.initialInstrument(chips)
         assertEquals(vocal, selected)
 
+        val view = unfiltered(selected!!)
         var state = SessionState()
-            .withInstruments(chips, selected)
-            .withRows(coordinator.rows(selected!!))
+            .withInstruments(chips)
+            .switchingTo(view)
+            .withRows(coordinator.rows(view))
         assertEquals(2, state.pending.size)
         assertTrue(state.logged.isEmpty())
 
@@ -368,8 +371,12 @@ class SessionCoordinatorTest {
 
         assertEquals(2, state.pending.size)
         assertTrue(state.logged.isEmpty())
-        assertEquals(listOf("never", "never"), coordinator.rows(selected).map { it.badge })
+        assertEquals(listOf("never", "never"), coordinator.rows(view).map { it.badge })
     }
+
+    /** V21's empty state: no filter, one instrument, the default direction. */
+    private fun unfiltered(instrumentId: String): SessionView =
+        SessionView.unsaved(instrumentId)
 
     private fun insertSong(title: String, artist: String): String {
         val artistId = Ids.derived("artist", artist)

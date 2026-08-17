@@ -6,21 +6,28 @@ import androidx.lifecycle.viewModelScope
 import dev.repertaurus.core.Ids
 import dev.repertaurus.core.Timestamps
 import dev.repertaurus.data.DatabaseHolder
+import dev.repertaurus.data.DatabaseState
+import dev.repertaurus.data.DatabaseUnloadable
 import dev.repertaurus.data.ImportPreview
 import dev.repertaurus.data.ImportRejected
 import dev.repertaurus.data.SampleData
 import dev.repertaurus.data.RepertaurusRepository
-import dev.repertaurus.session.InstrumentChip
+import dev.repertaurus.session.CapabilityCoordinator
 import dev.repertaurus.session.LookupItem
 import dev.repertaurus.session.LookupKind
 import dev.repertaurus.session.LookupStore
 import dev.repertaurus.session.LookupStores
+import dev.repertaurus.session.PerformerLineUp
 import dev.repertaurus.session.SessionCoordinator
 import dev.repertaurus.session.SessionOrder
 import dev.repertaurus.session.SessionPreferences
 import dev.repertaurus.session.SessionRow
+import dev.repertaurus.session.SessionStart
 import dev.repertaurus.session.SessionState
 import dev.repertaurus.session.SessionTap
+import dev.repertaurus.session.SessionView
+import dev.repertaurus.session.SongCapability
+import dev.repertaurus.session.ViewCoordinator
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -63,72 +70,256 @@ public class SessionViewModel(
     /** tap id -> the in-flight insert, so an undo offered before it lands still works. */
     private val writes = mutableMapOf<String, Deferred<Result<String>>>()
 
+    // Volatile: written from Dispatchers.IO inside `loadSession` and from Main in `startFresh`
+    // and `confirmImport`. `withContext` gives happens-before for one reload at a time, but two
+    // overlapping reloads — start-fresh racing a lookup edit's reload — could otherwise both see
+    // false and run `SampleData.installIfEmpty` concurrently.
+    @Volatile
     private var bootstrapped = false
-
-    init {
-        reload()
-    }
 
     private fun coordinator(): SessionCoordinator =
         SessionCoordinator(holder.repository, preferences)
 
+    private fun viewCoordinator(): ViewCoordinator =
+        ViewCoordinator(holder.repository, preferences)
+
     // ---- Loading ----------------------------------------------------------------------
+
+    /**
+     * Which View the app opens on, held here rather than in [SessionState] because it is a
+     * device preference and not part of the list (views V19). Null until the first load, and
+     * null forever on an install that has never saved a View.
+     */
+    private val _homeViewId = MutableStateFlow<String?>(null)
+    public val homeViewId: StateFlow<String?> = _homeViewId.asStateFlow()
+
+    /**
+     * Whether the database opened at all (schema-compatibility S9).
+     *
+     * `Ready` while it did, and while nothing has yet said otherwise; the moment the boot path
+     * cannot read the database this carries the reason and `RepertaurusApp` renders
+     * `RecoveryScreen` in place of the Session screen. **This flow is the whole of S8's
+     * guarantee at this layer**: start-up used to have exactly one failure mode, which was
+     * killing the process before any screen was drawn — including the import screen that would
+     * have fixed it.
+     *
+     * S11: nothing here degrades a broken database to an empty one. An unreadable database
+     * shows a screen that says so and offers two actions; it never shows an intact repertoire
+     * as zero songs, which would invite the user to start typing them back in.
+     */
+    private val _databaseState = MutableStateFlow<DatabaseState>(DatabaseState.Ready)
+    public val databaseState: StateFlow<DatabaseState> = _databaseState.asStateFlow()
+
+    /** What one successful load produced. Null when the database could not be opened. */
+    private class Loaded(val start: SessionStart, val rows: List<SessionRow>)
 
     public fun reload() {
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
-            val loaded = withContext(io) {
-                if (!bootstrapped) {
-                    // Test data so the app has something to show before the phase 0 import
-                    // lands. Idempotent, and only ever on the first load of a process — an
-                    // import that legitimately arrives empty must stay empty.
-                    SampleData.installIfEmpty(holder.open(), deviceId)
-                    bootstrapped = true
-                }
-                val coordinator = coordinator()
-                val chips = coordinator.instruments()
-                val keep = _state.value.selectedInstrumentId
-                    ?.takeIf { id -> chips.any { it.id == id } }
-                val selected = keep ?: coordinator.initialInstrument(chips)
-                val rows = selected?.let { coordinator.rows(it) } ?: emptyList()
-                Loaded(chips, selected, rows, coordinator.initialOrder())
-            }
-            _state.update {
-                it.withInstruments(loaded.chips, loaded.selected)
-                    .withOrder(loaded.order)
-                    .withRows(loaded.rows)
-            }
+            val outcome = withContext(io) { runCatching { loadSession() } }
+            outcome.fold(
+                onSuccess = { loaded ->
+                    if (loaded == null) {
+                        _state.update { it.copy(loading = false) }
+                    } else {
+                        _homeViewId.value = loaded.start.homeViewId
+                        _state.update {
+                            it.withInstruments(loaded.start.instruments)
+                                .withViews(loaded.start.views)
+                                .copy(view = loaded.start.view)
+                                .withRows(loaded.rows)
+                        }
+                    }
+                },
+                onFailure = { failure ->
+                    // Not a swallow (S11): the reason becomes the screen the user is looking
+                    // at. Anything thrown past the holder's own gate lands here — a query that
+                    // fails on a schema the gate accepted, a disk error mid-read — and the
+                    // answer is the same, because the alternative is the crash.
+                    _databaseState.value = unloadable(failure)
+                    _state.update { it.copy(loading = false) }
+                },
+            )
+            if (_databaseState.value is DatabaseState.Ready) loadPerformers()
         }
     }
 
-    private data class Loaded(
-        val chips: List<InstrumentChip>,
-        val selected: String?,
-        val rows: List<SessionRow>,
-        val order: SessionOrder,
-    )
-
     /**
-     * The sort toggle. Instant — it reorders rows already in memory, with no round trip —
-     * and remembered for the next launch exactly as the instrument chip is.
+     * The blocking half of [reload]. Returns null when the holder refused to open the database,
+     * having already published the reason.
      */
-    public fun setOrder(order: SessionOrder) {
-        if (_state.value.order == order) return
-        _state.update { it.withOrder(order) }
-        viewModelScope.launch { withContext(io) { coordinator().rememberOrder(order) } }
+    private fun loadSession(): Loaded? {
+        val opened = holder.load()
+        if (opened is DatabaseState.Unloadable) {
+            _databaseState.value = opened
+            return null
+        }
+        if (!bootstrapped) {
+            // Test data so the app has something to show before the phase 0 import
+            // lands. Idempotent, and only ever on the first load of a process — an
+            // import that legitimately arrives empty must stay empty.
+            SampleData.installIfEmpty(holder.open(), deviceId)
+            bootstrapped = true
+        }
+        // One call: V20's home resolution, V20a's instrument repair and V21's empty
+        // state are one rule and live in the shared core. Whatever is on screen wins
+        // if it survived, so a reload triggered by an unrelated edit — adding an
+        // instrument, renaming one — does not throw the musician back to their home
+        // View mid-practice.
+        val start = viewCoordinator().start(_state.value.view)
+        val rows = start.view?.let { coordinator().rows(it) } ?: emptyList()
+        _databaseState.value = DatabaseState.Ready
+        return Loaded(start, rows)
     }
 
-    public fun selectInstrument(instrumentId: String) {
-        if (_state.value.selectedInstrumentId == instrumentId) return
-        _state.update { it.selecting(instrumentId) }
+    /**
+     * A failure that reached this layer, as a state. The wording comes from
+     * [DatabaseState.Unloadable.from] rather than from here, so the user is not told the file
+     * "could not be opened" or "could not be read" depending on which layer caught it (S6).
+     */
+    private fun unloadable(failure: Throwable): DatabaseState.Unloadable = when (failure) {
+        is DatabaseUnloadable -> failure.state
+        else -> DatabaseState.Unloadable.from(holder.databaseFile().absolutePath, failure)
+    }
+
+    // ---- Recovery (schema-compatibility S9) ----------------------------------------------
+
+    /**
+     * Try the database again — for a failure that might not be permanent, and for the user who
+     * has just put the right file in place from outside the app.
+     *
+     * It goes through [DatabaseHolder.retry] and not [reload], because the holder caches its
+     * refusal and a plain reload would be handed the cached verdict. That distinction is the
+     * difference between a button and a button that does nothing.
+     */
+    public fun retryDatabase() {
         viewModelScope.launch {
-            val rows = withContext(io) {
-                val coordinator = coordinator()
-                coordinator.rememberInstrument(instrumentId)
-                coordinator.rows(instrumentId)
+            val state = withContext(io) { runCatching { holder.retry() } }
+                .getOrElse { failure -> unloadable(failure) }
+            _databaseState.value = state
+            if (state is DatabaseState.Ready) reload()
+        }
+    }
+
+    /**
+     * The second recovery action: discard the unreadable file and create an empty
+     * current-schema database. Destructive, and the screen asks first.
+     *
+     * S4: a re-import is always the supported recovery, so this is the fallback for the user
+     * who has no file to import, not the recommended route.
+     */
+    public fun startFresh() {
+        viewModelScope.launch {
+            val outcome = withContext(io) { runCatching { holder.startFresh() } }
+            outcome.fold(
+                onSuccess = { state ->
+                    _databaseState.value = state
+                    if (state is DatabaseState.Ready) {
+                        _state.value = SessionState()
+                        // **Empty means empty.** S9 says this action creates an empty
+                        // current-schema database and the screen says so twice. Leaving
+                        // `bootstrapped` false would let `SampleData.installIfEmpty` write eight
+                        // songs and invented practice dates into it, and a user who has just been
+                        // told their repertoire is unreadable cannot tell placeholder rows from
+                        // survivors. `confirmImport` sets this for the same reason.
+                        bootstrapped = true
+                        reload()
+                    }
+                },
+                onFailure = { failure -> _databaseState.value = unloadable(failure) },
+            )
+        }
+    }
+
+    /**
+     * The sort toggle. Instant — it reorders rows already in memory, with no round trip.
+     *
+     * Where the direction is *persisted* is V13b's two-branch rule and lives in
+     * [ViewCoordinator.rememberOrder]: `saved_view.sort_order` for a saved View,
+     * [SessionPreferences] for V21's unsaved one. With no View at all — the initial load — the
+     * tap is still not lost: the state carries it and it goes to preferences, which is where
+     * the View that is about to arrive would have read it from anyway.
+     */
+    public fun setOrder(order: SessionOrder) {
+        val state = _state.value
+        if (state.order == order) return
+        _state.update { it.withOrder(order) }
+        val turned = state.view?.copy(order = order)
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    if (turned == null) {
+                        coordinator().rememberOrder(order)
+                        null
+                    } else {
+                        viewCoordinator().rememberOrder(turned)
+                    }
+                }
             }
-            _state.update {
-                if (it.selectedInstrumentId == instrumentId) it.withRows(rows) else it
+            outcome.fold(
+                onSuccess = { refreshed ->
+                    if (refreshed != null) _state.update { it.withViews(refreshed) }
+                },
+                onFailure = { failure ->
+                    _state.update {
+                        it.withMessage("Could not remember that order: ${failure.message}")
+                    }
+                },
+            )
+        }
+    }
+
+    /**
+     * The instrument chip: the practice instrument, which is both the log target and the
+     * staleness scope (V13). It is **not** the capability filter — that is a field of the
+     * View and lives in the View editor — and merging the two is the exact bug Views exist
+     * to fix.
+     *
+     * V13a: this **forks to an unsaved View and never edits the saved row.** The forked View
+     * keeps the active View's filter and direction and takes the tapped instrument. Editing a
+     * saved View is an explicit action in the switcher, never a side effect of practising.
+     */
+    public fun selectInstrument(instrumentId: String) {
+        val view = _state.value.view ?: return
+        if (view.practiceInstrumentId == instrumentId) return
+        switchView(view.forkedTo(instrumentId))
+    }
+
+    /**
+     * V22: switching View is a **full reload** of the filter, the practice instrument and the
+     * sort, and it clears the pending undo offer — which refers to a tap the user is no longer
+     * looking at. It does **not** clear this session's optimistic taps: `tapsHere` already
+     * scopes the logged section by practice instrument and `logged` resolves each tap against
+     * the current View's rows, so a song absent from the new View drops out on its own, and
+     * the ordinary flick of guitar → bass → guitar returns you to your logged list.
+     *
+     * Nothing here writes to `saved_view`. Switching and chip-tapping are read paths, which is
+     * what keeps two rapid taps from racing each other into a synced row.
+     */
+    public fun switchView(view: SessionView) {
+        _state.update { it.switchingTo(view) }
+        viewModelScope.launch {
+            val loaded = withContext(io) {
+                runCatching {
+                    val coordinator = coordinator()
+                    // The chip is remembered whichever View asked for it, so V21's empty
+                    // state opens on the instrument last actually practised on.
+                    coordinator.rememberInstrument(view.practiceInstrumentId)
+                    coordinator.rows(view)
+                }
+            }
+            _state.update { state ->
+                if (!view.sameQuery(state.view)) {
+                    state
+                } else {
+                    loaded.fold(
+                        onSuccess = { rows -> state.withRows(rows) },
+                        onFailure = { failure ->
+                            state.withRows(emptyList())
+                                .withMessage("Could not open that view: ${failure.message}")
+                        },
+                    )
+                }
             }
         }
     }
@@ -211,10 +402,24 @@ public class SessionViewModel(
     private val _artists = MutableStateFlow<List<RepertaurusRepository.Artist>>(emptyList())
     public val artists: StateFlow<List<RepertaurusRepository.Artist>> = _artists.asStateFlow()
 
+    /**
+     * S11: **not** `getOrDefault(emptyList())`. An empty artist list is a legitimate state, so a
+     * failed read that produced one would be indistinguishable from a real empty table — and in
+     * the add-song sheet that silently defeats decisions 2, 16 and 17, because a type-ahead with
+     * no suggestions makes the user create a duplicate artist by hand. The previous list stays
+     * and the failure is said out loud.
+     */
     public fun loadArtists() {
         viewModelScope.launch {
-            _artists.value = withContext(io) { runCatching { coordinator().artists() } }
-                .getOrDefault(emptyList())
+            val outcome = withContext(io) { runCatching { coordinator().artists() } }
+            outcome.fold(
+                onSuccess = { artists -> _artists.value = artists },
+                onFailure = { failure ->
+                    _state.update {
+                        it.withMessage("Could not load artists: ${failure.message}")
+                    }
+                },
+            )
         }
     }
 
@@ -233,17 +438,28 @@ public class SessionViewModel(
             val outcome = withContext(io) {
                 runCatching {
                     val coordinator = coordinator()
-                    if (artistId != null) {
+                    val songId = if (artistId != null) {
                         coordinator.addSongWithArtistId(trimmed, artistId)
                     } else {
                         coordinator.addSong(trimmed, artistName)
                     }
-                    _state.value.selectedInstrumentId?.let { coordinator.rows(it) } ?: emptyList()
+                    songId to (_state.value.view?.let { coordinator.rows(it) } ?: emptyList())
                 }
             }
             _state.update { state ->
                 outcome.fold(
-                    onSuccess = { rows -> state.withRows(rows).withMessage("Added $trimmed") },
+                    onSuccess = { (songId, rows) ->
+                        // V9: a song with no `song_performer` row asserts nothing and is
+                        // excluded by any filter, so a song added inside a filtered View is
+                        // saved and then invisible. Saying so beats looking broken.
+                        state.withRows(rows).withMessage(
+                            if (rows.any { it.songId == songId }) {
+                                "Added $trimmed"
+                            } else {
+                                "Added $trimmed — this view's filter hides it."
+                            },
+                        )
+                    },
                     onFailure = { failure ->
                         state.withMessage("Could not add that song: ${failure.message}")
                     },
@@ -253,24 +469,169 @@ public class SessionViewModel(
         }
     }
 
+    // ---- Views (views V15-V24) ----------------------------------------------------------
+
+    /**
+     * Live performers, for the View editor's filter type-ahead.
+     *
+     * The table is a few rows, so it is held whole and matched in memory — the same reason
+     * [artists] is, and what makes decision 16's "near-matches while typing" literally true
+     * with no query per keystroke.
+     */
+    private val _performers =
+        MutableStateFlow<List<RepertaurusRepository.Performer>>(emptyList())
+    public val performers: StateFlow<List<RepertaurusRepository.Performer>> =
+        _performers.asStateFlow()
+
+    /**
+     * S11, and this one is on the boot path — [reload] calls it. `getOrDefault(emptyList())`
+     * here would give the View editor an empty performer picker and a title that cannot name its
+     * own filter performer, with nothing said anywhere; and per V9 an empty performer list is a
+     * real state, so the user could not tell the two apart.
+     */
+    public fun loadPerformers() {
+        viewModelScope.launch {
+            val outcome = withContext(io) { runCatching { coordinator().performers() } }
+            outcome.fold(
+                onSuccess = { performers -> _performers.value = performers },
+                onFailure = { failure ->
+                    _state.update {
+                        it.withMessage("Could not load performers: ${failure.message}")
+                    }
+                },
+            )
+        }
+    }
+
+    /**
+     * Save the View the editor produced. A View with no row behind it yet — id
+     * [SessionView.UNSAVED_ID] — is a create; anything else is an update, because
+     * [SessionView.saved] is exactly that distinction and the editor needs no second flag.
+     *
+     * Either way the app switches to the result, which is V22's full reload: the filter that
+     * was just edited decides which songs are eligible and the rows must be re-queried.
+     */
+    public fun commitView(view: SessionView) {
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    val views = viewCoordinator()
+                    val saved = if (view.saved) {
+                        views.updateView(view)
+                        view
+                    } else {
+                        views.createView(
+                            name = view.name,
+                            filter = view.filter,
+                            practiceInstrumentId = view.practiceInstrumentId,
+                            order = view.order,
+                            notes = view.notes,
+                        )
+                    }
+                    saved to views.views()
+                }
+            }
+            outcome.fold(
+                onSuccess = { (saved, views) ->
+                    _state.update { it.withViews(views) }
+                    switchView(saved)
+                },
+                onFailure = { failure ->
+                    _state.update { it.withMessage("Could not save that view: ${failure.message}") }
+                },
+            )
+        }
+    }
+
+    /**
+     * V23: a soft delete, like every other mutable row in this schema.
+     *
+     * Deleting the View that is on screen — or the one set as home — leaves the app with
+     * nowhere to open, so [ViewCoordinator.start] re-resolves afterwards. That is V20: the
+     * first View by `(position, id)`, or V21's unsaved stand-in when the last one has gone,
+     * with the home preference written back either way.
+     */
+    public fun deleteView(viewId: String) {
+        val wasActive = _state.value.view?.id == viewId
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    val views = viewCoordinator()
+                    views.deleteView(viewId)
+                    views.start()
+                }
+            }
+            outcome.fold(
+                onSuccess = { start ->
+                    _homeViewId.value = start.homeViewId
+                    _state.update { it.withViews(start.views) }
+                    start.view?.let { next -> if (wasActive) switchView(next) }
+                },
+                onFailure = { failure ->
+                    _state.update {
+                        it.withMessage("Could not delete that view: ${failure.message}")
+                    }
+                },
+            )
+        }
+    }
+
+    /**
+     * V19: the View the app opens on, remembered on this device only. A phone and a desktop
+     * are free to open on different Views, which is the behaviour we want rather than a
+     * compromise forced by the absence of a column.
+     */
+    public fun setHomeView(viewId: String) {
+        _homeViewId.value = viewId
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching { viewCoordinator().rememberHomeView(viewId) }
+            }
+            outcome.onFailure { failure ->
+                _state.update {
+                    it.withMessage("Could not set that as home: ${failure.message}")
+                }
+            }
+        }
+    }
+
     // ---- Managing a lookup table (instruments today) -----------------------------------
 
     private val _lookups = MutableStateFlow(LookupsState())
     public val lookups: StateFlow<LookupsState> = _lookups.asStateFlow()
 
+    /**
+     * E45's ordering guard, on the lookup path.
+     *
+     * The capability path's defect is here in identical shape and with **no guard at all**: each
+     * action is its own coroutine, so two writes can complete out of order and the earlier
+     * read wins the screen. `setLookupNotes` is new in this arc and rides the same helper, so it
+     * arrived with the fault already in it.
+     *
+     * Only ever read and written from the main thread — `viewModelScope` is
+     * `Dispatchers.Main.immediate` and every increment is on the caller's side of a
+     * `withContext(io)` — so a plain `Long` is enough and a mutex would buy nothing.
+     */
+    private var lookupTicket = 0L
+
     private fun store(kind: LookupKind) = LookupStores.of(kind, holder.repository)
 
     public fun loadLookups(kind: LookupKind) {
-        _lookups.update { it.copy(kind = kind, busy = true) }
+        val ticket = ++lookupTicket
+        _lookups.update { it.copy(kind = kind, busy = true, sequence = ticket) }
         viewModelScope.launch {
             val outcome = withContext(io) { runCatching { store(kind).items() } }
             _lookups.update { state ->
-                outcome.fold(
-                    onSuccess = { state.copy(items = it, busy = false) },
-                    onFailure = { failure ->
-                        state.copy(busy = false, message = "Could not load: ${failure.message}")
-                    },
-                )
+                if (state.sequence != ticket) {
+                    state
+                } else {
+                    outcome.fold(
+                        onSuccess = { state.copy(items = it, busy = false) },
+                        onFailure = { failure ->
+                            state.copy(busy = false, message = "Could not load: ${failure.message}")
+                        },
+                    )
+                }
             }
         }
     }
@@ -296,7 +657,8 @@ public class SessionViewModel(
     }
 
     private fun mutate(kind: LookupKind, done: String, block: (LookupStore) -> Unit) {
-        _lookups.update { it.copy(busy = true) }
+        val ticket = ++lookupTicket
+        _lookups.update { it.copy(busy = true, sequence = ticket) }
         viewModelScope.launch {
             val outcome = withContext(io) {
                 runCatching {
@@ -306,14 +668,37 @@ public class SessionViewModel(
                 }
             }
             _lookups.update { state ->
-                outcome.fold(
-                    onSuccess = { state.copy(items = it, busy = false, message = done) },
-                    onFailure = { failure ->
-                        state.copy(busy = false, message = "That did not work: ${failure.message}")
-                    },
-                )
+                // E45: a result that is not the newest is dropped. Two renames dispatched in
+                // quick succession otherwise complete in either order, and the earlier read
+                // paints the screen with the row as it was before the second write.
+                if (state.sequence != ticket) {
+                    state
+                } else {
+                    outcome.fold(
+                        onSuccess = { state.copy(items = it, busy = false, message = done) },
+                        onFailure = { failure ->
+                            state.copy(
+                                busy = false,
+                                message = "That did not work: ${failure.message}",
+                            )
+                        },
+                    )
+                }
             }
             if (outcome.isSuccess) reload()
+        }
+    }
+
+    /**
+     * E16: the notes column, for the kinds that declare one. The screen offers the field only
+     * where [LookupKind.hasNotes] is true and the store fails loudly anywhere else, which is
+     * how `venue` — which has no such column (E16a) — cannot be given one by a screen that
+     * guessed.
+     */
+    public fun setLookupNotes(kind: LookupKind, id: String, notes: String?) {
+        val trimmed = notes?.trim()?.takeIf { it.isNotEmpty() }
+        mutate(kind, if (trimmed == null) "Notes cleared" else "Notes saved") {
+            it.setNotes(id, trimmed)
         }
     }
 
@@ -327,12 +712,206 @@ public class SessionViewModel(
         val items: List<LookupItem> = emptyList(),
         val busy: Boolean = false,
         val message: String? = null,
+        /** E45: which request this state belongs to. A stale result never lands. */
+        val sequence: Long = 0L,
+    )
+
+    // ---- The song-capability editor (editing E1-E11) -------------------------------------
+    //
+    // **E1: nothing in this section writes `practice_event`.** Every write below goes through
+    // `CapabilityCoordinator`, which reaches `song_performer` and nothing else; the only method
+    // on this class that logs practice is `log`, and nothing here calls it. "Coralie can sing
+    // this" is a fact about the repertoire, true whether or not anyone practised today, and the
+    // editor is now one long-press from the tap that *is* a practice event.
+
+    private val _capabilities = MutableStateFlow(CapabilityState())
+    public val capabilities: StateFlow<CapabilityState> = _capabilities.asStateFlow()
+
+    /**
+     * **E45's sequence number, and the whole of the ordering guarantee on this path.**
+     *
+     * Every capability action was its own `launch` with no ordering between them, and the only
+     * guard compared **song identity** — which is not freshness. Two writes on the same song
+     * could therefore complete out of order and the earlier read would win the screen: a chip
+     * the user had just added vanished, or a lead flag reverted. The same missing number let a
+     * result land after close-then-reopen on the *same* song, because identity matched.
+     *
+     * A monotonic counter is the smallest thing that fixes both. Every request takes the next
+     * value before it goes near IO, stamps it into the state, and applies its result only if the
+     * state still carries it. Only ever touched from the main thread — `viewModelScope` is
+     * `Dispatchers.Main.immediate` and each increment happens on the caller's side of the
+     * `withContext(io)` — so a plain `Long` is correct and a lock would buy nothing.
+     */
+    private var capabilityTicket = 0L
+
+    private fun capabilityCoordinator(): CapabilityCoordinator =
+        CapabilityCoordinator(holder.repository)
+
+    /** Open the editor on one song and read its line-up (E10). A read, and only a read. */
+    public fun openCapabilities(song: SessionRow) {
+        val ticket = ++capabilityTicket
+        _capabilities.value = CapabilityState(song = song, busy = true, sequence = ticket)
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching { capabilityCoordinator().lineUp(song.songId) }
+            }
+            _capabilities.update { state ->
+                // The sheet may already have been closed, reopened on another song, or reopened
+                // on *this* one while the read was in flight. The sequence covers all three;
+                // song identity covered only the middle case (E45).
+                if (state.sequence != ticket) {
+                    state
+                } else {
+                    outcome.fold(
+                        onSuccess = { state.copy(lineUp = it, busy = false) },
+                        onFailure = { failure ->
+                            state.copy(
+                                busy = false,
+                                error = "Could not read the line-up: ${failure.message}",
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Closing resets the state, and the fresh [CapabilityState] carries sequence `0` — which no
+     * in-flight request can hold, so nothing that was already running can paint a closed sheet.
+     */
+    public fun closeCapabilities() {
+        _capabilities.value = CapabilityState()
+    }
+
+    /**
+     * E5, E6: create on enter, and **insert-or-revive**. A pair that already exists as a
+     * tombstone derives the same primary key, so the repository restores it rather than
+     * inserting a second row — the whole reason `add` takes no facts.
+     */
+    public fun addCapability(performerName: String, instrumentName: String) {
+        val performer = performerName.trim()
+        val instrument = instrumentName.trim()
+        if (performer.isEmpty() || instrument.isEmpty()) return
+        val songId = _capabilities.value.song?.songId ?: return
+        // E44: `isAdd` is what lets the form clear on **confirmed success** rather than on
+        // dispatch. It used to blank both typed names the instant the button was pressed, so a
+        // failed write left two empty boxes and no record of what the user had entered.
+        mutateCapabilities("Added $performer on $instrument", isAdd = true) {
+            it.add(songId, performer, instrument)
+        }
+    }
+
+    /**
+     * E4, E8: the three editable facts. The range is rejected by the core on any row that is
+     * not a voice, which is why the editor never offers the control there.
+     */
+    public fun updateCapability(capability: SongCapability) {
+        mutateCapabilities("Saved ${capability.performerName}") { it.update(capability) }
+    }
+
+    /** E7: a soft delete. The tombstone is what makes E6's revive possible at all. */
+    public fun removeCapability(capability: SongCapability) {
+        mutateCapabilities("Removed ${capability.performerName}") { it.remove(capability.id) }
+    }
+
+    /**
+     * One write, then the line-up again.
+     *
+     * The session list is reloaded afterwards because a capability row is what the View's
+     * eligibility filter reads (views V11): adding or removing one genuinely changes which
+     * songs are in the list behind this sheet. **That reload is a query.** It is the only
+     * thing this path does beyond `song_performer`, and it writes nothing at all.
+     */
+    private fun mutateCapabilities(
+        done: String,
+        isAdd: Boolean = false,
+        block: (CapabilityCoordinator) -> Unit,
+    ) {
+        val songId = _capabilities.value.song?.songId ?: return
+        val ticket = ++capabilityTicket
+        // Both channels are cleared together (E43): the previous write's confirmation must not
+        // survive beside this one's failure, and vice versa.
+        _capabilities.update {
+            it.copy(busy = true, message = null, error = null, sequence = ticket)
+        }
+        viewModelScope.launch {
+            val outcome = withContext(io) {
+                runCatching {
+                    val coordinator = capabilityCoordinator()
+                    block(coordinator)
+                    coordinator.lineUp(songId)
+                }
+            }
+            _capabilities.update { state ->
+                if (state.sequence != ticket) {
+                    state
+                } else {
+                    outcome.fold(
+                        onSuccess = {
+                            state.copy(
+                                lineUp = it,
+                                busy = false,
+                                message = done,
+                                // E44: only here, on the confirmed-success path.
+                                addsCommitted = state.addsCommitted + if (isAdd) 1L else 0L,
+                            )
+                        },
+                        // E43: the error channel, rendered in the error colour. This used to be
+                        // the same field as the confirmation above and painted the same accent
+                        // colour, so a refused write read as a success.
+                        onFailure = { failure ->
+                            state.copy(
+                                busy = false,
+                                error = "That did not work: ${failure.message}",
+                            )
+                        },
+                    )
+                }
+            }
+            if (outcome.isSuccess) {
+                // E5 can have created a performer or an instrument, so the roster the View
+                // editor types against and the chip row that *is* the instrument table must
+                // not lag behind the table they read.
+                loadPerformers()
+                reload()
+            }
+        }
+    }
+
+    /**
+     * The capability editor's state. [song] null means the sheet is closed, which is the same
+     * shape the rest of this class uses for "no sheet".
+     */
+    public data class CapabilityState(
+        val song: SessionRow? = null,
+        val lineUp: List<PerformerLineUp> = emptyList(),
+        val busy: Boolean = false,
+        /** E43: a confirmation, and only ever a confirmation. */
+        val message: String? = null,
+        /** E43: a refusal, rendered in the error colour and never where a confirmation goes. */
+        val error: String? = null,
+        /**
+         * E44: adds this sheet has seen **land**. The add form clears when this changes, which
+         * is what makes "clear on confirmed success, never on dispatch" expressible from a
+         * composable that cannot see the write.
+         */
+        val addsCommitted: Long = 0L,
+        /** E45: which request this state belongs to. A stale result never lands. */
+        val sequence: Long = 0L,
     )
 
     // ---- Import and export ------------------------------------------------------------
 
-    /** The suggested backup file name for the system save sheet. */
-    public fun exportFileName(): String = holder.exportFileName(holder.repository.today())
+    /**
+     * The suggested backup file name for the system save sheet.
+     *
+     * The date comes straight from [Timestamps], not from the repository. It is the same
+     * value — `RepertaurusRepository.today()` reads the system clock and nothing else — but
+     * reaching it through the repository opens the database, on the main thread, from a
+     * composition. That is a boot-path database touch hiding inside a filename.
+     */
+    public fun exportFileName(): String = holder.exportFileName(Timestamps.today())
 
     public fun export(target: () -> OutputStream?) {
         _transfer.update { it.copy(busy = true, message = null) }
@@ -389,8 +968,13 @@ public class SessionViewModel(
         _transfer.update { it.copy(busy = true, pending = null) }
         viewModelScope.launch {
             val outcome = withContext(io) { runCatching { holder.commitImport() } }
-            if (outcome.isSuccess) {
-                // Everything the old database backed is gone: taps, rows, selection.
+            outcome.onSuccess { state ->
+                // Everything the old database backed is gone: taps, rows, selection. The new
+                // file passed the same gate the boot path uses, so `state` is Ready unless the
+                // copy itself failed — and either way it replaces whatever the screen was
+                // showing, which is how an import performed from RecoveryScreen gets the user
+                // back to the Session screen (S4).
+                _databaseState.value = state
                 _state.value = SessionState()
                 bootstrapped = true
                 reload()
@@ -409,7 +993,18 @@ public class SessionViewModel(
 
     public fun cancelImport() {
         _transfer.update { it.copy(pending = null) }
-        viewModelScope.launch { withContext(io) { holder.discardStagedImport() } }
+        viewModelScope.launch {
+            // Deleting the staged copy is housekeeping: it costs the user nothing if it
+            // fails, and it must not be the thing that takes down a screen whose entire
+            // purpose is recovering from a database that will not open (S8). The result is
+            // still surfaced rather than dropped (S11), just as a message and not a screen.
+            val outcome = withContext(io) { runCatching { holder.discardStagedImport() } }
+            outcome.onFailure { failure ->
+                _transfer.update {
+                    it.copy(message = "Could not clear the staged file: ${failure.message}")
+                }
+            }
+        }
     }
 
     public fun clearTransferMessage() {
@@ -422,6 +1017,33 @@ public class SessionViewModel(
         val pending: ImportPreview? = null,
         val message: String? = null,
     )
+
+    // ---- First load ---------------------------------------------------------------------
+
+    /**
+     * **This block must stay last in the class body. Do not move it up to the constructor.**
+     *
+     * Kotlin runs property initialisers and `init` blocks in *declaration order*, and
+     * [viewModelScope] is `Dispatchers.Main.immediate` — a `launch` from the constructor
+     * thread starts executing its body *before* `launch` returns, and its `withContext(io)`
+     * can resume while the constructor is still running. Any property declared below the
+     * `init` block is therefore still `null` when the coroutine touches it, however the
+     * Kotlin type says otherwise.
+     *
+     * That is not theoretical. With `init { reload() }` up beside the constructor the app
+     * crashed on every launch with a NullPointerException on `_performers.setValue` from
+     * [loadPerformers], and `_homeViewId` had the identical latent fault — it escaped only
+     * because [reload]'s IO block runs `SampleData.installIfEmpty` over a 479-song database,
+     * which is slow enough that construction always won that particular race. On a small or
+     * empty database it would have lost.
+     *
+     * Keeping the first load here rather than sprinkling `lateinit` or null checks over the
+     * state flows means the hazard is structurally impossible instead of individually
+     * defended: everything the class owns is constructed before anything runs.
+     */
+    init {
+        reload()
+    }
 
     public companion object {
         private fun kilobytes(bytes: Long): String = "${(bytes + 1023) / 1024} kB"

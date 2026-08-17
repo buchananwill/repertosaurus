@@ -16,8 +16,9 @@
 --
 -- The id is DERIVED, not random: two devices adding the same performer to the same item
 -- is a duplicate, and decision 3 says derive the id where a duplicate would be an error.
--- Decision 4's one junction form, identical in shape to song_instrument, song_tag and
--- song_performer:
+-- Decision 4's one junction form, identical in shape to song_instrument and song_tag —
+-- and to song_performer, which since views decision V3 carries a third key, the instrument,
+-- appended to the same construction:
 --     id = UUIDv5(namespace('setlist_item_performer'), setlist_item_id || '/' || performer_id)
 -- `position` is deliberately NOT part of the key — the same person moved from lead to
 -- co-lead is the same row updated, not a new one. The separator is the `/` of decision 4d.

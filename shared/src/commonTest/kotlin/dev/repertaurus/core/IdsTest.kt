@@ -2,6 +2,7 @@ package dev.repertaurus.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -212,9 +213,9 @@ class IdsTest {
     /**
      * The four junctions, pinned. The `song_performer` and `song_tag` values are **exact
      * ids the Python migration emitted** for real rows — Amy Winehouse's *Valerie* tagged
-     * `bass-vox`, ABBA's *Dancing Queen* sung by Jennifer — taken from a cross-check of all
-     * 507 + 282 junction ids it emits. If one of these moves, the app and the migration
-     * have forked, and decision 5 makes that permanent.
+     * `bass-vox`, ABBA's *Dancing Queen* sung by Jennifer on vocal — taken from a
+     * cross-check of all 595 + 280 junction ids it emits. If one of these moves, the app and
+     * the migration have forked, and decision 5 makes that permanent.
      */
     @Test
     fun junctionIdsForAllFourTablesAreTheRatifiedValues() {
@@ -246,10 +247,14 @@ class IdsTest {
             "5fd6b9f0-9c89-5c7f-b191-19e36d0bb885",
             Ids.junction("song_tag", valerie, "212b5a4b-0a46-5ab5-bb7c-a448f42ae70c"),
         )
-        // song_performer: Dancing Queen sung by Jennifer.
+        // song_performer: Dancing Queen sung by Jennifer, on vocal. Three keys since V3.
         assertEquals(
-            "9d6741be-10f9-5e0c-9d7f-d9933d272018",
-            Ids.junction("song_performer", dancingQueen, "563c8cf4-40a7-50b0-8956-00a4055a7d34"),
+            "ab4af6af-1289-5324-b3a8-8651ee6d54f2",
+            Ids.songPerformer(
+                dancingQueen,
+                "563c8cf4-40a7-50b0-8956-00a4055a7d34",
+                Ids.derived("instrument", "vocal"),
+            ),
         )
         // song_instrument: Valerie on guitar. No migration row to compare — the migration
         // emits per-instrument facts without ids yet — so this pins the construction.
@@ -267,6 +272,83 @@ class IdsTest {
         )
         // And that performer id is the one the migration emitted for Will.
         assertEquals("c5b61fd7-b087-52a1-a43c-e771203207b5", Ids.derived("performer", "Will"))
+    }
+
+    /**
+     * Views V3, V4, V5, V29. `song_performer` is the first **three-key** junction:
+     * `UUIDv5(namespace('song_performer'), song_id + "/" + performer_id + "/" + instrument_id)`.
+     *
+     * **Every value below was lifted from the migration's own output**, not re-derived by
+     * the author of this test — which is the failure mode V29 exists to catch, because a
+     * test that agrees with its own derivation cannot detect that the Kotlin core and the
+     * Python migration have forked. They were read out of `.scratch/repertaurus.db` after a
+     * clean run, and all 595 emitted ids were recomputed with [Ids.songPerformer]: 595 of
+     * 595 matched byte for byte.
+     *
+     * The three rows are real repertoire: ABBA's *Dancing Queen* sung by Jennifer, Dolly
+     * Parton's *9 to 5* and Amy Winehouse's *Valerie* both sung by Will.
+     */
+    @Test
+    fun songPerformerIdsAreTheThreeKeyValuesTheMigrationEmitted() {
+        val vocal = Ids.derived("instrument", "vocal")
+        val will = "c5b61fd7-b087-52a1-a43c-e771203207b5"
+        val jennifer = "563c8cf4-40a7-50b0-8956-00a4055a7d34"
+
+        assertEquals(
+            "ab4af6af-1289-5324-b3a8-8651ee6d54f2",
+            Ids.songPerformer("ac7c45d3-fe48-548b-a718-d13ce4f94394", jennifer, vocal),
+        )
+        assertEquals(
+            "7faca605-2ffe-58ce-9967-f24f78aa001f",
+            Ids.songPerformer("7eb6bea7-31ea-5332-9ba3-26eef04511e3", will, vocal),
+        )
+        assertEquals(
+            "6ad88d91-5233-55ee-abf4-77745577ffe7",
+            Ids.songPerformer("79915806-b3fe-5ece-b33e-77c09dd8c907", will, vocal),
+        )
+    }
+
+    /**
+     * V3's construction, stated separately from the pinned values above so a failure says
+     * *which* of the two is wrong: the named helper is exactly the general three-key
+     * overload, which is exactly the namespace over the keys joined by decision 4d's `/`.
+     *
+     * V4: the three-key id is **not** the two-key id. Every existing `song_performer` id
+     * changed, which was acceptable only because the migration rebuilds the table wholesale
+     * and no device had synced.
+     */
+    @Test
+    fun theThreeKeyJunctionIsTheTwoKeyShapeWithOneMoreKey() {
+        val song = Ids.song(Ids.derived("artist", "Amy Winehouse"), "Valerie")
+        val will = Ids.derived("performer", "Will")
+        val vocal = Ids.derived("instrument", "vocal")
+        val guitar = Ids.derived("instrument", "guitar")
+
+        assertEquals(
+            uuid5(Ids.namespaceFor("song_performer"), "$song/$will/$vocal"),
+            Ids.songPerformer(song, will, vocal),
+        )
+        assertEquals(
+            Ids.junction("song_performer", song, will, vocal),
+            Ids.songPerformer(song, will, vocal),
+        )
+
+        // V2: one person, one song, two instruments, two rows that must not collide.
+        assertNotEquals(
+            Ids.songPerformer(song, will, vocal),
+            Ids.songPerformer(song, will, guitar),
+        )
+        // V4: and it is not the superseded two-key value — which V31 now refuses outright, so
+        // the comparison is against the shape rather than against a call.
+        assertNotEquals(
+            uuid5(Ids.namespaceFor("song_performer"), "$song/$will"),
+            Ids.songPerformer(song, will, vocal),
+        )
+        // The keys are ordered, like every other derived id.
+        assertNotEquals(
+            Ids.songPerformer(song, will, vocal),
+            Ids.songPerformer(song, vocal, will),
+        )
     }
 
     /**
@@ -297,6 +379,43 @@ class IdsTest {
         assertEquals(
             Ids.junction("setlist_item_performer", item, will),
             Ids.setlistItemPerformer(item, will),
+        )
+    }
+
+    /**
+     * V31. `Ids.junction` must **refuse two keys for `song_performer`**.
+     *
+     * The two-key overload still resolves for it — nothing about the type system stops
+     * `junction("song_performer", song, performer)` compiling — and without this check it
+     * returns the superseded id from before V3. Decision 5 makes an id permanent once
+     * written, so that would be a silent, unrecoverable fork rather than a bug to fix later.
+     * The same assertion exists on the Python side, in `extract.py :: junction_id`, which
+     * became variadic and thereby *lost* the arity error it used to raise.
+     */
+    @Test
+    fun junctionRefusesTheWrongNumberOfKeysForATableThatDeclaresOne() {
+        val song = Ids.song(Ids.derived("artist", "Amy Winehouse"), "Valerie")
+        val will = Ids.derived("performer", "Will")
+        val vocal = Ids.derived("instrument", "vocal")
+
+        assertFailsWith<IllegalArgumentException> { Ids.junction("song_performer", song, will) }
+        // And the mirror: the two-key junctions must not be derived from three.
+        assertFailsWith<IllegalArgumentException> {
+            Ids.junction("song_instrument", song, vocal, will)
+        }
+        assertFailsWith<IllegalArgumentException> { Ids.junction("song_tag", song, vocal, will) }
+        assertFailsWith<IllegalArgumentException> {
+            Ids.junction("setlist_item_performer", song, will, vocal)
+        }
+
+        // The right arity still works, on every one of the four.
+        assertEquals(
+            uuid5(Ids.namespaceFor("song_performer"), "$song/$will/$vocal"),
+            Ids.junction("song_performer", song, will, vocal),
+        )
+        assertEquals(
+            uuid5(Ids.namespaceFor("song_instrument"), "$song/$vocal"),
+            Ids.junction("song_instrument", song, vocal),
         )
     }
 

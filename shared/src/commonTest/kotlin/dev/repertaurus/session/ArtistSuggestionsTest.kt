@@ -1,6 +1,7 @@
 package dev.repertaurus.session
 
 import dev.repertaurus.core.Ids
+import dev.repertaurus.core.NearMatches
 import dev.repertaurus.data.RepertaurusRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -97,6 +98,83 @@ class ArtistSuggestionsTest {
         assertEquals(
             Ids.derived("artist", "Florence & the Machine"),
             Ids.derived("artist", "florence and the machine"),
+        )
+    }
+
+    // ---- The performer picker (E46) ---------------------------------------------------------
+
+    private val roster = listOf(
+        performer("Will"),
+        performer("Coralie"),
+        performer("Charlotte"),
+        performer("Newton"),
+        performer("Alex"),
+        performer("Bea"),
+        performer("Cass"),
+        performer("Dev"),
+        performer("Eve"),
+        performer("Flo"),
+    )
+
+    private fun performer(name: String) =
+        RepertaurusRepository.Performer(Ids.derived("performer", name), name)
+
+    /**
+     * **E46: one matcher, one limit.** The capability sheet and the View editor each held a
+     * copy of this rule, and their two limit constants disagreed on the search cap for the
+     * *same* picker — the identical field offered eight names in one sheet and six in the other.
+     */
+    @Test
+    fun thePerformerPickerBrowsesWhenBlankAndSearchesWhenTyped() {
+        assertEquals(
+            NearMatches.BROWSE_LIMIT,
+            PerformerSuggestions.search("", roster).size,
+            "a blank field browses: eight rows, not nothing and not all ten",
+        )
+        assertEquals(
+            NearMatches.BROWSE_LIMIT,
+            PerformerSuggestions.search("   ", roster).size,
+            "whitespace is blank, not a query that matches nothing",
+        )
+        assertEquals(listOf("Will"), PerformerSuggestions.search("wil", roster).map { it.name })
+        assertEquals(
+            listOf("Charlotte"),
+            PerformerSuggestions.search("charlote", roster).map { it.name },
+            "a typo still surfaces the row it meant, which is the whole point",
+        )
+        assertTrue(PerformerSuggestions.search("zzz", roster).isEmpty())
+    }
+
+    /** The browse limit and the search limit are the same number, and it is the core's. */
+    @Test
+    fun theOneLimitCapsBothHalvesOfThePicker() {
+        val many = (1..20).map { performer("Performer $it") }
+        assertEquals(NearMatches.BROWSE_LIMIT, PerformerSuggestions.search("", many).size)
+        assertEquals(NearMatches.BROWSE_LIMIT, PerformerSuggestions.search("performer", many).size)
+        assertEquals(3, PerformerSuggestions.search("", many, limit = 3).size)
+        assertEquals(3, PerformerSuggestions.search("performer", many, limit = 3).size)
+    }
+
+    /** The browse rule is generic, because the instrument picker needs the identical branch. */
+    @Test
+    fun browsingWhenBlankIsOneRuleForEveryPicker() {
+        val chips = listOf(
+            InstrumentChip("1", "vocal"),
+            InstrumentChip("2", "backing vocal"),
+            InstrumentChip("3", "guitar"),
+        )
+        assertEquals(
+            listOf("vocal", "backing vocal", "guitar"),
+            NearMatches.browseOrSearch("", chips) { it.name }.map { it.name },
+            "fewer rows than the limit means all of them",
+        )
+        assertEquals(
+            listOf("vocal"),
+            NearMatches.browseOrSearch("", chips, limit = 1) { it.name }.map { it.name },
+        )
+        assertEquals(
+            listOf("backing vocal"),
+            NearMatches.browseOrSearch("backing", chips) { it.name }.map { it.name },
         )
     }
 }

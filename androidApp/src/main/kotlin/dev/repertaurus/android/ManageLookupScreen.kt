@@ -47,15 +47,25 @@ import dev.repertaurus.session.LookupItem
 import dev.repertaurus.session.LookupKind
 
 /**
- * Manage one lookup table. Today the drawer only reaches it with
- * [LookupKind.INSTRUMENT]; nothing in this file knows that.
+ * Manage one lookup table. **All seven kinds reach it** (E18), `performer` included — E13 is
+ * explicit that the roster is this screen and not a bespoke one, because a second screen doing
+ * the same job in a different way is how two implementations drift. Nothing in this file knows
+ * which kind it is showing beyond what [LookupKind] declares.
  *
  * The whole screen is decisions 15 and 16 made concrete: the table is user-extensible, so
  * adding a row is typing a name and pressing enter, with near-matches surfaced while you
  * type. There is deliberately no admin flow, no save-and-return, and no second screen.
  *
  * Removing is a soft delete (decision 9) and says how much history it will hide. Renaming
- * keeps the id (decision 5), which is why a typo is a rename and not a delete-and-re-add.
+ * keeps the id (decision 5, E21), which is why a typo is a rename and not a delete-and-re-add.
+ *
+ * Two things the kind supplies rather than this screen deciding:
+ * - **E14 — [LookupItem.subtitle]**, a second line the store fills in. For `PERFORMER` it is
+ *   the instruments the person is recorded on, derived from `song_performer` and never stored
+ *   (E15); for the others it is null and the line is absent.
+ * - **E16 — [LookupKind.hasNotes]**, which decides whether the Notes control appears at all.
+ *   It is false for `venue` (E16a), whose table has no such column, and the store refuses the
+ *   write there — so the flag is the guard, not a decoration.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,9 +77,12 @@ public fun ManageLookupScreen(
     val state by viewModel.lookups.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var typed by remember { mutableStateOf("") }
-    var renaming by remember { mutableStateOf<LookupItem?>(null) }
-    var removing by remember { mutableStateOf<LookupItem?>(null) }
+    // Each of these is a detail *inside* the route (E24): it has the dialog's own back
+    // handling and closes first, leaving the route itself one further press from the logger.
+    var typed by remember(kind) { mutableStateOf("") }
+    var renaming by remember(kind) { mutableStateOf<LookupItem?>(null) }
+    var removing by remember(kind) { mutableStateOf<LookupItem?>(null) }
+    var noting by remember(kind) { mutableStateOf<LookupItem?>(null) }
 
     LaunchedEffect(kind) { viewModel.loadLookups(kind) }
     LaunchedEffect(state.message) {
@@ -79,11 +92,16 @@ public fun ManageLookupScreen(
         }
     }
 
+    // One state holder serves seven kinds now (E18), and `loadLookups` is asynchronous, so
+    // between navigating here and the query landing the flow still carries the previous
+    // kind's rows. Showing them would offer Remove on an instrument from the tag screen.
+    val items = if (state.kind == kind) state.items else emptyList()
+
     // Near-matches over the rows already on screen: no query per keystroke, and the same
     // matcher the artist type-ahead uses, so "Ukelele" surfaces "Ukulele" before a second
     // row can be committed.
-    val suggestions = remember(typed, state.items) {
-        NearMatches.search(typed, state.items, limit = 4) { it.name }
+    val suggestions = remember(typed, items) {
+        NearMatches.search(typed, items, limit = 4) { it.name }
     }
     val exact = remember(typed, suggestions) {
         val needle = normalise(typed)
@@ -110,7 +128,10 @@ public fun ManageLookupScreen(
             OutlinedTextField(
                 value = typed,
                 onValueChange = { typed = it },
-                label = { Text("Add ${article(kind.singular)} ${kind.singular}") },
+                // E46: the article is English grammar and the wording below is seven branches
+                // of per-kind phrasing. Both are rules, both are JVM-tested in the shared core,
+                // and the desktop UI needs all seven of them verbatim.
+                label = { Text("Add ${kind.withArticle}") },
                 supportingText = {
                     Text(
                         when {
@@ -164,33 +185,18 @@ public fun ManageLookupScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 48.dp),
             ) {
-                items(state.items, key = { it.id }) { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 72.dp)
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = when (item.usageCount) {
-                                    0L -> "no practice logged"
-                                    1L -> "1 practice logged"
-                                    else -> "${item.usageCount} practices logged"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        TextButton(onClick = { renaming = item }) { Text("Rename") }
-                        TextButton(onClick = { removing = item }) { Text("Remove") }
-                    }
+                items(items, key = { it.id }) { item ->
+                    LookupRowItem(
+                        item = item,
+                        kind = kind,
+                        onRename = { renaming = item },
+                        onRemove = { removing = item },
+                        onNotes = { noting = item },
+                    )
                     HorizontalDivider()
                 }
 
-                if (state.items.isEmpty() && !state.busy) {
+                if (items.isEmpty() && !state.busy) {
                     item(key = "empty") {
                         Text(
                             "Nothing here yet.",
@@ -220,19 +226,15 @@ public fun ManageLookupScreen(
             onDismissRequest = { removing = null },
             title = { Text("Remove ${item.name}?") },
             text = {
+                // E22: the screen states how many rows removal will hide *before* it happens,
+                // and E17 makes what is counted the kind's own business — practice events for
+                // an instrument, capability rows for a performer, tagged songs for a tag.
                 Text(
-                    when (item.usageCount) {
-                        0L ->
-                            "It has no practice logged against it. It disappears from the " +
-                                "chip row; nothing else changes."
-                        1L ->
-                            "It has 1 practice logged against it. That event is kept and " +
-                                "still counts — the ${kind.singular} just stops appearing " +
-                                "in the chip row."
-                        else ->
-                            "It has ${item.usageCount} practices logged against it. Those " +
-                                "events are kept and still count — the ${kind.singular} " +
-                                "just stops appearing in the chip row."
+                    if (item.usageCount == 0L) {
+                        "Nothing points at it. It stops being offered; nothing else changes."
+                    } else {
+                        "It has ${kind.usagePhrase(item.usageCount)}. Those rows are kept " +
+                            "and still count — the ${kind.singular} just stops being offered."
                     },
                 )
             },
@@ -249,6 +251,126 @@ public fun ManageLookupScreen(
             dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
         )
     }
+
+    noting?.let { item ->
+        NotesDialog(
+            item = item,
+            kind = kind,
+            onDismiss = { noting = null },
+            onSave = { notes ->
+                viewModel.setLookupNotes(kind, item.id, notes)
+                noting = null
+            },
+        )
+    }
+}
+
+/**
+ * One managed row: its name, E14's subtitle where the kind supplies one, what removing it
+ * would hide (E17), and the notes where the kind has a column for them (E16).
+ *
+ * Nothing here is a tap target for the row itself. The three actions are explicit buttons,
+ * because a mis-tap on a roster of 19 performers should do nothing at all.
+ */
+@Composable
+private fun LookupRowItem(
+    item: LookupItem,
+    kind: LookupKind,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+    onNotes: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 72.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.name, style = MaterialTheme.typography.titleMedium)
+
+                // E14, E15: for a performer this is the instruments they are recorded on,
+                // derived from `song_performer` and never stored. E15's accepted gap shows
+                // here as an absent line: a performer with no capability rows yet has no
+                // subtitle at all, and the roster still lists them.
+                item.subtitle?.let { subtitle ->
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                Text(
+                    text = if (item.usageCount == 0L) {
+                        "nothing points at it"
+                    } else {
+                        kind.usagePhrase(item.usageCount)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (kind.hasNotes) {
+                TextButton(onClick = onNotes) { Text("Notes") }
+            }
+            TextButton(onClick = onRename) { Text("Rename") }
+            TextButton(onClick = onRemove) { Text("Remove") }
+        }
+
+        if (kind.hasNotes) {
+            item.notes?.let { notes ->
+                Text(
+                    text = notes,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * E16 and E16a: the notes field, offered only where [LookupKind.hasNotes] is true.
+ *
+ * That is `performer` and `band` and nothing else. `venue` looks like it should have one and
+ * does not — its table is `id`, `name` and the standard three, and giving it notes is a schema
+ * change with a version bump and a migration behind it. The kind's flag and the table's real
+ * shape are pinned together by a test in the shared core, because a mismatch here is a crash
+ * on a screen rather than a compile error.
+ */
+@Composable
+private fun NotesDialog(
+    item: LookupItem,
+    kind: LookupKind,
+    onDismiss: () -> Unit,
+    onSave: (String?) -> Unit,
+) {
+    var notes by remember(item.id) { mutableStateOf(item.notes.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Notes on ${item.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Yours, on this ${kind.singular}. Clearing the field removes them.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(notes) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Renaming keeps the id (decision 5), so every practice event stays attached. */
@@ -274,7 +396,10 @@ private fun RenameDialog(
                     keyboardActions = KeyboardActions(onDone = { onRename(name) }),
                 )
                 Text(
-                    "Practice already logged against this ${kind.singular} keeps counting.",
+                    // E21: an id is opaque and immutable once written, and every referencing
+                    // row points at it. Renaming never re-derives one.
+                    "Everything already recorded against this ${kind.singular} stays " +
+                        "attached to it.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -287,6 +412,3 @@ private fun RenameDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
-
-private fun article(word: String): String =
-    if (word.firstOrNull()?.lowercaseChar() in setOf('a', 'e', 'i', 'o', 'u')) "an" else "a"

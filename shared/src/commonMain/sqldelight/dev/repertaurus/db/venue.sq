@@ -41,6 +41,13 @@ WHERE setlist.venue_id = ?
   AND setlist.deleted_at IS NULL
 ORDER BY setlist.performed_on DESC;
 
+-- E17: what removing this venue would put out of sight — the live set lists played there.
+countLiveSetlists:
+SELECT COUNT(*)
+FROM setlist
+WHERE setlist.venue_id = ?
+  AND setlist.deleted_at IS NULL;
+
 insert:
 INSERT INTO venue(id, name, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?);

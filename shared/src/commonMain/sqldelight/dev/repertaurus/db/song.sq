@@ -49,10 +49,10 @@ CREATE INDEX song_artist ON song(artist_id);
 CREATE INDEX song_title ON song(title);
 CREATE INDEX song_groove ON song(groove_id);
 
--- The Session screen (decisions 8, 44, 48).
+-- The Session screen (decisions 8, 44, 48; views V10-V14).
 --
--- Coldest first for one discipline: every live song, ordered by its last practice on
--- :instrumentId, never-practised songs first. Voided events are excluded by the
+-- Coldest first for one discipline: every eligible live song, ordered by its last practice
+-- on :practiceInstrumentId, never-practised songs first. Voided events are excluded by the
 -- NOT EXISTS anti-join against practice_event_void. A union merge cannot suppress a row,
 -- so this anti-join is the only correct way to honour an undo (decision 8).
 --
@@ -68,6 +68,48 @@ CREATE INDEX song_groove ON song(groove_id);
 -- INTEGER, while SQLite itself yields NULL for a never-practised song — which is exactly
 -- the row this ordering puts first. It is computed from last_practised in the shared
 -- core instead, per decisions 48 and 57.
+--
+-- V10: the three filter parameters REPLACE the unfiltered form rather than sitting beside
+-- it, so there is exactly one UNSCOPED staleness query in the schema and no second copy of
+-- it to drift. selectByStalenessInSetlist below repeats this ORDER BY clause: it predates
+-- Views, takes no filter, and is retained unfolded per views.md section 3. That is the one
+-- known second copy, and it is deliberate — do not read this paragraph as saying there is
+-- none.
+--
+-- V11: each filter component independently degrades to "no constraint" when null, so all
+-- eight combinations are this one query. All three null (and :leadOnly = 0) is the
+-- unfiltered case and short-circuits the EXISTS entirely, which is what makes V21's empty
+-- state exactly today's behaviour.
+--
+-- V9: a song with NO song_performer row asserts nothing and is excluded by any performer
+-- filter. Treating absent data as a match makes the filter useless on this dataset, where
+-- 147 of 479 songs are unannotated.
+--
+-- V11a / editing E12: the EXISTS additionally joins performer and instrument and requires
+-- deleted_at IS NULL on BOTH. The original form checked only song_performer.deleted_at,
+-- which was harmless while NOTHING IN THE APP COULD DELETE A PERFORMER; editing.md E12
+-- makes deletion reachable from the drawer, and without this a View keeps filtering on a
+-- removed performer and renders its summary as "a deleted performer". This is a deliberate
+-- amendment to the predicate, not a defect in it — it was written for a world where the row
+-- could not go away. Both joins are inner, and both are safe as such: performer_id and
+-- instrument_id are NOT NULL with foreign keys, so the only row an inner join can drop is
+-- one already excluded by the deleted_at test or an orphan that violates the FK.
+-- Measured on the real 479-song database, where nothing is soft-deleted: the motivating
+-- View returns 231 songs / 138 never practised on guitar, unchanged by this amendment.
+--
+-- V12: :practiceInstrumentId and :filterInstrumentId are SEPARATE parameters, and the
+-- practice instrument appears ONLY in the LEFT JOIN ... ON clause. A song that passes the
+-- filter but has never been touched on the practice instrument still appears, carrying
+-- last_practised IS NULL — which is the whole point of a cross-instrument View.
+--
+-- V12a: the sort has no performer dimension and must not grow one. practice_event carries
+-- no performer, because every logged event is the owner's. Staleness is keyed on the
+-- practice instrument alone; the filter is the only place a performer appears.
+--
+-- V14: ORDER BY last_practised IS NOT NULL ASC puts 0 before 1, so a never-practised song
+-- leads. This is a stable base order only — SessionState.pending re-sorts in Kotlin via
+-- SessionOrder.comparator, and HOTTEST_FIRST deliberately sorts nulls the other way. The
+-- two are not redundant and neither may be deleted in favour of the other.
 selectByStaleness:
 SELECT
     song.id                AS song_id,
@@ -81,16 +123,35 @@ LEFT JOIN artist
       AND artist.deleted_at IS NULL
 LEFT JOIN practice_event
        ON practice_event.song_id = song.id
-      AND practice_event.instrument_id = :instrumentId
+      AND practice_event.instrument_id = :practiceInstrumentId
       AND NOT EXISTS (
               SELECT 1 FROM practice_event_void
               WHERE practice_event_void.practice_event_id = practice_event.id
           )
 WHERE song.deleted_at IS NULL
+  AND ((:filterPerformerId IS NULL AND :filterInstrumentId IS NULL AND :leadOnly = 0)
+       OR EXISTS (
+          SELECT 1 FROM song_performer
+          JOIN performer  ON performer.id  = song_performer.performer_id
+          JOIN instrument ON instrument.id = song_performer.instrument_id
+          WHERE song_performer.song_id = song.id
+            AND song_performer.deleted_at IS NULL
+            AND performer.deleted_at IS NULL
+            AND instrument.deleted_at IS NULL
+            AND (:filterPerformerId  IS NULL OR song_performer.performer_id  = :filterPerformerId)
+            AND (:filterInstrumentId IS NULL OR song_performer.instrument_id = :filterInstrumentId)
+            AND (:leadOnly = 0 OR song_performer.is_lead = 1)))
 GROUP BY song.id, song.title, artist.name
 ORDER BY last_practised IS NOT NULL, last_practised ASC, song.title ASC;
 
--- The same ordering scoped to one set list, for the set-list-scoped session mode.
+-- The set-list-scoped session mode.
+--
+-- NOT the same query as selectByStaleness scoped to a set list: this one predates Views and
+-- takes none of V10's three filter parameters, so a View's eligibility filter does not reach
+-- it. Folding the two together is deferred deliberately (views.md section 3) — "practise the
+-- Blue Lion set" is a different session shape, and merging now would double the parameter
+-- surface before either half has been used in anger. The ORDER BY is a second copy of the
+-- clause above for exactly as long as that deferral stands.
 selectByStalenessInSetlist:
 SELECT
     song.id                AS song_id,

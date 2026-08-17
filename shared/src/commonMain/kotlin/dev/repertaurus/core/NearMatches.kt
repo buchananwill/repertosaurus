@@ -27,6 +27,35 @@ import kotlin.math.abs
  */
 public object NearMatches {
 
+    /**
+     * **The picker rule, in one place (E46): browse when the field is blank, search when it
+     * is typed into.**
+     *
+     * [search] deliberately matches nothing on an empty query — a type-ahead that suggested
+     * everything on every keystroke would be noise — but a picker wants the opposite before a
+     * key is pressed: enough rows to browse, so a user who does not know what is already there
+     * can see it rather than inventing a duplicate. Three composables had each invented this
+     * branch, with **two different limit constants for the same picker**, which is exactly the
+     * shape E46 exists to stop.
+     */
+    public fun <T> browseOrSearch(
+        query: String,
+        items: List<T>,
+        limit: Int = BROWSE_LIMIT,
+        name: (T) -> String,
+    ): List<T> =
+        if (query.isBlank()) items.take(limit) else search(query, items, limit, name)
+
+    /**
+     * Pre-filled rows when nothing has been typed: enough to browse, not a wall of names.
+     *
+     * **One constant, and the same one for browsing and for searching.** The capability sheet
+     * and the View editor each held their own, and the two disagreed on the search cap for the
+     * *same* performer picker — so the identical field offered eight names or six depending on
+     * which sheet it was drawn in.
+     */
+    public const val BROWSE_LIMIT: Int = 8
+
     /** Ranked near-matches, best first. An empty or punctuation-only query matches nothing. */
     public fun <T> search(
         query: String,

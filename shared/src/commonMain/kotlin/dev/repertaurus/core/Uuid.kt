@@ -20,13 +20,43 @@ public object Ids {
     /** `UUIDv5(DNS, "songbook.dev")` — decision 4a. */
     public val ROOT: String = uuid5(DNS_NAMESPACE, "songbook.dev")
 
-    // Namespaces are per table, not one shared root (decision 4b): a shared namespace
-    // would give the tag `guitar` and the instrument `guitar` the same id.
-    private val namespaces: MutableMap<String, String> = mutableMapOf()
+    /**
+     * `UUIDv5(ROOT, table)` — decision 4a.
+     *
+     * Namespaces are per table, not one shared root (decision 4b): a shared namespace would
+     * give the tag `guitar` and the instrument `guitar` the same id.
+     *
+     * **Recomputed every call, deliberately.** This used to memoise into an unsynchronised
+     * `mutableMapOf` inside a process-wide `object`, and Views added call sites on a path
+     * documented as blocking and called off the main thread. The derived value is
+     * deterministic so no wrong id could result, but a concurrent `HashMap` resize is the
+     * classic corruption case, and process-wide mutable state is a hazard on a future Native
+     * target. A SHA-1 over a short string is microseconds and this is not a hot loop, so the
+     * memo went rather than acquiring a lock that would have to work on every KMP target.
+     */
+    public fun namespaceFor(table: String): String = uuid5(ROOT, table)
 
-    /** `UUIDv5(ROOT, table)` — decision 4a. */
-    public fun namespaceFor(table: String): String =
-        namespaces.getOrPut(table) { uuid5(ROOT, table) }
+    /**
+     * How many foreign keys each junction's canonical key holds. Views V31: `song_performer`
+     * is three since V3, and the two-key overload still compiles for it — so
+     * `junction("song_performer", song, performer)` would silently return the **superseded**
+     * id, and decision 5 makes a written id permanent. A table absent from this map is
+     * unconstrained; a table present in it must be called with exactly its arity.
+     */
+    private val JUNCTION_KEYS: Map<String, Int> = mapOf(
+        "song_instrument" to 2,
+        "song_tag" to 2,
+        "setlist_item_performer" to 2,
+        "song_performer" to 3,
+    )
+
+    private fun requireArity(table: String, keys: Int) {
+        val expected = JUNCTION_KEYS[table]
+        require(expected == null || expected == keys) {
+            "$table is a $expected-key junction (views V31); deriving it from $keys keys " +
+                "returns a superseded id that nothing else would flag"
+        }
+    }
 
     /**
      * A lookup or record row id: `UUIDv5(namespace(table), normalise(name))` — decision 4.
@@ -46,27 +76,73 @@ public object Ids {
         uuid5(namespaceFor("song"), artistId + "/" + normalise(title))
 
     /**
-     * A junction row id — decision 4:
+     * A two-key junction row id — decision 4:
      * `UUIDv5(namespace(table), fkA + "/" + fkB)`.
      *
-     * One form for **every** junction, without exception: `song_instrument`, `song_tag`,
-     * `song_performer` and `setlist_item_performer`. It is the same shape as every other
-     * derived id — the table's own namespace (decisions 4a, 4b) over the canonical key,
-     * joined with the ratified `/` of decision 4d.
+     * The form for `song_instrument`, `song_tag` and `setlist_item_performer`. It is the
+     * same shape as every other derived id — the table's own namespace (decisions 4a, 4b)
+     * over the canonical key, joined with the ratified `/` of decision 4d.
      *
      * This **supersedes** an earlier form, `UUIDv5(fkA, fkB)`, which used the first foreign
      * key directly as the namespace. That form carried no table identity, so two junctions
-     * over the same pair of ids would collide, and it derives entirely different ids — all
-     * 507 `song_performer` rows the migration emits differ between the two. Ids are
-     * immutable once written (decision 5), so reintroducing it forks every junction row
+     * over the same pair of ids would collide, and it derives entirely different ids — every
+     * one of the 595 `song_performer` rows the migration emits differs between the two. Ids
+     * are immutable once written (decision 5), so reintroducing it forks every junction row
      * silently, with nothing failing loudly.
      *
-     * The two keys are **ordered**: pass them in the order the table declares them —
+     * The keys are **ordered**: pass them in the order the table declares them —
      * `song_instrument` is `(song_id, instrument_id)` — or the Kotlin core and the Python
      * migration will not converge.
+     *
+     * V31: this **refuses `song_performer`**, which has been a three-key junction since V3.
+     * The overload still resolves for it, and without the check it would quietly return the
+     * superseded two-key id.
      */
-    public fun junction(table: String, fkA: String, fkB: String): String =
-        uuid5(namespaceFor(table), fkA + "/" + fkB)
+    public fun junction(table: String, fkA: String, fkB: String): String {
+        requireArity(table, 2)
+        return uuid5(namespaceFor(table), fkA + "/" + fkB)
+    }
+
+    /**
+     * A three-key junction row id — decision 4 as amended by views decision V3:
+     * `UUIDv5(namespace(table), fkA + "/" + fkB + "/" + fkC)`.
+     *
+     * `song_performer` is the first three-key junction (V1, V2, V3). The separator and the
+     * per-table namespace are unchanged, so the shape **generalises** rather than forking:
+     * this is the same construction as the two-key form with one more key appended, not a
+     * second scheme.
+     *
+     * V4: every one of the existing `song_performer` ids changes as a direct consequence,
+     * which is acceptable **only** because the table is rebuilt wholesale by the migration
+     * and no device has yet synced. It would not be acceptable after phase 2 ships.
+     *
+     * The keys are **ordered**, exactly as in the two-key form: `song_performer` is
+     * `(song_id, performer_id, instrument_id)`.
+     */
+    public fun junction(table: String, fkA: String, fkB: String, fkC: String): String {
+        requireArity(table, 3)
+        return uuid5(namespaceFor(table), fkA + "/" + fkB + "/" + fkC)
+    }
+
+    /**
+     * A `song_performer` row id (decisions 3, 4, 4d, 26; views V1-V5) — [junction] over
+     * `(song_id, performer_id, instrument_id)`.
+     *
+     * The instrument is part of the key because V2 widens the unique index to the triple:
+     * one person holds a guitar row and a vocal row on the same song, and the two must not
+     * collide. Derived, not random — two devices recording the same capability is a
+     * duplicate, and decision 3 derives the id wherever a duplicate would be an error.
+     *
+     * `is_lead` and `vocal_range` are deliberately **not** in the key. Promoting somebody
+     * from backing to lead updates that one row rather than minting a second, which is what
+     * last-write-wins can merge.
+     *
+     * This must stay byte-for-byte identical to `junction_id("song_performer", …)` in
+     * `tools/import/build.py`. The two have forked twice; when either moves, both move in
+     * the same piece of work and the result is cross-checked against real migration output.
+     */
+    public fun songPerformer(songId: String, performerId: String, instrumentId: String): String =
+        junction("song_performer", songId, performerId, instrumentId)
 
     /**
      * A `setlist_item_performer` row id (decisions 3, 4, 4d, 58) — [junction] over

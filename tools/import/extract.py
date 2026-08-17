@@ -121,14 +121,119 @@ def normalise(value) -> str:
     # `blink182`, `ah a`. These ids are permanent once written [D4a, D5] and this same
     # function backs the app's type-ahead [D17], so "AC DC" must match the migrated row.
     #
-    # [D4e] punctuation is anything that is not a Unicode letter or digit. Python's `\w`
-    # matches Unicode letters, so accents agree with the Kotlin core for free — `Beyoncé`
-    # keeps its `é` in both. But `\w` ALSO matches `_`, which is neither a letter nor a
-    # digit, so the underscore is added to the class explicitly. Without the `|_` the two
-    # implementations disagree on every name containing one and silently fork its id.
-    s = re.sub(r"[^\w\s]|_", " ", s, flags=re.UNICODE)
+    # [D4e] punctuation is anything that is not a Unicode letter or digit, and this test now
+    # states exactly that rather than approximating it with `\w`.
+    #
+    # `\w` was the approximation and it was wrong in two directions. It matches `_`, which is
+    # neither a letter nor a digit — handled before by an explicit `|_`. And it matches
+    # anything Py_UNICODE_ISALNUM accepts, which includes the NUMERIC categories No and Nl:
+    # `½` (U+00BD), `Ⅰ` (U+2160), `①` (U+2460). The Kotlin core asks
+    # Character.isLetterOrDigit, which is L* plus Nd and NOT No or Nl, so `5½ hours` kept its
+    # `½` here and lost it there — different canonical keys, different UUIDv5 ids, and
+    # [D5] makes them permanent. Measured, not inferred; nothing in the workbook contains one,
+    # which is exactly the profile [D17b] warns about: these arrive by paste, not by keyboard.
+    #
+    # `str.isalpha()` is L* and matches Java's Character.isLetter; category "Nd" is Java's
+    # Character.isDigit. Both sides now compute the same predicate, and the shared vector file
+    # holds them to it.
+    s = "".join(
+        ch if (ch.isalpha() or unicodedata.category(ch) == "Nd") else " "
+        for ch in s
+    )
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
+
+# --------------------------------------------------------------------------------------
+# The shared normalisation vectors [D41]
+# --------------------------------------------------------------------------------------
+#
+# `normalise` above and `dev.repertaurus.core.normalise` in the shared core must produce
+# identical output for the same input, or the same name derives two different UUIDv5 ids on
+# two devices and they never converge [D2, D4, D5]. That agreement has forked three times, and
+# each time it had been asserted in prose or in a test written by the same author as the
+# implementation.
+#
+# So it is asserted against a file neither implementation owns, read by BOTH:
+#
+#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertaurus/core/NormalisationVectorsTest.kt
+#   Python: verify_normalisation_vectors() below, called by build.py before it emits a row.
+#
+# Adding a vector obliges both sides. Deleting one to make a build pass is the failure the
+# file exists to prevent.
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+NORMALISATION_VECTORS = os.path.join(
+    REPO_ROOT, "shared", "src", "androidUnitTest", "resources",
+    "normalisation-vectors.tsv")
+
+
+def _unescape_vector(field: str) -> str:
+    r"""Decode the file's escapes: \\, \t, \n and \uXXXX, one UTF-16 code UNIT each.
+
+    A non-BMP character is written as its surrogate pair, which is the exact representation
+    [D41] is about, so the pair is decoded and then recombined into one code point.
+    """
+    out = []
+    i = 0
+    while i < len(field):
+        ch = field[i]
+        if ch != "\\":
+            out.append(ch)
+            i += 1
+            continue
+        marker = field[i + 1]
+        if marker == "\\":
+            out.append("\\")
+            i += 2
+        elif marker == "t":
+            out.append("\t")
+            i += 2
+        elif marker == "n":
+            out.append("\n")
+            i += 2
+        elif marker == "u":
+            out.append(chr(int(field[i + 2:i + 6], 16)))
+            i += 6
+        else:
+            raise ValueError("unknown escape \\%s in %r" % (marker, field))
+    # Surrogate halves decoded above are lone surrogates in Python; pair them back up.
+    return "".join(out).encode("utf-16", "surrogatepass").decode("utf-16")
+
+
+def read_normalisation_vectors(path=NORMALISATION_VECTORS):
+    vectors = []
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.rstrip("\n").rstrip("\r")
+            # A vector is any line carrying a tab. Blank lines and comments have none — and
+            # neither does anything else, which is why "no tab" is the skip rule rather than
+            # "blank": the empty-input vector is a line consisting of one tab, and a
+            # blank-line rule silently swallowed it.
+            if line.startswith("#") or "\t" not in line:
+                continue
+            raw_in, raw_out = line.split("\t", 1)
+            vectors.append((_unescape_vector(raw_in), _unescape_vector(raw_out)))
+    return vectors
+
+
+def verify_normalisation_vectors(path=NORMALISATION_VECTORS):
+    """FATAL on any disagreement. Returns the number of vectors checked."""
+    vectors = read_normalisation_vectors(path)
+    if len(vectors) < 30:
+        raise SystemExit("FATAL: %s has only %d vectors; it has lost content."
+                         % (path, len(vectors)))
+    bad = [(i, e, normalise(i)) for i, e in vectors if normalise(i) != e]
+    if bad:
+        for value, expected, actual in bad:
+            print("FATAL: normalise(%r) = %r, the shared vector file says %r"
+                  % (value, actual, expected))
+        raise SystemExit(
+            "FATAL: the Python and Kotlin normalisations disagree on %d of %d shared "
+            "vectors. The same name would derive two different ids on two devices and they "
+            "would never converge [D2, D4, D5, D41]. Fix the implementations, not the file."
+            % (len(bad), len(vectors)))
+    return len(vectors)
 
 
 ROOT_NS = uuid.uuid5(uuid.NAMESPACE_DNS, "songbook.dev")  # 3ce0f1dc-... [D4a]
@@ -161,18 +266,65 @@ assert UNKNOWN_ARTIST_ID == UNKNOWN_ARTIST_SEED_ID, (
 CONFIRMED_BANDS = ("Blue Lion", "Radiant Lanterns", "LPT with Ryan")
 
 
-def junction_id(table: str, fk_a: str, fk_b: str) -> str:
-    """[D4] EVERY junction: `UUIDv5(namespace(table), fk_a + "/" + fk_b)`.
+# [V31] How many foreign keys each junction's canonical key holds. `junction_id` became
+# variadic when `song_performer` grew a third key, and thereby LOST the arity error it used to
+# raise: `junction_id("song_performer", song, performer)` silently returned the SUPERSEDED
+# two-key id. Ids are immutable once written [D5], so that is a permanent fork with nothing
+# failing loudly. The Kotlin counterpart is `Ids.JUNCTION_KEYS`. A table absent from this map
+# is unconstrained.
+JUNCTION_KEYS = {
+    "song_instrument": 2,
+    "song_tag": 2,
+    "setlist_item_performer": 2,
+    "song_performer": 3,
+}
+
+
+def junction_id(table: str, *foreign_keys: str) -> str:
+    """[D4] EVERY junction: `UUIDv5(namespace(table), fk_a + "/" + fk_b [+ "/" + fk_c])`.
 
     One implementation for `song_instrument`, `song_tag`, `song_performer` and
     `setlist_item_performer` — the amended decision 4 makes them all the same shape.
+
+    [V3] `song_performer` is the first THREE-key junction: the instrument joined the key
+    when the table stopped meaning "who sings this" and started meaning "who does what on
+    this". The separator and the per-table namespace are unchanged, so the shape
+    generalises rather than forking — which is why this takes *foreign_keys rather than
+    growing a second function.
 
     This CORRECTS an earlier form, `UUIDv5(fk_a, fk_b)`, which used the first foreign key
     directly as the namespace with no separator. That form was inconsistent with 4a's
     per-table namespaces and 4d's separator, and — carrying no table identity — gave two
     different junctions over the same pair of ids the SAME id. Do not reintroduce it.
+
+    [V31] The arity is checked against the TABLE, not merely against a floor of two. Going
+    variadic removed the error this used to raise, and `song_performer` is exactly the table
+    where two keys still "works" and returns the wrong, permanent id.
+
+    Must stay byte-for-byte identical to `Ids.junction` in the Kotlin core.
     """
-    return derived_id(table, "%s/%s" % (fk_a, fk_b))
+    if len(foreign_keys) < 2:
+        raise ValueError("a junction id needs at least two foreign keys")
+    expected = JUNCTION_KEYS.get(table)
+    if expected is not None and len(foreign_keys) != expected:
+        raise ValueError(
+            "%s is a %d-key junction [V31]; deriving it from %d keys returns a superseded "
+            "id that nothing else would flag" % (table, expected, len(foreign_keys)))
+    return derived_id(table, "/".join(foreign_keys))
+
+
+def song_performer_id(song_id: str, performer_id: str, instrument_id: str) -> str:
+    """[D4, D26, V1-V5] `UUIDv5(namespace("song_performer"),
+    song_id + "/" + performer_id + "/" + instrument_id)`.
+
+    The instrument is in the key because [V2] widens the unique index to the triple: one
+    person holds a guitar row and a vocal row on the same song and the two must not
+    collide. `is_lead` and `vocal_range` are deliberately NOT in the key — promoting
+    somebody from backing to lead updates that row rather than minting a second.
+
+    The Kotlin counterpart is `Ids.songPerformer`.
+    """
+    return junction_id("song_performer", song_id, performer_id, instrument_id)
 
 
 def setlist_item_performer_id(item_id: str, performer_id: str) -> str:
@@ -382,25 +534,42 @@ def classify_key(value):
 PRACTICE_INSTRUMENTS = (("vocal", "vocal"), ("keys", "keys"),
                         ("guitar", "guitar"), ("bass", "bass"))
 
-# Singer columns [R13]. Key is the lowercased header; value is the performer name with the
-# trailing instrument word removed.
+# Singer columns [R13]. Key is the lowercased header; value is
+# (performer name, instrument, is_lead) [V25].
+#
+# [V1] song_performer names an instrument now, so every one of these columns has to say
+# which one. Every current singer column is a VOICE column and maps to `vocal` with its
+# existing is_lead. [V6] is_lead is scoped to its instrument: on a `vocal` row it means
+# lead vocal and nothing else.
+#
+# [V27] `Will plays` is GONE from this table and is in TRIAGE_COLUMNS instead. The user
+# ruled it copy-and-paste residue from another sheet. It produced three rows — 'Signed,
+# Sealed, Delivered', 'I Feel Good', 'Play That Funky Music' — asserting that Will sings
+# NON-LEAD on those songs, a claim the workbook never made. Do not put it back.
 PERFORMER_COLUMNS = {
-    "coralie vox": ("Coralie", 0),
-    "carla vox": ("Carla", 0),
-    "sophie-mae vocal": ("Sophie-Mae", 1),
-    "will vocal": ("Will", 1),
-    "will plays": ("Will", 0),
-    "will lv?": ("Will", 1),
-    "andy": ("Andy", 1),
-    "coralie": ("Coralie", 0),
-    "lead vocal": ("Will", 1),   # the workbook owner's bare column [R13]
+    "coralie vox": ("Coralie", "vocal", 0),
+    "carla vox": ("Carla", "vocal", 0),
+    "sophie-mae vocal": ("Sophie-Mae", "vocal", 1),
+    "will vocal": ("Will", "vocal", 1),
+    "will lv?": ("Will", "vocal", 1),
+    "andy": ("Andy", "vocal", 1),
+    "coralie": ("Coralie", "vocal", 0),
+    "lead vocal": ("Will", "vocal", 1),   # the workbook owner's bare column [R13]
 }
 
 # Free-text performer annotation columns [R16]. Value is the is_lead the column implies.
+# [V26] these are all voice annotations, so every mark they produce is a `vocal` row:
+# 'LV' is literally lead vocal, and 'Demo 2022' says who recorded the demo, which is not a
+# claim about the lead.
 ANNOTATION_COLUMNS = {
     "lv": 1,          # 'LV' is literally 'lead vocal'
     "demo 2022": 0,   # who recorded the demo, which is not a claim about the lead
 }
+
+# [V26] every free-text performer annotation is a voice annotation. The workbook carries no
+# capability data for guitar, bass or keys anywhere — [V1] makes it expressible, it is not
+# in the source.
+ANNOTATION_INSTRUMENT = "vocal"
 
 # Marks that mean 'yes, this performer' rather than naming somebody else.
 # `p` and `r` are deliberately NOT here: they are single letters, and single letters are
@@ -447,9 +616,12 @@ TAG_COLUMNS = {
 }
 
 # Columns the spec deliberately does not model. Silently skipped, not logged as unresolved.
+# [V27] `will plays` is here rather than in PERFORMER_COLUMNS: the user ruled it
+# copy-and-paste residue from another sheet, so it is dropped on purpose and not raised as
+# something still to decide.
 TRIAGE_COLUMNS = {
     "confidence", "fit", "sum", "score", "priority", "inclusion", "gtr triage",
-    "vox triage", "w", "r", "a",
+    "vox triage", "w", "r", "a", "will plays",
 }
 
 # Columns read into song facts by read_facts.
@@ -1165,11 +1337,12 @@ class Extract(object):
                     continue
                 if any(not is_blank(r[ci]) for r in rows):
                     continue
-                name, is_lead = PERFORMER_COLUMNS[header.lower()]
+                name, instrument, is_lead = PERFORMER_COLUMNS[header.lower()]
                 self.performer_marks.append({
                     "worksheet": sheet_name, "cell": "%s1" % get_column_letter(ci + 1),
                     "source": "empty column", "column": header, "performer": name,
-                    "is_lead": is_lead, "title": "", "artist": "", "raw": "",
+                    "instrument": instrument, "is_lead": is_lead,
+                    "title": "", "artist": "", "raw": "",
                     "flag": "PERFORMER-COLUMN-EMPTY",
                     "note": "[R13] wants a performer per singer column; this column exists "
                             "but holds no marks, so the performer has no songs",
@@ -1185,7 +1358,9 @@ class Extract(object):
                 continue
             self.performer_marks.append({
                 "worksheet": "(user-added)", "cell": "-", "source": "user-added",
-                "column": "-", "performer": name, "is_lead": 1, "title": "", "artist": "",
+                "column": "-", "performer": name,
+                "instrument": ANNOTATION_INSTRUMENT, "is_lead": 1,
+                "title": "", "artist": "",
                 "raw": "", "flag": "PERFORMER-NO-ATTRIBUTIONS",
                 "note": "added deliberately by the user and kept as a performer row even "
                         "though nothing in the workbook attributes them to a song.",
@@ -1204,7 +1379,8 @@ class Extract(object):
             self.performer_marks.append({
                 "worksheet": record["worksheet"], "cell": "in-sheet header",
                 "source": "in-sheet header", "column": header, "performer": header,
-                "is_lead": 1, "title": "", "artist": "", "raw": header,
+                "instrument": ANNOTATION_INSTRUMENT, "is_lead": 1,
+                "title": "", "artist": "", "raw": header,
                 "flag": "PERFORMER-FROM-IN-SHEET-HEADER",
                 "note": "[R13] lists %r as a singer column whose cells become "
                         "song_performer rows. In the workbook it is the header cell of "
@@ -1483,7 +1659,7 @@ class Extract(object):
                 continue
 
             if h in PERFORMER_COLUMNS:
-                name, is_lead = PERFORMER_COLUMNS[h]
+                name, instrument, is_lead = PERFORMER_COLUMNS[h]
                 mark = str(v).strip()
                 flag, note = "", ""
                 if isinstance(v, datetime.datetime):
@@ -1495,21 +1671,25 @@ class Extract(object):
                     # routinely name somebody else. Attribute the cell to the name it
                     # holds, not to the column's owner.
                     self.record_annotation(sheet_name, headers, ci, ri, v, title, artist,
-                                           is_lead)
+                                           is_lead, instrument)
                     continue
                 self.performer_marks.append({
                     "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
                     "source": "column", "column": headers[ci], "performer": name,
-                    "is_lead": is_lead, "title": title, "artist": artist,
+                    "instrument": instrument, "is_lead": is_lead,
+                    "title": title, "artist": artist,
                     "raw": mark, "flag": flag, "note": note,
                 })
                 continue
 
+            # [V26, V30] the free-text performer columns are vocal, stated here rather than
+            # defaulted inside record_annotation.
             if h in ANNOTATION_COLUMNS:
                 self.record_annotation(sheet_name, headers, ci, ri, v, title, artist,
-                                       ANNOTATION_COLUMNS[h])
+                                       ANNOTATION_COLUMNS[h], ANNOTATION_INSTRUMENT)
             elif h == "" and self.is_annotation_column(sheet_name, ci):
-                self.record_annotation(sheet_name, headers, ci, ri, v, title, artist, 1)
+                self.record_annotation(sheet_name, headers, ci, ri, v, title, artist, 1,
+                                       ANNOTATION_INSTRUMENT)
 
     def is_dropped_column(self, sheet_name, ci):
         """True for a column dropped as COLUMN-MISALIGNED-SUSPECTED.
@@ -1548,7 +1728,13 @@ class Extract(object):
             return DUET_INITIALS.get(text.lower())
         return text or None
 
-    def record_annotation(self, sheet_name, headers, ci, ri, v, title, artist, is_lead):
+    def record_annotation(self, sheet_name, headers, ci, ri, v, title, artist, is_lead,
+                          instrument):
+        """[V30] `instrument` is REQUIRED and has no default. Every mark this appends must
+        state its instrument, because `build.py` fails loudly on a SongPerformers row that
+        carries none — and a default here would make that guard unreachable, which is the one
+        place a loud failure must never be written. Callers pass ANNOTATION_INSTRUMENT
+        explicitly, so [V26]'s rule reads where it applies."""
         text = str(v).strip()
         if not text:
             return
@@ -1583,7 +1769,8 @@ class Extract(object):
                     self.performer_marks.append({
                         "worksheet": sheet_name, "cell": cell_ref(ci, ri),
                         "row": ri + 2, "source": "annotation", "column": column_label,
-                        "performer": person, "is_lead": 1 if position == 1 else 0,
+                        "performer": person, "instrument": instrument,
+                        "is_lead": 1 if position == 1 else 0,
                         "position": position, "staging_only": True,
                         "title": title, "artist": artist, "raw": text,
                         "flag": "DUET-ORDER-INFERRED",
@@ -1617,7 +1804,8 @@ class Extract(object):
                 self.performer_marks.append({
                     "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
                     "source": "annotation", "column": column_label,
-                    "performer": person, "is_lead": is_lead, "title": title,
+                    "performer": person, "instrument": instrument, "is_lead": is_lead,
+                    "title": title,
                     "artist": artist, "raw": text,
                     "flag": "",
                     "note": "%r in column %r read as %s. CONFIRMED by the user, who "
@@ -1655,7 +1843,8 @@ class Extract(object):
         self.performer_marks.append({
             "worksheet": sheet_name, "cell": cell_ref(ci, ri), "row": ri + 2,
             "source": "annotation", "column": headers[ci] or "(unheaded)",
-            "performer": text, "is_lead": is_lead, "title": title, "artist": artist,
+            "performer": text, "instrument": instrument, "is_lead": is_lead,
+            "title": title, "artist": artist,
             "raw": text, "flag": "; ".join(flags), "note": " | ".join(notes),
         })
 
@@ -2613,9 +2802,11 @@ def build_setlist_item_performers(extract, performers_by_key, names_by_key):
 
 
 def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
-    """[R14] one row per non-empty cell in a singer column, deduped per (song, performer).
-    [R15, D27] `vocal_range` lives HERE, on the owner's row, never on the song: range is
-    only meaningful for a particular voice."""
+    """[R14] one row per non-empty cell in a singer column, deduped per
+    (song, performer, instrument) — [V2] widened the unique key to the triple so one person
+    can hold a guitar row and a vocal row on the same song without the two colliding.
+    [R15, D27, V7] `vocal_range` lives HERE, on the owner's row, never on the song: range is
+    only meaningful for a particular voice, and only on a vocal row."""
     owner_key = normalise("Will")
     rows = {}
     for mark in extract.performer_marks:
@@ -2629,7 +2820,14 @@ def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
         key = normalise(mark["performer"].rstrip("?"))
         if not key:
             continue
-        ident = (normalise(mark["artist"]), normalise(mark["title"]), key)
+        # [V30] NOT mark.get(..., ANNOTATION_INSTRUMENT). A mark that reached here without an
+        # instrument must raise, not be quietly labelled vocal: a defaulted instrument would
+        # emit a vocal row with a derived, permanent id that shadows the real one, and
+        # `build.py`'s "carries no instrument" guard could never fire. Every append to
+        # `performer_marks` states it.
+        instrument = mark["instrument"]
+        instrument_key = normalise(instrument)
+        ident = (normalise(mark["artist"]), normalise(mark["title"]), key, instrument_key)
         if ident in rows:
             existing = rows[ident]
             if mark["is_lead"]:
@@ -2655,18 +2853,25 @@ def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
             # one performer under [D17] and must read as one here too.
             "performer": names_by_key.get(key, mark["performer"].rstrip("?")),
             "performer_id": performers_by_key.get(key, ""),
-            # [D4, amended] every junction: UUIDv5(namespace(table), fk_a + "/" + fk_b).
-            "song_performer_id": junction_id(
-                "song_performer", song_ids.get(ident[:2], ""),
-                performers_by_key.get(key, "")) if song_ids.get(ident[:2]) else "",
+            "instrument": instrument,
+            # [D4 as amended by V3] the three-key junction:
+            # UUIDv5(namespace('song_performer'), song_id/performer_id/instrument_id).
+            "song_performer_id": song_performer_id(
+                song_ids.get(ident[:2], ""),
+                performers_by_key.get(key, ""),
+                derived_id("instrument", instrument_key),
+            ) if song_ids.get(ident[:2]) else "",
             "is_lead": mark["is_lead"], "vocal_range": "",
             "source": "%s:%s" % (mark["source"], mark["column"]),
             "flag": mark["flag"], "note": mark["note"],
         }
 
+    # [V7] a range is a statement about a voice, so it attaches to the owner's VOCAL row
+    # and nowhere else. A non-null range on a guitar row would be nonsense.
     ranges = extract.vocal_ranges
+    vocal_key = normalise(ANNOTATION_INSTRUMENT)
     for ident, row in rows.items():
-        if ident[2] != owner_key:
+        if ident[2] != owner_key or ident[3] != vocal_key:
             continue
         value = ranges.get((ident[0], ident[1]))
         if value is None:
@@ -2677,7 +2882,8 @@ def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
             "vocal_range from the Range column, attached to the owner's song_performer "
             "row and not to the song [R15, D27]") if n])
 
-    orphans = set(ranges) - {(i[0], i[1]) for i in rows if i[2] == owner_key}
+    orphans = set(ranges) - {(i[0], i[1]) for i in rows
+                             if i[2] == owner_key and i[3] == vocal_key}
     for artist_key, title_key in sorted(orphans):
         extract.unresolve("(multiple)", "Range column", str(ranges[(artist_key, title_key)]),
                           "Range value for %r has no owner song_performer row to attach to "
@@ -2685,7 +2891,7 @@ def build_song_performers(extract, performers_by_key, names_by_key, song_ids):
 
     return sorted(rows.values(),
                   key=lambda r: (normalise(r["artist"]), normalise(r["song"]),
-                                 normalise(r["performer"])))
+                                 normalise(r["performer"]), normalise(r["instrument"])))
 
 
 def fold_performers(extract):
@@ -3090,8 +3296,8 @@ def main():
                 ["setlist", "item_key", "item_row", "song", "artist", "performer",
                  "performer_id", "position", "source", "flag", "note"])
     write_sheet(out, "SongPerformers", song_performers,
-                ["song", "artist", "performer", "performer_id", "song_performer_id",
-                 "is_lead", "vocal_range", "source", "flag", "note"])
+                ["song", "artist", "performer", "performer_id", "instrument",
+                 "song_performer_id", "is_lead", "vocal_range", "source", "flag", "note"])
     write_sheet(out, "PracticeEvents", events,
                 ["song", "artist", "instrument", "context", "date", "source_worksheets",
                  "surviving_only_on", "flag", "note"])

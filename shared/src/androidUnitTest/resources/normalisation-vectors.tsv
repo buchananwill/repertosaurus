@@ -1,0 +1,99 @@
+# Normalisation agreement vectors - decision 17, and decision 41's mechanism.
+#
+# The Kotlin core (dev.repertaurus.core.normalise) and the Python migration
+# (tools/import/extract.py :: normalise) must produce identical output for the same input, or
+# the same name derives two different UUIDv5 ids on two devices and they never converge
+# (decisions 2, 4, 5). That agreement has now forked three times. It is asserted here ONCE, in
+# a file both implementations read, rather than in two test suites that each agree with their
+# own author.
+#
+#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertaurus/core/NormalisationVectorsTest.kt
+#   Python: tools/import/extract.py :: verify_normalisation_vectors(), called from build.py
+#
+# Format: one vector per line, `input<TAB>expected`. A vector is any line carrying a TAB;
+# comments and blank lines have none. That is the skip rule rather than "blank", because the
+# empty-input vector is a line consisting of one tab and a blank-line rule swallowed it
+# silently in both readers. The escapes are `\\`, `\t`, `\n` and `\uXXXX`, where `\uXXXX` is a
+# UTF-16 code UNIT - so a non-BMP character is written as its surrogate pair, which is
+# exactly the representation decision 41 is about. Every character outside printable ASCII is
+# escaped, and a field that begins or ends with a space has all of its spaces escaped too, so
+# nothing in this file is invisible and no editor can silently rewrite a vector.
+#
+# Adding a vector: add the input, run both sides, and where they disagree decide which is
+# right against decision 4e - "punctuation is anything that is not a Unicode letter or digit"
+# - before touching either implementation. Never delete a vector to make a build pass.
+
+# decision 4c - the ratified cases. Punctuation becomes a SPACE and never nothing, or
+# `cw-duet` would key on `cwduet` and a user typing "CW Duet" would create a second tag.
+cw-duet	cw duet
+need-to-learn	need to learn
+AC/DC	ac dc
+The Fratellis	fratellis
+Florence & the Machine	florence and the machine
+
+# decision 17a - NFC comes first. The composed spelling and the decomposed spelling of an
+# accent must normalise identically; macOS and iOS input methods routinely emit the
+# decomposed form, and the two are indistinguishable in an editor, which is why they are
+# written here as escapes.
+Michael Bubl\u00e9	michael bubl\u00e9
+Michael Buble\u0301	michael bubl\u00e9
+Beyonc\u00e9	beyonc\u00e9
+Beyonce\u0301	beyonc\u00e9
+Sigur R\u00f3s	sigur r\u00f3s
+
+# Case, trimming and whitespace - including a non-breaking space (U+00A0) and a zero-width
+# space (U+200B), which are not letters and so collapse like any other separator.
+\u0020\u0020Valerie\u0020\u0020	valerie
+MR. BRIGHTSIDE	mr brightside
+Backing   Vocal	backing vocal
+a\t b \n c	a b c
+Blue\u00a0Lion	blue lion
+zero\u200bwidth	zero width
+
+# decision 4e - the underscore is neither a letter nor a digit. Python's `\w` matches it, so
+# the underscore is excluded there explicitly; a divergence here silently forks an id.
+Bass_Vox Rep	bass vox rep
+_	
+a_b	a b
+
+# The leading article, stripped once and only at the start (decision 17).
+the zutons	zutons
+All The Small Things	all the small things
+Theatre	theatre
+
+# Digits, including a non-ASCII decimal digit (U+0663 ARABIC-INDIC DIGIT THREE, category Nd).
+Blink-182	blink 182
+\u0663 doors down	\u0663 doors down
+
+# decision 4e - "letter or digit" means L* plus Nd, and NOT the other numeric categories.
+# U+00BD VULGAR FRACTION ONE HALF and U+2460 CIRCLED DIGIT ONE are category No; U+2160 ROMAN
+# NUMERAL ONE is category Nl. Python's `\w` matched all three (Py_UNICODE_ISALNUM includes
+# ISNUMERIC) while Java's Character.isLetterOrDigit does not, so the first vector below kept
+# its fraction in the migration and lost it in the core - a second silent id fork, found while
+# closing decision 41's. Nothing in the workbook contains one, which is precisely the
+# profile decision 17b warns about: these arrive by paste, not by keyboard.
+5\u00bd hours	5 hours
+\u2160 want it that way	want it that way
+\u2460 circled	circled
+
+# decision 41 - a non-BMP letter. A per-UTF-16-unit pass drops it, because each surrogate half
+# is neither a letter nor a digit, while the migration's `\w` keeps it. This is the fork that
+# was measured and closed: normalise(U+1D400 + "ndy") returned `ndy` in Kotlin and kept the
+# astral letter in Python. The last line here is a non-BMP NON-letter, which must collapse to
+# ONE separator and not to two.
+\ud835\udc00ndy	\ud835\udc00ndy
+\ud835\udc00\ud835\udc01\ud835\udc02	\ud835\udc00\ud835\udc01\ud835\udc02
+Andy \ud835\udc00	andy \ud835\udc00
+smile \ud83d\ude00 now	smile now
+
+# Empty, whitespace-only and punctuation-only inputs, which must all normalise to nothing.
+	
+\u0020\u0020\u0020	
+---	
+
+# The ampersand fold, and the apostrophes this repertoire is full of.
+&	and
+Hall & Oates	hall and oates
+Rock 'n' Roll	rock n roll
+Don't Stop	don t stop
+Unknown Artist	unknown artist

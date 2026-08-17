@@ -4,6 +4,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertaurus.core.Ids
 import dev.repertaurus.core.Timestamps
 import dev.repertaurus.db.RepertaurusDatabase
+import dev.repertaurus.session.ViewFilter
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -115,7 +116,7 @@ class RepertaurusDatabaseTest {
         repository.logPractice(cold, guitar, loggedOn = "2026-06-01")
         repository.logPractice(warm, guitar, loggedOn = "2026-08-14")
 
-        val rows = repository.songsByStaleness(guitar, today = "2026-08-15")
+        val rows = unfiltered(guitar)
         assertEquals(listOf(unplayed, cold, warm), rows.map { it.songId })
         assertNull(rows[0].lastPractised)
         assertNull(rows[0].daysSince)
@@ -129,11 +130,11 @@ class RepertaurusDatabaseTest {
         val song = insertSong("Thunderstruck", "AC/DC")
         repository.logPractice(song, bass, loggedOn = "2026-08-14")
 
-        val onBass = repository.songsByStaleness(bass, today = "2026-08-15").single()
+        val onBass = unfiltered(bass).single()
         assertEquals(1L, onBass.timesPractised)
         assertEquals(1L, onBass.daysSince)
 
-        val onGuitar = repository.songsByStaleness(guitar, today = "2026-08-15").single()
+        val onGuitar = unfiltered(guitar).single()
         assertEquals(0L, onGuitar.timesPractised)
         assertNull(onGuitar.lastPractised)
     }
@@ -150,12 +151,12 @@ class RepertaurusDatabaseTest {
         val song = insertSong("Valerie", "The Zutons")
         val event = repository.logPractice(song, guitar, loggedOn = "2026-08-14")
 
-        val before = repository.songsByStaleness(guitar, today = "2026-08-15").single()
+        val before = unfiltered(guitar).single()
         assertEquals(1L, before.timesPractised)
 
         repository.voidPractice(event)
 
-        val after = repository.songsByStaleness(guitar, today = "2026-08-15")
+        val after = unfiltered(guitar)
         assertEquals(1, after.size, "the song must still be listed after an undo")
         assertEquals(0L, after[0].timesPractised)
         assertNull(after[0].lastPractised)
@@ -170,7 +171,7 @@ class RepertaurusDatabaseTest {
 
         repository.voidPractice(mistake)
 
-        val row = repository.songsByStaleness(guitar, today = "2026-08-15").single()
+        val row = unfiltered(guitar).single()
         assertEquals(1L, row.timesPractised)
         assertEquals("2026-08-01", row.lastPractised)
         assertEquals(14L, row.daysSince)
@@ -228,11 +229,24 @@ class RepertaurusDatabaseTest {
         SampleData.installIfEmpty(database, clock = fixedClock, timeZone = TimeZone.UTC)
         assertEquals(songs.size, database.songQueries.selectAllLive().executeAsList().size)
 
-        val rows = repository.songsByStaleness(SampleData.GUITAR, today = "2026-08-15")
+        val rows = unfiltered(SampleData.GUITAR)
         assertEquals(songs.size, rows.size)
         // Never-practised songs sort first.
         assertNull(rows.first().lastPractised)
     }
+
+    /**
+     * Every song, staleness measured on one instrument — V11's all-null case. The filter
+     * crosses this boundary as primitives, not as a `ViewFilter`: `data` must not depend on
+     * `session`, and `SessionCoordinator.rows` is the one place that destructures a View.
+     */
+    private fun unfiltered(practiceInstrumentId: String) = repository.songsByStaleness(
+        practiceInstrumentId = practiceInstrumentId,
+        filterPerformerId = null,
+        filterInstrumentId = null,
+        leadOnly = 0L,
+        today = "2026-08-15",
+    )
 
     private fun insertSong(title: String, artist: String): String {
         val artistId = Ids.derived("artist", artist)

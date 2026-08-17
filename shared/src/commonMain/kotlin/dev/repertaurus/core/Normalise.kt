@@ -20,6 +20,23 @@ package dev.repertaurus.core
 public expect fun unicodeNormalise(value: String): String
 
 /**
+ * Decision 4e's "letter or digit", asked of a **Unicode code point** rather than a UTF-16
+ * unit — decision 41.
+ *
+ * `Char.isLetterOrDigit()` is the obvious call and it is wrong above U+FFFF: a non-BMP letter
+ * is two surrogate `Char`s and each half is neither a letter nor a digit, so the character is
+ * dropped. The Python migration's `\w` keeps it, so the same name yielded different canonical
+ * keys and therefore **different UUIDv5 ids that never converge** — measured on
+ * `normalise("𝐀ndy")`, which gave `ndy` here and kept the astral letter there.
+ *
+ * `kotlin.text` has no code-point predicate in `commonMain`, so this is an `expect`/`actual`
+ * pair like [unicodeNormalise] beside it. **iOS and JS actuals will be needed at phases 4 and
+ * 5**; whatever they delegate to must agree with the shared vector file, which is what the
+ * agreement is now mechanised by.
+ */
+public expect fun isLetterOrDigitCodePoint(codePoint: Int): Boolean
+
+/**
  * The normalisation function (decision 17). One implementation, three callers: the
  * type-ahead's near-duplicate matching, derived id generation (decision 2), and the
  * migration.
@@ -36,6 +53,12 @@ public expect fun unicodeNormalise(value: String): String
  * Punctuation becomes a space rather than being deleted, which is what makes the seeded
  * tags key the way decision 4c says they do: `cw-duet` keys on `cw duet`, not `cwduet`,
  * so a user typing "CW Duet" matches the existing tag.
+ *
+ * **The punctuation pass iterates code points, not UTF-16 units** (decision 41). See
+ * [isLetterOrDigitCodePoint]: a per-`Char` test drops every non-BMP letter, because each
+ * surrogate half fails it, and the Python migration keeps that letter — which forks the id
+ * permanently and silently. The two implementations are held together by the shared vector
+ * file `normalisation-vectors.tsv`, which both read.
  */
 public fun normalise(value: String): String {
     var text = unicodeNormalise(value).lowercase().trim()
@@ -48,8 +71,25 @@ public fun normalise(value: String): String {
     }
 
     val builder = StringBuilder(text.length)
-    for (ch in text) {
-        if (ch.isLetterOrDigit()) builder.append(ch) else builder.append(' ')
+    var index = 0
+    while (index < text.length) {
+        val high = text[index]
+        val low = text.getOrNull(index + 1)
+        val paired = high.isHighSurrogate() && low != null && low.isLowSurrogate()
+        val width = if (paired) 2 else 1
+        val codePoint = if (paired) {
+            0x10000 + ((high.code - 0xD800) shl 10) + (text[index + 1].code - 0xDC00)
+        } else {
+            high.code
+        }
+        if (isLetterOrDigitCodePoint(codePoint)) {
+            builder.append(text, index, index + width)
+        } else {
+            // One space per code point, not per UTF-16 unit — an astral punctuation mark
+            // collapses like any other and cannot leave a doubled separator behind.
+            builder.append(' ')
+        }
+        index += width
     }
 
     return builder.toString().split(' ').filter { it.isNotEmpty() }.joinToString(" ")

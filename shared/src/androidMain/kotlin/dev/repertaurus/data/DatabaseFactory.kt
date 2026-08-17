@@ -9,10 +9,12 @@ import dev.repertaurus.db.RepertaurusDatabase
 public const val DATABASE_NAME: String = "repertaurus.db"
 
 /**
- * Opens the app-private database.
+ * Opens the app-private database, ungated.
  *
- * Phase 1 is standalone and app-private storage is wiped on uninstall; that risk is
- * accepted and there is deliberately no migration infrastructure here.
+ * **Nothing on the start-up path may call this.** `DatabaseHolder.load()` is the entry point:
+ * it inspects the file before a driver touches it, verifies the schema afterwards, and
+ * resolves to `DatabaseState` instead of throwing (schema-compatibility S8, S9). This function
+ * is the bare construction underneath, kept for tests and tools.
  */
 public fun createDatabase(context: Context, name: String = DATABASE_NAME): RepertaurusDatabase =
     RepertaurusDatabase(createDriver(context, name))
@@ -20,6 +22,10 @@ public fun createDatabase(context: Context, name: String = DATABASE_NAME): Reper
 /**
  * The driver behind [createDatabase], exposed because import has to *close* the database
  * before replacing the file underneath it.
+ *
+ * Opening it runs `Schema.create` on a brand-new file and `Schema.migrate` on one whose
+ * `user_version` is behind — the 1 → 2 migration of schema-compatibility S2 lands here. Both
+ * can throw, which is why `DatabaseHolder` wraps every call.
  */
 public fun createDriver(context: Context, name: String = DATABASE_NAME): AndroidSqliteDriver =
     AndroidSqliteDriver(
@@ -41,6 +47,20 @@ public fun createDriver(context: Context, name: String = DATABASE_NAME): Android
                 //
                 // A PRAGMA that returns a row cannot go through execSQL, hence query().
                 db.query("PRAGMA journal_mode=DELETE").use { it.moveToFirst() }
+            }
+
+            /**
+             * **Do not delete the file.** The inherited implementation of this callback deletes a
+             * database it finds corrupt, which on this app means destroying the user's only copy
+             * of their repertoire — silently, and before they are told anything (schema
+             * compatibility S8, S11). Leaving it alone makes the open fail, which is exactly what
+             * `DatabaseHolder.load` turns into `DatabaseState.Unloadable`, which is what puts the
+             * recovery screen in front of the user with their file still on disk behind it.
+             *
+             * Closing the handle is still right: a corrupt connection must not be handed out.
+             */
+            override fun onCorruption(db: SupportSQLiteDatabase) {
+                if (db.isOpen) runCatching { db.close() }
             }
         },
     )

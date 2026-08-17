@@ -39,6 +39,25 @@ FROM practice_context
 WHERE updated_at > ?
 ORDER BY updated_at, device_id, id;
 
+-- E17: what removing this context would put out of sight — the live events logged under it.
+-- Voided events are excluded by the left anti-join, exactly as countLiveByInstrument does
+-- (decision 8): an undone tap is not history the user is about to lose sight of.
+--
+-- E19: wiring this lookup manages the VOCABULARY only. The app still cannot attach a context
+-- to a logged event; that is a change on the logging path, not on a management screen.
+--
+-- E39: a row is counted only when every parent is live, so an event on a soft-deleted song
+-- does not count — the same rule countLiveByInstrument applies, for the same reason.
+countLiveEvents:
+SELECT COUNT(*)
+FROM practice_event
+JOIN song ON song.id = practice_event.song_id
+LEFT JOIN practice_event_void
+       ON practice_event_void.practice_event_id = practice_event.id
+WHERE practice_event.context_id = ?
+  AND practice_event_void.id IS NULL
+  AND song.deleted_at IS NULL;
+
 insert:
 INSERT INTO practice_context(id, name, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?);

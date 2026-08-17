@@ -13,6 +13,15 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1-phase1"
+
+        // Schema-compatibility S12: this module gains a test source set. Two boot crashes in
+        // one session both landed in the one layer nothing instantiated — a property
+        // initialisation-order NPE, and `no such table: saved_view` — and a test that merely
+        // constructs `SessionViewModel` against an empty, a stale and a current database would
+        // have caught both. The tests are instrumented rather than local because the thing
+        // under test is Android's SQLite and Android's main looper; neither has a JVM stand-in
+        // that would have found either bug.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -60,4 +69,14 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // S10, S12, S13. `ui-test-manifest` is what supplies the bare ComponentActivity the
+    // Compose rule hosts, so the recovery screen can be booted without MainActivity.
+    androidTestImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:core-ktx:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.02"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

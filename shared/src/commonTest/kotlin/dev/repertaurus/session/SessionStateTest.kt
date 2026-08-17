@@ -25,7 +25,7 @@ class SessionStateTest {
     /** The database's order, untouched: never-practised first, then coldest first. */
     private val loaded = SessionState(
         instruments = listOf(InstrumentChip(guitar, "guitar")),
-        selectedInstrumentId = guitar,
+        view = SessionView.unsaved(guitar),
         rows = listOf(never, cold, warm),
         loading = false,
     )
@@ -160,18 +160,103 @@ class SessionStateTest {
         assertTrue(after.logged.isEmpty())
         assertEquals(listOf("s-never", "s-cold", "s-warm"), after.pending.map { it.songId })
 
-        val onBass = after.copy(selectedInstrumentId = bass)
+        val onBass = after.copy(view = SessionView.unsaved(bass))
         assertEquals(listOf("s-cold"), onBass.logged.map { it.row.songId })
     }
 
+    /**
+     * V22, as reversed. Switching View is a full reload of the rows and it clears the pending
+     * **undo offer** — which refers to a tap the user is no longer looking at — but it does
+     * **not** clear the session's optimistic taps.
+     *
+     * An earlier draft cleared them. That broke the ordinary practice motion of flicking
+     * guitar → bass → guitar, which must return you to your logged list.
+     */
     @Test
-    fun selectingAnInstrumentClearsTheRowsButKeepsTheTaps() {
-        val after = loaded.plusTap(tap("t1", cold)).selecting(bass)
+    fun switchingViewClearsTheRowsAndTheUndoButKeepsTheTaps() {
+        val after = loaded.plusTap(tap("t1", cold)).switchingTo(SessionView.unsaved(bass))
 
         assertTrue(after.loading)
         assertTrue(after.rows.isEmpty())
-        assertEquals(1, after.taps.size)
+        assertEquals(listOf("t1"), after.taps.map { it.tapId }, "a tap is never voided")
         assertNull(after.undo)
+        assertEquals(bass, after.selectedInstrumentId)
+        // The tap was logged on guitar, so it is out of sight in a bass View — `tapsHere`
+        // scopes by practice instrument, without anything being thrown away.
+        assertTrue(after.tapsHere.isEmpty())
+    }
+
+    /**
+     * And the flick back. guitar → bass → guitar returns the musician to the list they were
+     * building, which is the whole reason V22 was reversed.
+     */
+    @Test
+    fun flickingToAnotherInstrumentAndBackRestoresTheLoggedList() {
+        val there = loaded.plusTap(tap("t1", cold)).switchingTo(SessionView.unsaved(bass))
+        val back = there.switchingTo(SessionView.unsaved(guitar)).withRows(loaded.rows)
+
+        assertEquals(listOf("s-cold"), back.logged.map { it.row.songId })
+        assertEquals(listOf("s-never", "s-warm"), back.pending.map { it.songId })
+    }
+
+    /**
+     * A song that the new View's filter excludes drops out on its own: [SessionState.logged]
+     * resolves each tap against the rows the View actually returned, so nothing has to be
+     * cleared to keep it off the screen.
+     */
+    @Test
+    fun aTapOnASongTheNewViewDoesNotContainSimplyDoesNotAppear() {
+        val after = loaded.plusTap(tap("t1", cold))
+            .switchingTo(SessionView.unsaved(guitar))
+            .withRows(listOf(never, warm))
+
+        assertEquals(listOf("t1"), after.taps.map { it.tapId })
+        assertTrue(after.logged.isEmpty(), "the row is not in this View, so it is not shown")
+    }
+
+    /**
+     * D2. The toggle moves three things, and a switcher rendering from `views` reverts the
+     * direction on switch-away-and-back unless the list entry moves too.
+     */
+    @Test
+    fun theToggleRewritesTheMatchingEntryInTheViewList() {
+        val saved = SessionView(
+            id = "v-1",
+            name = "Will sings, guitar",
+            filter = ViewFilter.NONE,
+            practiceInstrumentId = guitar,
+            order = SessionOrder.COLDEST_FIRST,
+            position = 0L,
+        )
+        val other = saved.copy(id = "v-2", name = "other", position = 1L)
+        val state = loaded.withViews(listOf(saved, other)).switchingTo(saved)
+
+        val flipped = state.withOrder(SessionOrder.HOTTEST_FIRST)
+
+        assertEquals(SessionOrder.HOTTEST_FIRST, flipped.view?.order)
+        assertEquals(
+            SessionOrder.HOTTEST_FIRST,
+            flipped.views.single { it.id == "v-1" }.order,
+            "the switcher renders from `views`, so the active entry has to move with it",
+        )
+        assertEquals(
+            SessionOrder.COLDEST_FIRST,
+            flipped.views.single { it.id == "v-2" }.order,
+            "and no other View moves",
+        )
+    }
+
+    /** And before the first View has loaded the toggle is recorded rather than swallowed. */
+    @Test
+    fun theToggleIsNotASilentNoOpBeforeAViewHasLoaded() {
+        val loading = SessionState()
+        assertNull(loading.view)
+        assertEquals(SessionOrder.COLDEST_FIRST, loading.order)
+
+        val flipped = loading.withOrder(SessionOrder.HOTTEST_FIRST)
+
+        assertEquals(SessionOrder.HOTTEST_FIRST, flipped.order)
+        assertEquals(SessionOrder.HOTTEST_FIRST, flipped.fallbackOrder)
     }
 
     // ---- Search -----------------------------------------------------------------------

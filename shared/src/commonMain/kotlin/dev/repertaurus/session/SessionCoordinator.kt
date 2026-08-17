@@ -44,19 +44,31 @@ public class SessionCoordinator(
      * same way as the instrument chip, because it is the same kind of thing: a view
      * preference, never data. No row anywhere records it.
      */
-    public fun initialOrder(): SessionOrder {
-        val stored = preferences.lastOrder()
-        return SessionOrder.values().firstOrNull { it.name == stored }
-            ?: SessionOrder.COLDEST_FIRST
-    }
+    public fun initialOrder(): SessionOrder = SessionOrder.parse(preferences.lastOrder())
 
     public fun rememberOrder(order: SessionOrder) {
         preferences.rememberOrder(order.name)
     }
 
-    /** Scoped to one instrument. The direction is applied in [SessionState.pending]. */
-    public fun rows(instrumentId: String): List<SessionRow> =
-        repository.songsByStaleness(instrumentId).map { song ->
+    /**
+     * The View's rows: eligible songs by [SessionView.filter], staleness measured on
+     * [SessionView.practiceInstrumentId].
+     *
+     * The direction is applied in [SessionState.pending] rather than here (V14). SQL returns
+     * coldest-first as a stable base order and the Kotlin comparator re-sorts it, which is
+     * what makes the toggle instant; the two are not redundant.
+     *
+     * The [ViewFilter] is destructured here rather than handed down. `data` must not depend
+     * on `session` — the layering is `session → data → core` — so the repository takes the
+     * three components as primitives, and this is the one place that knows a View sent them.
+     */
+    public fun rows(view: SessionView): List<SessionRow> =
+        repository.songsByStaleness(
+            practiceInstrumentId = view.practiceInstrumentId,
+            filterPerformerId = view.filter.performerId,
+            filterInstrumentId = view.filter.instrumentId,
+            leadOnly = view.filter.leadOnlyFlag,
+        ).map { song ->
             SessionRow(
                 songId = song.songId,
                 title = song.title,
@@ -95,6 +107,12 @@ public class SessionCoordinator(
 
     /** Every live artist, for the type-ahead's near-match pass. */
     public fun artists(): List<RepertaurusRepository.Artist> = repository.artists()
+
+    /**
+     * Every live performer, for the View editor's filter type-ahead. A few rows, so the table
+     * is held whole and matched in memory — the same reason [artists] is.
+     */
+    public fun performers(): List<RepertaurusRepository.Performer> = repository.performers()
 
     /**
      * The type-ahead of decisions 16 and 17: near-matches surfaced *while typing*, so the
@@ -155,18 +173,27 @@ public object SessionInstruments {
      */
     private val SEEDED = listOf("vocal", "backing vocal", "guitar", "bass", "keys")
 
+    /**
+     * Decision 18's order over anything that carries an instrument name — the chip row, the
+     * manage-instruments list, and E14's performer subtitle, which all have to agree or the
+     * same five instruments read in three different orders on three screens.
+     *
+     * The name is a function rather than a supertype because the three callers hold three
+     * unrelated types: an [InstrumentChip], a `LookupRow` and a `RepertaurusRepository
+     * .Instrument`.
+     */
+    public fun <T> displayOrder(name: (T) -> String): Comparator<T> = compareBy(
+        { item ->
+            val rank = SEEDED.indexOf(normalise(name(item)))
+            if (rank < 0) SEEDED.size else rank
+        },
+        { item -> name(item) },
+    )
+
     public fun chips(instruments: List<RepertaurusRepository.Instrument>): List<InstrumentChip> =
         instruments
             .map { InstrumentChip(id = it.id, name = it.name) }
-            .sortedWith(
-                compareBy(
-                    { chip ->
-                        val rank = SEEDED.indexOf(normalise(chip.name))
-                        if (rank < 0) SEEDED.size else rank
-                    },
-                    { chip -> chip.name },
-                ),
-            )
+            .sortedWith(displayOrder { it.name })
 
     /** The remembered chip if it still exists, otherwise the first one. */
     public fun resolve(remembered: String?, chips: List<InstrumentChip>): String? =
@@ -201,10 +228,39 @@ public object ArtistSuggestions {
 }
 
 /**
+ * The performer type-ahead — **one matcher (E46)**, beside [ArtistSuggestions] and on the same
+ * reasoning.
+ *
+ * Two composables reach for this picker: the capability sheet's "Add someone" field and the
+ * View editor's filter field. Each had invented its own copy of the browse-when-blank rule and
+ * its own limit constant, and the two constants **disagreed on the search cap for the same
+ * picker** — the identical field offered eight names in one sheet and six in the other. That is
+ * a display rule that is JVM-testable and that the desktop UI will need verbatim, so it is here
+ * and not there.
+ *
+ * The browsing half is [NearMatches.browseOrSearch]: blank means "show me what exists", typed
+ * means "find the near-matches", one limit for both.
+ */
+public object PerformerSuggestions {
+
+    public fun search(
+        query: String,
+        performers: List<RepertaurusRepository.Performer>,
+        limit: Int = NearMatches.BROWSE_LIMIT,
+    ): List<RepertaurusRepository.Performer> =
+        NearMatches.browseOrSearch(query, performers, limit) { it.name }
+}
+
+/**
  * What the Session screen remembers between launches: the discipline chip (a phase 1
  * question in the delivery spec — *should the app remember it rather than asking each
- * session?* — this build says yes) and the sort direction. Both are view preferences and
- * neither is data; nothing here is ever synced.
+ * session?* — this build says yes), the sort direction, and the home View. All three are
+ * view preferences and none is data; nothing here is ever synced.
+ *
+ * The home View is here and **not** an `is_home` column on `saved_view` (V19). A flag on
+ * many rows has no total order under last-write-wins: two devices each promoting a different
+ * View both end up true and no subsequent sync repairs it. Keeping it local also lets a
+ * phone and a desktop open on different Views, which is the behaviour we want.
  *
  * An interface so the rules are testable without a device; Android backs it with
  * `SharedPreferences`.
@@ -214,12 +270,15 @@ public interface SessionPreferences {
     public fun rememberInstrument(instrumentId: String)
     public fun lastOrder(): String?
     public fun rememberOrder(order: String)
+    public fun homeViewId(): String?
+    public fun rememberHomeView(viewId: String)
 }
 
 /** For tests and previews. */
 public class InMemorySessionPreferences(
     private var instrumentId: String? = null,
     private var order: String? = null,
+    private var homeViewId: String? = null,
 ) : SessionPreferences {
     override fun lastInstrumentId(): String? = instrumentId
 
@@ -231,5 +290,11 @@ public class InMemorySessionPreferences(
 
     override fun rememberOrder(order: String) {
         this.order = order
+    }
+
+    override fun homeViewId(): String? = homeViewId
+
+    override fun rememberHomeView(viewId: String) {
+        this.homeViewId = viewId
     }
 }

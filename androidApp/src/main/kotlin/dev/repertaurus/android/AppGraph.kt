@@ -44,9 +44,14 @@ public class AppGraph private constructor(context: Context) {
 }
 
 /**
- * The instrument chip and the sort direction, remembered across launches. The rules live in
- * the shared core and are tested there; this is only the storage. Neither is data, so
- * neither is ever synced.
+ * The instrument chip, the sort direction and the home View, remembered across launches. The
+ * rules live in the shared core and are tested there; this is only the storage. None of the
+ * three is data, so none is ever synced.
+ *
+ * The home View is here and **not** an `is_home` column on `saved_view` (views V19). A flag
+ * on many rows has no total order under last-write-wins — two devices each promoting a
+ * different View both end up true and no later sync repairs it — and keeping it local lets
+ * this phone and a desktop open on different Views, which is the behaviour we want.
  */
 private class AndroidSessionPreferences(context: Context) : SessionPreferences {
 
@@ -65,8 +70,15 @@ private class AndroidSessionPreferences(context: Context) : SessionPreferences {
         preferences.edit().putString(KEY_ORDER, order).apply()
     }
 
+    override fun homeViewId(): String? = preferences.getString(KEY_HOME_VIEW, null)
+
+    override fun rememberHomeView(viewId: String) {
+        preferences.edit().putString(KEY_HOME_VIEW, viewId).apply()
+    }
+
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
         const val KEY_ORDER = "last_order"
+        const val KEY_HOME_VIEW = "home_view_id"
     }
 }

@@ -46,6 +46,20 @@ UPDATE performer
 SET name = ?, notes = ?, updated_at = ?, device_id = ?
 WHERE id = ?;
 
+-- The lookup screen's two edits are separate statements, not one `update` call with the
+-- other column read back first (editing E13, E16, E21). Renaming must not clobber notes a
+-- second device wrote, and setting notes must not clobber a rename — and the id is never
+-- re-derived by either (decision 5, E21): every song_performer row points at it.
+rename:
+UPDATE performer
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+setNotes:
+UPDATE performer
+SET notes = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
 softDelete:
 UPDATE performer
 SET deleted_at = ?, updated_at = ?, device_id = ?

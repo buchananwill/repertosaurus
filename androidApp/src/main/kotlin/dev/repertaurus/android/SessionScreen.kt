@@ -1,6 +1,7 @@
 package dev.repertaurus.android
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,10 +57,19 @@ import dev.repertaurus.core.Timestamps
 import dev.repertaurus.core.normalise
 import dev.repertaurus.data.RepertaurusRepository
 import dev.repertaurus.session.ArtistSuggestions
+import dev.repertaurus.session.InstrumentChip
 import dev.repertaurus.session.SessionOrder
 import dev.repertaurus.session.SessionRow
 import dev.repertaurus.session.SessionState
+import dev.repertaurus.session.SessionView
+import dev.repertaurus.session.ViewFilter
 import kotlinx.datetime.LocalDate
+
+/** Stable handles for the instrumented tests and for on-device inspection. */
+internal object SessionTags {
+    /** E47's way out of a View whose filter names a row that is gone. */
+    const val EDIT_BROKEN_VIEW: String = "session-edit-broken-view"
+}
 
 /**
  * The Session screen — the interaction the whole product exists for.
@@ -85,6 +97,21 @@ public fun SessionScreen(
     var addingSong by remember { mutableStateOf(false) }
     var addSongTitle by remember { mutableStateOf("") }
     val artists by viewModel.artists.collectAsState()
+
+    // The Views surface. The switcher is a sheet rather than a screen because switching is
+    // a two-tap operation the user makes mid-practice; the editor is a second sheet, opened
+    // only after the switcher has closed, so the two never stack.
+    val performers by viewModel.performers.collectAsState()
+    val homeViewId by viewModel.homeViewId.collectAsState()
+    var switching by remember { mutableStateOf(false) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editorTarget by remember { mutableStateOf<SessionView?>(null) }
+    var deletingView by remember { mutableStateOf<SessionView?>(null) }
+
+    // The capability editor's state (E1-E11). It is the ViewModel's rather than this
+    // composable's because the line-up is a database read and the edits are database writes;
+    // what is local here is only which sheet is open.
+    val capabilities by viewModel.capabilities.collectAsState()
 
     val undo = state.undo
     LaunchedEffect(undo?.tapId) {
@@ -129,7 +156,17 @@ public fun SessionScreen(
         },
         topBar = {
             TopAppBar(
-                title = { Text("Repertaurus") },
+                title = {
+                    // The active View names the screen, and tapping it switches. Two taps
+                    // from anywhere to any other View, which is what "now I'm switching to
+                    // classical piano" has to cost.
+                    ActiveViewTitle(
+                        view = state.view,
+                        instruments = state.instruments,
+                        performers = performers,
+                        onClick = { switching = true },
+                    )
+                },
                 navigationIcon = {
                     TextButton(onClick = onOpenDrawer) { Text("Menu") }
                 },
@@ -143,6 +180,10 @@ public fun SessionScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
+            // The practice instrument (V13): what a tap logs to, and what staleness is
+            // measured against. It is **not** the capability filter — that is a field of
+            // the View, set in the editor and summarised in the title above. Merging the
+            // two back into one control is the bug Views exist to fix.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -174,7 +215,7 @@ public fun SessionScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                for (option in SessionOrder.values()) {
+                for (option in SessionOrder.entries) {
                     FilterChip(
                         selected = state.order == option,
                         onClick = { viewModel.setOrder(option) },
@@ -211,12 +252,29 @@ public fun SessionScreen(
 
             SessionList(
                 state = state,
+                // E47: the empty list has three causes, not two, and the third one is the
+                // only one that must not be described as an empty repertoire.
+                filterNamesRemovedRow = filterNamesRemovedRow(
+                    filter = state.view?.filter ?: ViewFilter.NONE,
+                    instruments = state.instruments,
+                    performers = performers,
+                ),
                 onTap = viewModel::log,
                 onLongPress = { row -> feelFor = row },
                 onAddSong = { title ->
                     addSongTitle = title
                     viewModel.loadArtists()
                     addingSong = true
+                },
+                // E42: there is no sensible automatic repair — nothing can stand in for the
+                // performer the user meant — so the way out is the View editor, opened on the
+                // View that is broken.
+                // The active View, saved or forked — the forked one carries the same broken
+                // filter (V13a), so opening the editor on it is what puts the problem in front
+                // of the user rather than a blank form.
+                onEditView = {
+                    editorTarget = state.view
+                    editorOpen = true
                 },
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
@@ -231,6 +289,36 @@ public fun SessionScreen(
                 viewModel.log(row.songId, feel, note, loggedOn)
                 feelFor = null
             },
+            // E2: the route into the capability editor, added to the sheet that already
+            // exists rather than in front of it. The feel chips are untouched and stay one
+            // long-press away; this row sits below the Log button, so nothing that was on
+            // the rating path has moved or grown a step.
+            onEditLineUp = {
+                feelFor = null
+                viewModel.openCapabilities(row)
+            },
+        )
+    }
+
+    // E1: the capability editor. It writes `song_performer` and nothing else — there is no
+    // call to `viewModel.log` anywhere inside it, and the sheet it was opened from has
+    // already closed, so the two never stack.
+    capabilities.song?.let { song ->
+        SongCapabilitySheet(
+            song = song,
+            lineUp = capabilities.lineUp,
+            performers = performers,
+            instruments = state.instruments,
+            busy = capabilities.busy,
+            // E43: two channels, never one. A refused write renders in the error colour and
+            // cannot be mistaken for the confirmation that stood in the same place.
+            message = capabilities.message,
+            error = capabilities.error,
+            addsCommitted = capabilities.addsCommitted,
+            onAdd = viewModel::addCapability,
+            onUpdate = viewModel::updateCapability,
+            onRemove = viewModel::removeCapability,
+            onDismiss = viewModel::closeCapabilities,
         )
     }
 
@@ -242,6 +330,79 @@ public fun SessionScreen(
             onAdd = { title, artistName, artistId ->
                 viewModel.addSong(title, artistName, artistId)
                 addingSong = false
+            },
+        )
+    }
+
+    if (switching) {
+        ViewSwitcherSheet(
+            views = state.views,
+            activeViewId = state.view?.id,
+            homeViewId = homeViewId,
+            instruments = state.instruments,
+            performers = performers,
+            onSwitch = { view ->
+                switching = false
+                viewModel.switchView(view)
+            },
+            onSetHome = viewModel::setHomeView,
+            onEdit = { view ->
+                switching = false
+                editorTarget = view
+                editorOpen = true
+            },
+            onCreate = {
+                switching = false
+                editorTarget = null
+                editorOpen = true
+            },
+            onDismiss = { switching = false },
+        )
+    }
+
+    if (editorOpen) {
+        ViewEditorSheet(
+            editing = editorTarget,
+            instruments = state.instruments,
+            performers = performers,
+            // A new View starts where the user already is: same instrument, same
+            // direction. V21's unsaved state is the natural draft of the first View.
+            defaultPracticeInstrumentId = state.selectedInstrumentId,
+            defaultOrder = state.order,
+            onCommit = { view ->
+                editorOpen = false
+                viewModel.commitView(view)
+            },
+            onDelete = { view ->
+                editorOpen = false
+                deletingView = view
+            },
+            onDismiss = { editorOpen = false },
+        )
+    }
+
+    deletingView?.let { view ->
+        AlertDialog(
+            onDismissRequest = { deletingView = null },
+            title = { Text("Delete ${view.name}?") },
+            text = {
+                Text(
+                    "The view goes; nothing you have practised does. Practice is logged " +
+                        "against a song and an instrument, never against a view.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteView(view.id)
+                        deletingView = null
+                    },
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingView = null }) { Text("Cancel") }
             },
         )
     }
@@ -269,6 +430,49 @@ public fun SessionScreen(
 }
 
 /**
+ * The top bar's title: which View is on screen, and what it lets through.
+ *
+ * The second line is the *filter* (V11) and not the practice instrument — that is the chip
+ * row directly beneath, and the two are separate on purpose (V13). With no saved Views this
+ * reads "All songs / Every song", which is exactly what the app does today (V21).
+ *
+ * V13a adds a third case: a chip tap forks a saved View into an unsaved one that **keeps the
+ * filter**. Calling that "All songs" over a filtered list would be a plain falsehood, so it
+ * reads "Not saved". That wording is an assumption, not a recorded decision.
+ */
+@Composable
+private fun ActiveViewTitle(
+    view: SessionView?,
+    instruments: List<InstrumentChip>,
+    performers: List<RepertaurusRepository.Performer>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.clickable(onClick = onClick)) {
+        Text(
+            text = when {
+                view == null -> "All songs"
+                view.saved -> view.name
+                view.filter.unfiltered -> "All songs"
+                else -> "Not saved"
+            } + " ▾",
+            // Two lines inside a 64dp top bar: titleMedium over labelSmall fits at every
+            // system font scale, where titleLarge clips the second line at the large ones.
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = filterSummary(view?.filter ?: ViewFilter.NONE, instruments, performers),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
  * Coldest first, never-practised leading, with everything logged in this session moved
  * below a divider — "the row shows it is logged and moves out of the way". A logged row
  * stays tappable: a second pass at the same song on the same day is a second session and
@@ -278,9 +482,11 @@ public fun SessionScreen(
 @Composable
 private fun SessionList(
     state: SessionState,
+    filterNamesRemovedRow: Boolean,
     onTap: (String) -> Unit,
     onLongPress: (SessionRow) -> Unit,
     onAddSong: (String) -> Unit,
+    onEditView: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -327,15 +533,30 @@ private fun SessionList(
 
         if (!state.loading && state.pending.isEmpty() && state.logged.isEmpty()) {
             item(key = "empty") {
+                // **E47: an empty list must never claim the repertoire is empty when it is
+                // not.** There are three causes and they are not interchangeable:
+                //
+                // 1. a search that matched nothing — offer to add what was typed;
+                // 2. a View whose filter names a performer or an instrument that has been
+                //    removed (E42) — say so, and offer the editor;
+                // 3. genuinely no songs — offer Import.
+                //
+                // Cause 2 used to render as cause 3, so a phone holding 479 songs told the
+                // user they had none and pointed them at Import, which is the one destructive
+                // path in the app. The predicate is the shared core's; this only branches.
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(32.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Text(
-                        text = if (state.query.isNotEmpty()) {
-                            "Nothing matches \"${state.query}\"."
-                        } else {
-                            "No songs yet. Use Import to load your database file, " +
+                        text = when {
+                            state.query.isNotEmpty() -> "Nothing matches \"${state.query}\"."
+                            filterNamesRemovedRow ->
+                                "This view filters on someone — or something — that has " +
+                                    "been removed, so no song can match it. Your songs are " +
+                                    "all still here. Edit the view to point it at a " +
+                                    "performer or an instrument that still exists."
+                            else -> "No songs yet. Use Import to load your database file, " +
                                 "or add one by hand."
                         },
                         style = MaterialTheme.typography.bodyLarge,
@@ -345,6 +566,14 @@ private fun SessionList(
                     if (state.query.isNotEmpty()) {
                         Button(onClick = { onAddSong(state.query) }) {
                             Text("Add \"${state.query}\"")
+                        }
+                    } else if (filterNamesRemovedRow) {
+                        // E42: no automatic repair is honest here, so the way out is explicit.
+                        Button(
+                            onClick = onEditView,
+                            modifier = Modifier.testTag(SessionTags.EDIT_BROKEN_VIEW),
+                        ) {
+                            Text("Edit this view")
                         }
                     }
                 }
@@ -545,6 +774,13 @@ private fun AddSongSheet(
  * The date sits here too, and only here: decision 45 makes logging for a past date
  * available but demoted, never on the primary tap path. Three days back is as far as it
  * goes, because a fortnight of real use is meant to tell us whether it is needed at all.
+ *
+ * **E2: the capability editor is reached from here, and the feel rating keeps its exact
+ * cost.** Decision 46 makes long-press *the* rating affordance and a plain tap the log, so
+ * this sheet shows the feel chips **and** a row opening the editor — never a chooser in front
+ * of them. Everything above [onEditLineUp]'s row is unchanged and in the same place: the
+ * rating is still one long-press and one chip, and the new row is appended below the Log
+ * button where nothing that was already on the rating path has to move past it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -552,6 +788,7 @@ private fun FeelSheet(
     row: SessionRow,
     onDismiss: () -> Unit,
     onLog: (Long?, String?, String) -> Unit,
+    onEditLineUp: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
     var feel by remember { mutableStateOf<Long?>(null) }
@@ -564,6 +801,7 @@ private fun FeelSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -614,6 +852,29 @@ private fun FeelSheet(
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
                 Text("Log it")
+            }
+
+            // E2's other half, and the only new thing on this sheet. It is below the Log
+            // button on purpose: the rating is what a long-press is for, and this must not
+            // sit between the user and it.
+            HorizontalDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .clickable(onClick = onEditLineUp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Who plays this", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        // E1 in the one place a user could confuse the two.
+                        "Edit the line-up. Recording it never logs practice.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text("Edit", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

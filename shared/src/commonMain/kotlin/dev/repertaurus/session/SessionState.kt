@@ -20,15 +20,39 @@ import dev.repertaurus.core.normalise
  */
 public data class SessionState(
     val instruments: List<InstrumentChip> = emptyList(),
-    val selectedInstrumentId: String? = null,
+    val views: List<SessionView> = emptyList(),
+    val view: SessionView? = null,
     val rows: List<SessionRow> = emptyList(),
     val taps: List<SessionTap> = emptyList(),
     val query: String = "",
-    val order: SessionOrder = SessionOrder.COLDEST_FIRST,
     val loading: Boolean = true,
     val undo: UndoOffer? = null,
     val message: String? = null,
+    val fallbackOrder: SessionOrder = SessionOrder.COLDEST_FIRST,
 ) {
+
+    /**
+     * The instrument being logged to and measured against — the active View's, not
+     * free-standing state (views V13). One field, because the instrument a View logs to is
+     * the instrument it measures staleness on.
+     *
+     * **Invariant (V20a): whenever this is non-null it is the id of one of [instruments].**
+     * A View can name an instrument that has since been soft-deleted — removal is unguarded
+     * and can also arrive by sync — and `ViewCoordinator.start` resolves that against the live
+     * chip row before the View ever reaches this state, writing the repair back. Without it no
+     * chip highlights and every tap writes `practice_event.instrument_id` pointing at a
+     * tombstoned row, silently, because the foreign key is still satisfied.
+     */
+    public val selectedInstrumentId: String?
+        get() = view?.practiceInstrumentId
+
+    /**
+     * The direction, likewise the View's (V17). Before the first View has loaded there is no
+     * View to hold it, so it falls back to [fallbackOrder] — which is what makes the toggle
+     * respond during the initial load instead of silently swallowing the tap.
+     */
+    public val order: SessionOrder
+        get() = view?.order ?: fallbackOrder
 
     /** Taps belonging to the instrument currently on screen. */
     public val tapsHere: List<SessionTap> by lazy {
@@ -81,22 +105,56 @@ public data class SessionState(
 
     // ---- Transitions ------------------------------------------------------------------
 
-    public fun withInstruments(
-        instruments: List<InstrumentChip>,
-        selectedInstrumentId: String?,
-    ): SessionState = copy(instruments = instruments, selectedInstrumentId = selectedInstrumentId)
+    public fun withInstruments(instruments: List<InstrumentChip>): SessionState =
+        copy(instruments = instruments)
 
-    /** The chip has changed but its rows have not arrived yet. */
-    public fun selecting(instrumentId: String): SessionState =
-        copy(selectedInstrumentId = instrumentId, rows = emptyList(), loading = true, undo = null)
+    /** The saved Views available to switch to, in `(position, id)` order (V18). */
+    public fun withViews(views: List<SessionView>): SessionState = copy(views = views)
+
+    /**
+     * The active View has changed but its rows have not arrived yet.
+     *
+     * V22: switching View is a **full reload** of the filter, the practice instrument and the
+     * sort, and it clears **the pending undo offer** — which refers to a tap the user is no
+     * longer looking at. It does **not** clear [taps].
+     *
+     * An earlier draft did clear them, on the grounds that two Views can share a practice
+     * instrument. That was wrong twice over: [tapsHere] already scopes the logged section by
+     * practice instrument, and [logged] resolves each tap against the current View's [rows],
+     * so a song absent from the new View simply does not appear. Clearing instead broke the
+     * ordinary practice motion of flicking guitar → bass → guitar, which today returns you to
+     * your logged list and under the draft rule emptied it.
+     */
+    public fun switchingTo(view: SessionView): SessionState = copy(
+        view = view,
+        rows = emptyList(),
+        loading = true,
+        undo = null,
+    )
 
     public fun withRows(rows: List<SessionRow>): SessionState =
         copy(rows = rows, loading = false)
 
     public fun withQuery(query: String): SessionState = copy(query = query)
 
-    /** A view preference, not data: it reorders the same rows and writes nothing. */
-    public fun withOrder(order: SessionOrder): SessionState = copy(order = order)
+    /**
+     * A view preference, not data: it reorders the same rows and writes nothing here. Where it
+     * is *persisted* is V13b's two-branch rule and lives in `ViewCoordinator.rememberOrder`.
+     *
+     * Three things move, and all three have to:
+     *
+     * - the active View, which is where [order] reads from;
+     * - the matching entry in [views], or a switcher rendering from that list shows the old
+     *   direction and switching away and back reverts it;
+     * - [fallbackOrder], so the toggle is not a silent no-op before the first View has loaded.
+     */
+    public fun withOrder(order: SessionOrder): SessionState = copy(
+        view = view?.copy(order = order),
+        views = if (view == null) views else views.map {
+            if (it.id == view.id) it.copy(order = order) else it
+        },
+        fallbackOrder = order,
+    )
 
     /**
      * The tap path. Pure and instant: no database, no read, no suspension. The caller
@@ -162,15 +220,46 @@ public enum class SessionOrder {
 
     public val flipped: SessionOrder
         get() = if (this == COLDEST_FIRST) HOTTEST_FIRST else COLDEST_FIRST
+
+    public companion object {
+
+        /**
+         * The one place a stored direction is read back — `saved_view.sort_order` (V17) and
+         * `SessionPreferences.lastOrder()` alike. Written twice, verbatim, before this
+         * existed.
+         *
+         * V17a: an unreadable value is a row a later build wrote, and coldest first is the
+         * default that never surprises. Note what that means for a third direction: adding
+         * the constant without widening the SQL `CHECK` throws at insert, and widening the
+         * `CHECK` without adding the constant makes the unknown value silently downgrade here
+         * and be written back on the next update. Both halves move together, and a test pins
+         * them together.
+         */
+        public fun parse(name: String?): SessionOrder =
+            entries.firstOrNull { it.name == name } ?: COLDEST_FIRST
+    }
 }
+
+/**
+ * **The one title-case helper (E46).** `backing vocal` reads as `Backing Vocal`; the stored
+ * name is never touched (decision 5).
+ *
+ * It lives in the shared core because the capability sheet had re-implemented it **character
+ * for character** in a composable, which is one of the two forks this project has already paid
+ * for. Every surface that spells a stored lower-case name for a human calls this one: the chip
+ * row, the capability chips, the capability dialog, the suggestion rows — and the desktop UI
+ * when it arrives.
+ */
+public fun titleCase(name: String): String =
+    name.split(' ').joinToString(" ") { word ->
+        if (word.isEmpty()) word else word.replaceFirstChar { it.uppercaseChar() }
+    }
 
 /** One instrument chip, read from the `instrument` table — never a hardcoded enum. */
 public data class InstrumentChip(val id: String, val name: String) {
     /** `backing vocal` reads as `Backing Vocal` on a chip; the stored name is untouched. */
     public val label: String
-        get() = name.split(' ').joinToString(" ") { word ->
-            if (word.isEmpty()) word else word.replaceFirstChar { it.uppercaseChar() }
-        }
+        get() = titleCase(name)
 }
 
 /**

@@ -1,0 +1,119 @@
+-- Schema 1 -> 2. Views (views V1-V24), as an in-place upgrade.
+--
+-- Schema-compatibility decisions S1, S2: adding `saved_view` and `song_performer.instrument_id`
+-- changed the schema while `Schema.version` stayed at 1, so two structurally different databases
+-- both claimed to be version 1 and the app crashed on the boot path with
+-- `no such table: saved_view`. This file is the version bump: SQLDelight derives
+-- `Schema.version` from the highest migration number + 1, so the mere existence of `1.sqm`
+-- moves it to 2.
+--
+-- S3: this migration does NOT re-derive `song_performer` ids. They moved from the two-key form
+-- to the three-key form of V3 and UUIDv5 is not computable in SQLite. An upgraded database
+-- therefore keeps two-key ids while a freshly imported one has three-key ids. That is invisible
+-- until phase 2 sync, and must be resolved before it — two devices disagreeing on a row's id
+-- never converge. The honest fix is a re-import, which the recovery path keeps reachable.
+--
+-- minSdk 26 means SQLite 3.19: no window functions, no UPSERT, no `DROP COLUMN`, no
+-- `RENAME COLUMN`. Everything below is 3.19 syntax.
+
+-- ---------------------------------------------------------------------------------------------
+-- saved_view (V15-V24).
+--
+-- **This file is frozen history. Once it has shipped, do not edit it.** The DDL below happens to
+-- match saved_view.sq today only because the table was born at version 2. When a later change
+-- alters `saved_view`, it goes in `saved_view.sq` *and* in the next `.sqm` — never here. Editing
+-- this file "to keep it in step" is how a device already on version 2 silently never receives the
+-- change (it will not re-run 1.sqm) while a fresh install does, with both then stamping the same
+-- version: the exact two-databases-one-version state this whole spec exists to delete.
+--
+-- SchemaCompatibilityTest will not catch that mistake, because it starts from version 1 and only
+-- checks the end state. The rule is the guard.
+-- ---------------------------------------------------------------------------------------------
+CREATE TABLE saved_view (
+    id                     TEXT NOT NULL PRIMARY KEY,
+    name                   TEXT NOT NULL,
+    filter_performer_id    TEXT,
+    filter_instrument_id   TEXT,
+    filter_lead_only       INTEGER NOT NULL DEFAULT 0,
+    practice_instrument_id TEXT NOT NULL,
+    sort_order             TEXT NOT NULL,
+    position               INTEGER NOT NULL,
+    notes                  TEXT,
+
+    updated_at             TEXT NOT NULL,
+    deleted_at             TEXT,
+    device_id              TEXT NOT NULL,
+
+    FOREIGN KEY (filter_performer_id)    REFERENCES performer(id),
+    FOREIGN KEY (filter_instrument_id)   REFERENCES instrument(id),
+    FOREIGN KEY (practice_instrument_id) REFERENCES instrument(id),
+    CHECK (filter_lead_only IN (0, 1)),
+    CHECK (sort_order IN ('COLDEST_FIRST', 'HOTTEST_FIRST')),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX saved_view_position ON saved_view(position);
+
+-- ---------------------------------------------------------------------------------------------
+-- song_performer gains instrument_id and the key widens to the triple (V1, V2).
+--
+-- `ALTER TABLE ... ADD COLUMN` cannot add a NOT NULL column that carries a REFERENCES clause, and
+-- the old UNIQUE(song_id, performer_id) index has to go or one person can never hold both a
+-- guitar row and a vocal row on the same song. Both mean a table rebuild.
+--
+-- Every existing row is a vocal row: V25 maps every singer column in the workbook to instrument
+-- `vocal`, V26 does the same for the free-text annotations, and V27a measured that nothing else
+-- ever wrote this table. The backfill is therefore the seeded `vocal` instrument and not a
+-- guess. `INSERT OR IGNORE` first, because the backfill's foreign key needs that row to exist
+-- and a database whose lookup table was edited by hand must still upgrade rather than throw.
+-- ---------------------------------------------------------------------------------------------
+INSERT OR IGNORE INTO instrument(id, name, updated_at, deleted_at, device_id)
+VALUES ('6409e4f3-5881-5293-8918-9dbafe572ac6', 'vocal', '2026-08-15T00:00:00.000Z', NULL, 'seed');
+
+CREATE TABLE song_performer_v2 (
+    id            TEXT NOT NULL PRIMARY KEY,
+    song_id       TEXT NOT NULL,
+    performer_id  TEXT NOT NULL,
+    instrument_id TEXT NOT NULL,
+    is_lead       INTEGER NOT NULL DEFAULT 0,
+    vocal_range   INTEGER,
+    notes         TEXT,
+
+    updated_at    TEXT NOT NULL,
+    deleted_at    TEXT,
+    device_id     TEXT NOT NULL,
+
+    FOREIGN KEY (song_id) REFERENCES song(id),
+    FOREIGN KEY (performer_id) REFERENCES performer(id),
+    FOREIGN KEY (instrument_id) REFERENCES instrument(id),
+    CHECK (is_lead IN (0, 1)),
+    CHECK (vocal_range IS NULL OR vocal_range IN (0, 1)),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+INSERT INTO song_performer_v2(
+    id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes,
+    updated_at, deleted_at, device_id
+)
+SELECT
+    id,
+    song_id,
+    performer_id,
+    '6409e4f3-5881-5293-8918-9dbafe572ac6',
+    is_lead,
+    vocal_range,
+    notes,
+    updated_at,
+    deleted_at,
+    device_id
+FROM song_performer;
+
+DROP TABLE song_performer;
+
+ALTER TABLE song_performer_v2 RENAME TO song_performer;
+
+CREATE UNIQUE INDEX song_performer_key ON song_performer(song_id, performer_id, instrument_id);
+CREATE INDEX song_performer_performer ON song_performer(performer_id);
+CREATE INDEX song_performer_instrument ON song_performer(instrument_id);

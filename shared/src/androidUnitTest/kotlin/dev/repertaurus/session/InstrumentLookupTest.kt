@@ -2,6 +2,7 @@ package dev.repertaurus.session
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertaurus.core.Ids
+import dev.repertaurus.data.LookupTableKey
 import dev.repertaurus.data.RepertaurusRepository
 import dev.repertaurus.db.RepertaurusDatabase
 import kotlinx.datetime.Clock
@@ -21,8 +22,13 @@ import kotlin.test.assertTrue
  * `instrument` is a table and not an enum precisely so this is possible without a schema
  * change or a migration. These tests are the proof of that, and of the three rules that
  * make it safe: a derived id, a rename that keeps it, and a delete that is a tombstone.
+ *
+ * Named for the table and not for a class: this was `InstrumentStoreTest`, after an
+ * `InstrumentStore` that E18 replaced with the one shared [LookupStore]. `LookupStoresTest`
+ * walks every kind; this one stays because `instrument` is the kind with a display order of
+ * its own (decision 18) and the history the chip row reads.
  */
-class InstrumentStoreTest {
+class InstrumentLookupTest {
 
     private val fixedClock = object : Clock {
         override fun now(): Instant = Instant.parse("2026-08-16T10:30:00.250Z")
@@ -89,19 +95,19 @@ class InstrumentStoreTest {
     fun typingUkeleleSurfacesTheExistingUkulele() {
         store.add("Ukulele")
 
-        val suggested = store.suggest("Ukelele")
+        val suggested = store.suggest("Ukelele", store.items())
 
         assertEquals(listOf("Ukulele"), suggested.map { it.name })
-        assertEquals(listOf("Ukulele"), store.suggest("ukelele").map { it.name })
-        assertEquals(listOf("Ukulele"), store.suggest("Ukule").map { it.name })
+        assertEquals(listOf("Ukulele"), store.suggest("ukelele", store.items()).map { it.name })
+        assertEquals(listOf("Ukulele"), store.suggest("Ukule", store.items()).map { it.name })
     }
 
     @Test
     fun theSeededInstrumentsAreSurfacedByNearMatchToo() {
-        assertEquals(listOf("guitar"), store.suggest("Guitr").map { it.name })
-        assertEquals(listOf("keys"), store.suggest("keyz").map { it.name })
-        assertEquals(listOf("backing vocal"), store.suggest("backing vokal").map { it.name })
-        assertTrue(store.suggest("trombone").isEmpty(), "a genuinely new value matches nothing")
+        assertEquals(listOf("guitar"), store.suggest("Guitr", store.items()).map { it.name })
+        assertEquals(listOf("keys"), store.suggest("keyz", store.items()).map { it.name })
+        assertEquals(listOf("backing vocal"), store.suggest("backing vokal", store.items()).map { it.name })
+        assertTrue(store.suggest("trombone", store.items()).isEmpty(), "a genuinely new value matches nothing")
     }
 
     /** A name that normalises to an existing one is that row, not a second one. */
@@ -170,9 +176,18 @@ class InstrumentStoreTest {
 
         // And every event it carries is intact and still counted.
         assertEquals(2L, repository.timesPractised(song))
-        assertEquals(2L, repository.practiceEventsOn(guitar))
+        assertEquals(2L, repository.lookups.usage(LookupTableKey.INSTRUMENT, guitar))
         assertEquals(2, repository.practiceHistory(song).size)
-        assertEquals(2L, repository.songsByStaleness(guitar, "2026-08-16").single().timesPractised)
+        assertEquals(
+            2L,
+            repository.songsByStaleness(
+                practiceInstrumentId = guitar,
+                filterPerformerId = null,
+                filterInstrumentId = null,
+                leadOnly = 0L,
+                today = "2026-08-16",
+            ).single().timesPractised,
+        )
     }
 
     @Test
@@ -199,7 +214,8 @@ class InstrumentStoreTest {
     }
 
     private fun coordinatorRows() =
-        SessionCoordinator(repository, InMemorySessionPreferences()).rows(guitar)
+        SessionCoordinator(repository, InMemorySessionPreferences())
+            .rows(SessionView.unsaved(guitar))
 
     private fun insertSong(title: String, artist: String): String {
         val artistId = repository.findOrCreateArtist(artist)

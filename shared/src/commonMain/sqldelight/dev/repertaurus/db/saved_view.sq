@@ -1,0 +1,134 @@
+-- saved_view — mutable record, random id (views V15-V24).
+--
+-- A View is a saved, named pairing of *which songs are eligible* with *which instrument the
+-- session is about*. Those two things were the same control — the instrument chip — and
+-- must not be: the chip selects what gets logged and what staleness is measured against,
+-- and says nothing at all about which songs appear.
+--
+-- V15: the table is `saved_view`, not `view`. VIEW is a SQL keyword and a table named for
+-- one is a permanent papercut in every hand-written query.
+--
+-- V16: the id is random UUIDv4, not derived. `name` is the only candidate key and it is
+-- user-editable, so deriving from it would violate decision 5 — an id is immutable while a
+-- name is not. `setlist` is random for exactly this reason.
+--
+-- V17: sort_order stores the SessionOrder enum name under a CHECK, not a boolean or an
+-- integer, so the stored value reads as what it means.
+--
+-- V17a: an earlier draft of V17 called a third sort direction "a one-line change". It is
+-- THREE — the SessionOrder constant, this CHECK, and the parse — and each alone fails
+-- differently: the constant alone throws at insert, the CHECK alone makes an unknown value
+-- silently downgrade to COLDEST_FIRST and be written back on the next update. The enum and
+-- this CHECK are two statements of one vocabulary and a test pins them together by inserting
+-- every SessionOrder name. The unmeasured claim is the defect worth remembering.
+--
+-- V24: a View stores ids, never names, so renaming a performer or an instrument leaves
+-- every View intact — the same discipline as song.artist_id.
+--
+-- V19: there is deliberately NO is_home column. An is_home INTEGER on many rows has no
+-- total order under last-write-wins — two devices each promoting a different View both end
+-- up true and no subsequent sync repairs it. The home View is a local preference,
+-- SessionPreferences.homeViewId(), which also lets a phone and a desktop open on different
+-- Views. Do not add the column.
+--
+-- V13: practice_instrument_id is one field, not two. The instrument a View logs to is the
+-- instrument it measures staleness on. filter_instrument_id is a different question —
+-- which songs are eligible — and the two are deliberately separate parameters.
+
+CREATE TABLE saved_view (
+    id                     TEXT NOT NULL PRIMARY KEY,
+    name                   TEXT NOT NULL,
+    filter_performer_id    TEXT,
+    filter_instrument_id   TEXT,
+    filter_lead_only       INTEGER NOT NULL DEFAULT 0,
+    practice_instrument_id TEXT NOT NULL,
+    sort_order             TEXT NOT NULL,
+    position               INTEGER NOT NULL,
+    notes                  TEXT,
+
+    updated_at             TEXT NOT NULL,
+    deleted_at             TEXT,
+    device_id              TEXT NOT NULL,
+
+    FOREIGN KEY (filter_performer_id)    REFERENCES performer(id),
+    FOREIGN KEY (filter_instrument_id)   REFERENCES instrument(id),
+    FOREIGN KEY (practice_instrument_id) REFERENCES instrument(id),
+    CHECK (filter_lead_only IN (0, 1)),
+    CHECK (sort_order IN ('COLDEST_FIRST', 'HOTTEST_FIRST')),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX saved_view_position ON saved_view(position);
+
+-- V18: reads order by (position, id) — a plain INTEGER rather than the fractional TEXT key
+-- of setlist_item, on the same reasoning as decision 58e. This orders a handful of one
+-- user's configs, not a long list two devices reorder against each other, and the id
+-- tie-break keeps two devices that both wrote `1` deterministic.
+selectAllLive:
+SELECT
+    saved_view.id,
+    saved_view.name,
+    saved_view.filter_performer_id,
+    saved_view.filter_instrument_id,
+    saved_view.filter_lead_only,
+    saved_view.practice_instrument_id,
+    saved_view.sort_order,
+    saved_view.position,
+    saved_view.notes
+FROM saved_view
+WHERE saved_view.deleted_at IS NULL
+ORDER BY saved_view.position, saved_view.id;
+
+selectById:
+SELECT *
+FROM saved_view
+WHERE id = ?;
+
+-- The next free position, so a View created on a device that has not synced still lands at
+-- the end rather than colliding at 0. A tie is broken by id (V18), so a collision is
+-- untidy rather than wrong.
+nextPosition:
+SELECT COALESCE(MAX(position), -1) + 1 AS next_position
+FROM saved_view;
+
+selectChangedSince:
+SELECT *
+FROM saved_view
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+insert:
+INSERT INTO saved_view(
+    id, name, filter_performer_id, filter_instrument_id, filter_lead_only,
+    practice_instrument_id, sort_order, position, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+applyMerged:
+INSERT OR REPLACE INTO saved_view(
+    id, name, filter_performer_id, filter_instrument_id, filter_lead_only,
+    practice_instrument_id, sort_order, position, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+update:
+UPDATE saved_view
+SET name = ?,
+    filter_performer_id = ?,
+    filter_instrument_id = ?,
+    filter_lead_only = ?,
+    practice_instrument_id = ?,
+    sort_order = ?,
+    position = ?,
+    notes = ?,
+    updated_at = ?,
+    device_id = ?
+WHERE id = ?;
+
+-- V23: deleting a View is a soft delete carrying deleted_at, like every other mutable row
+-- in this schema. There is no hard delete anywhere.
+softDelete:
+UPDATE saved_view
+SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;

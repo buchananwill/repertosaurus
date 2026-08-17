@@ -50,6 +50,15 @@ applyMerged:
 INSERT OR REPLACE INTO tag(id, name, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?);
 
+-- E17: what removing this tag would put out of sight — the live songs carrying it.
+countLiveSongs:
+SELECT COUNT(*)
+FROM song_tag
+JOIN song ON song.id = song_tag.song_id
+WHERE song_tag.tag_id = ?
+  AND song_tag.deleted_at IS NULL
+  AND song.deleted_at IS NULL;
+
 update:
 UPDATE tag
 SET name = ?, updated_at = ?, device_id = ?

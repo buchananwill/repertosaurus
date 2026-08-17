@@ -100,13 +100,19 @@ WHERE practice_event.song_id = ?
 -- before it soft-deletes a row: removing an instrument hides it from the chip row, but
 -- every event it carries survives and keeps counting (decisions 8, 9). The user is told
 -- how much they are putting out of sight before they do it.
+--
+-- E39: a row is counted only when every parent is live, so an event on a soft-deleted song
+-- does not count — it is already out of sight, and counting it overstates what removing the
+-- instrument would hide.
 countLiveByInstrument:
 SELECT COUNT(*)
 FROM practice_event
+JOIN song ON song.id = practice_event.song_id
 LEFT JOIN practice_event_void
        ON practice_event_void.practice_event_id = practice_event.id
 WHERE practice_event.instrument_id = ?
-  AND practice_event_void.id IS NULL;
+  AND practice_event_void.id IS NULL
+  AND song.deleted_at IS NULL;
 
 -- Append-only tables merge by union on id (decision 11); this is the export side.
 selectCreatedSince:

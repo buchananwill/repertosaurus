@@ -29,7 +29,7 @@ file carries, in order:
 | [band.sq](./dev/repertaurus/db/band.sq) | `band` | lookup |
 | [practice_context.sq](./dev/repertaurus/db/practice_context.sq) | `practice_context` | lookup, seeded |
 | [song.sq](./dev/repertaurus/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
-| [song_performer.sq](./dev/repertaurus/db/song_performer.sq) | `song_performer` | junction |
+| [song_performer.sq](./dev/repertaurus/db/song_performer.sq) | `song_performer` | junction, **three keys** (`song_id`, `performer_id`, `instrument_id`) |
 | [song_instrument.sq](./dev/repertaurus/db/song_instrument.sq) | `song_instrument` | junction, carries facts |
 | [song_tag.sq](./dev/repertaurus/db/song_tag.sq) | `song_tag` | junction |
 | [practice_event.sq](./dev/repertaurus/db/practice_event.sq) | `practice_event` | **append-only** |
@@ -38,8 +38,46 @@ file carries, in order:
 | [setlist_set.sq](./dev/repertaurus/db/setlist_set.sq) | `setlist_set` | child of setlist |
 | [setlist_item.sq](./dev/repertaurus/db/setlist_item.sq) | `setlist_item` | mutable record |
 | [setlist_item_performer.sq](./dev/repertaurus/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
+| [saved_view.sq](./dev/repertaurus/db/saved_view.sq) | `saved_view` | mutable record, random id |
 
 Create tables in that table order if you replay the DDL by hand; it is dependency-ordered.
+
+## Versions and migrations
+
+**`Schema.version` is currently 2.** SQLDelight derives it from the highest migration number in
+[dev/repertaurus/db/migrations/](./dev/repertaurus/db/migrations/) plus one, so the version moves
+when — and only when — a `.sqm` lands.
+
+| Version | Migration | What changed |
+|---|---|---|
+| 1 | — | Phase 1: everything above except `saved_view`, and `song_performer` keyed on two columns. |
+| 2 | [migrations/1.sqm](./dev/repertaurus/db/migrations/1.sqm) | Views: `saved_view` added; `song_performer` gains `instrument_id` and the key widens to the triple. |
+
+**Every `.sq` edit that adds, removes or retypes a table or column ships with a new `.sqm` in the
+same change** (schema-compatibility decision S1). Adding `saved_view` without one is exactly how
+two structurally different databases both came to claim `user_version = 1`, and how the app came
+to accept an obsolete file at import and then die on the next launch with `no such table:
+saved_view`.
+
+Three things must move together, and a test fails if any is left behind:
+
+1. the `.sq` file;
+2. a new `.sqm` — `2.sqm` next, which makes `Schema.version` 3;
+3. `SchemaCompatibility.REQUIRED`, the table-and-column map the boot gate and the import
+   validator both check against.
+
+`SchemaCompatibilityTest` pins all three: it asserts the version, asserts `REQUIRED` equals what
+`Schema.create` actually produces, and asserts that a database migrated from the previous version
+ends up with the same tables, columns and indexes as a freshly created one.
+
+**A migration cannot re-derive ids.** UUIDv5 is not computable in SQLite, so the 1 → 2 migration
+leaves the 595 `song_performer` rows on their old two-key ids while a freshly imported database
+has three-key ones (S3). That is invisible until phase 2 sync and must be resolved before it.
+
+**minSdk 26 means SQLite 3.19** in a migration as much as anywhere else: no window functions, no
+`UPSERT`, no `DROP COLUMN`, no `RENAME COLUMN`. `ALTER TABLE … ADD COLUMN` exists but cannot add a
+`NOT NULL` column carrying a `REFERENCES` clause, which is why `1.sqm` rebuilds `song_performer`
+rather than altering it.
 
 ## Conventions that hold everywhere
 
@@ -82,6 +120,18 @@ Create tables in that table order if you replay the DDL by hand; it is dependenc
 - **`song_performer` and `setlist_item_performer` are not the same table twice.** The first
   records who *knows* a song, the second who it is *staged with* on one night (decision 58a).
   There is no `is_duet` flag anywhere: any song can be staged as a duet.
+- **`saved_view` has no `is_home` column.** The home View is a local preference in
+  `SessionPreferences`, never a row (views decision V19). A flag on many rows has no total
+  order under last-write-wins: two devices each promoting a different View both end up true
+  and no subsequent sync repairs it. Keeping it local also lets a phone and a desktop open on
+  different Views.
+- **`saved_view.position` is a plain `INTEGER`**, unlike `setlist_item.position` (V18). It
+  orders a handful of one user's configs, not a long list two devices reorder against each
+  other; `(position, id)` is the total order and the `id` tie-break keeps two devices that both
+  wrote `1` deterministic.
+- **`song_performer.vocal_range` is not constrained against `instrument_id`** (V7). It is
+  meaningful only on a vocal row, but SQLite cannot `CHECK` across a foreign table, so a range
+  on a guitar row is nonsense the UI simply never offers.
 - **No mode or quality column on `song`.** Major/minor is implied by the
   `(key_signature, tonal_centre)` pair.
 - **`practice_event.logged_on` has no SQL `DEFAULT`.** "Defaults to today" means the device's
@@ -105,16 +155,26 @@ ROOT        = UUIDv5(DNS namespace, "songbook.dev")   = 3ce0f1dc-b3b4-5aee-9683-
 namespace   = UUIDv5(ROOT, <table name>)
 row id      = UUIDv5(namespace, normalise(<name>))
 song id     = UUIDv5(namespace("song"), artist_id + "/" + normalise(title))
-junction id = UUIDv5(namespace(table), fk_a + "/" + fk_b)
+junction id = UUIDv5(namespace(table), fk_a + "/" + fk_b [+ "/" + fk_c])
 ```
 
 The junction line is decision 4 **as amended**, and it holds for every junction without
 exception. It replaces an earlier form, `UUIDv5(fk_a, fk_b)`, which used the first foreign key
 directly as the namespace: that one carried no table identity, so two junctions over the same
-pair of ids collided, and it derives entirely different ids. Cross-checked against the
-migration's output: all 789 junction ids it emits (507 `song_performer`, 282 `song_tag`) match
-the form above and **none** match the old one. The two foreign keys are ordered — pass them in
-the order the table declares them.
+pair of ids collided, and it derives entirely different ids. The foreign keys are ordered —
+pass them in the order the table declares them.
+
+**`song_performer` takes three keys** (views decision V3): `song_id`, `performer_id`,
+`instrument_id`, in that order. The separator and the per-table namespace are unchanged, so the
+shape generalises rather than forking. Every `song_performer` id changed when the instrument
+joined the key (V4); that was acceptable only because the migration rebuilds the table wholesale
+and no device had synced, and it will not be acceptable again after phase 2 ships.
+
+Cross-checked against the migration's output: all **595** `song_performer` ids it emits were
+recomputed with `Ids.songPerformer` in the shared core and matched byte for byte, 595 of 595.
+The 280 `song_tag` ids it emits are untouched by the amendment and stay on the two-key form.
+Three of the recomputed values are pinned in `IdsTest`, lifted from the migration's output
+rather than re-derived by the test's author (V29).
 
 Per-table namespaces, so that the tag `guitar` and the instrument `guitar` cannot collide:
 

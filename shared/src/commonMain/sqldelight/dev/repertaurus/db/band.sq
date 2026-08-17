@@ -56,9 +56,28 @@ applyMerged:
 INSERT OR REPLACE INTO band(id, name, notes, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?, ?);
 
+-- E17: what removing this band would put out of sight — the live set lists that name it.
+countLiveSetlists:
+SELECT COUNT(*)
+FROM setlist
+WHERE setlist.band_id = ?
+  AND setlist.deleted_at IS NULL;
+
 update:
 UPDATE band
 SET name = ?, notes = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+-- Two separate statements for the lookup screen's two edits, for the same reason as
+-- performer.sq: a rename must not clobber notes, and notes must not clobber a rename.
+rename:
+UPDATE band
+SET name = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+setNotes:
+UPDATE band
+SET notes = ?, updated_at = ?, device_id = ?
 WHERE id = ?;
 
 softDelete:

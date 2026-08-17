@@ -13,3 +13,13 @@ import java.text.Normalizer
  */
 public actual fun unicodeNormalise(value: String): String =
     Normalizer.normalize(value, Normalizer.Form.NFC)
+
+/**
+ * Android actual for decision 4e's "letter or digit", asked of a code point (decision 41).
+ *
+ * `Character.isLetterOrDigit(int)` is the JDK's code-point overload — a Unicode letter
+ * (categories Lu, Ll, Lt, Lm, Lo) or a decimal digit (Nd) — which is decision 4e's definition
+ * exactly, and unlike the `Char` overload it is correct above U+FFFF.
+ */
+public actual fun isLetterOrDigitCodePoint(codePoint: Int): Boolean =
+    Character.isLetterOrDigit(codePoint)

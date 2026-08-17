@@ -17,6 +17,26 @@ Contracts implementers execute against.
   candidates with the evidence that killed each, the IP exposure on both the name and the logo,
   the illustrator's do/don't brief, and the rename scope. Read **N13** before touching id
   derivation: the `songbook.dev` UUID namespace deliberately survives the rename.
+- [Views — Decision Spec](views.md) — Saved, named pairings of *which songs are eligible* with
+  *which instrument the session is about*. Adds `instrument_id` to `song_performer` (the first
+  three-key junction, amending data-model decision 4) and the `saved_view` table. Read **V4**
+  before implementing: every existing `song_performer` id changes, and that is only safe before
+  phase 2 ships.
+
+- [Schema Compatibility and Boot Resilience — Decision Spec](schema-compatibility.md) — Written
+  after the app hard-crashed on launch for a real user and survived a full
+  uninstall–reinstall–reimport. **S8 is the load-bearing rule: the app must never hard-crash on any
+  database state, in alpha as much as in release.** Also carries S1 (the schema version moves with
+  the schema), S6 (one compatibility check, not one per call path) and S12 (`androidApp` gets a test
+  source set). Read **S3** before phase 2: a migrated database keeps two-key `song_performer` ids
+  while an imported one has three-key ids, and SQL cannot recompute them.
+
+- [Editing and Navigation — Decision Spec](editing.md) — The editability arc: a song-capability
+  editor off the long-press sheet (who plays what, recorded **without** logging practice), the
+  performer roster and the remaining lookup tables in the drawer, and the rule that the practice
+  logger is the root every route returns to. **E12** amends the View eligibility filter to exclude
+  soft-deleted performers — latent until this arc made deletion reachable. Song field editing is
+  explicitly the *next* arc, not this one.
 
 ## Not yet written
 

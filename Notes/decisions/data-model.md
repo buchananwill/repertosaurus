@@ -75,7 +75,18 @@ It is equally a design error to make a table out of something that does not repe
      namespace. That form was inconsistent with 4a's per-table namespaces and 4d's separator,
      produced different ids, and — because it carries no table identity — would collide across
      two junctions over the same pair of ids. Every junction uses the corrected form:
-     `song_instrument`, `song_tag`, `song_performer`, `setlist_item_performer`.
+     `song_instrument`, `song_tag`, `setlist_item_performer` — and `song_performer` on **three**
+     keys, per 4f.
+
+4f. **`song_performer` is a three-key junction:**
+    `UUIDv5(namespace('song_performer'), song_id + "/" + performer_id + "/" + instrument_id)`.
+    The table gained `instrument_id NOT NULL` so that "who does what on this song" is
+    expressible — see [views.md](views.md) V1–V5. The separator and the per-table namespace are
+    unchanged, so the two-key form of decision 4 generalises rather than forking. **This changed
+    every `song_performer` id already derived**, which was safe only because the table is rebuilt
+    wholesale by the migration and no device had synced; it would not be safe after phase 2.
+    Verified against real data: all 595 emitted ids recomputed with the Kotlin implementation
+    matched the migration's output byte for byte.
 
 4a. **The namespace constants are fixed and must never change.** Every derived id already
     written becomes unreachable if they do, so these are ratified values, not defaults:
@@ -221,9 +232,13 @@ It is equally a design error to make a table out of something that does not repe
     singer** — `Coralie Vox`, `Carla Vox`, `Sophie-Mae Vocal`, `Kendra Piper`, `Will Vocal` —
     and the two copies of the Anthony Horne gig differ precisely because one says `Andy?` and
     the other `Andy`. A new band member must cost zero schema change and zero free text.
-26. `song_performer (id, song_id, performer_id, is_lead, vocal_range, notes, …)` records **who
-    can sing or play a given song**. A song-level capability, distinct from decision 48.
-    `is_lead` is `NOT NULL DEFAULT 0` with a `CHECK (is_lead IN (0, 1))`.
+26. `song_performer (id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes, …)`
+    records **who does what on a given song**. A song-level capability, distinct from decision 48.
+    `is_lead` is `NOT NULL DEFAULT 0` with a `CHECK (is_lead IN (0, 1))`, and is **scoped to its
+    instrument** — lead vocal on a `vocal` row, lead guitar on a `guitar` row. `instrument_id` is
+    `NOT NULL` and the unique key is `(song_id, performer_id, instrument_id)`, so one person can
+    hold a guitar row and a vocal row on the same song. See [views.md](views.md) V1–V9; that spec
+    is what the column exists for.
 27. `vocal_range` lives here, not on `song`. Range is only meaningful for a particular voice —
     a song that sits high for one singer sits comfortably for another. Stored as `INTEGER`
     with a `CHECK`, mapping the workbook's `H`/`L` to `1`/`0`; it is a closed two-value

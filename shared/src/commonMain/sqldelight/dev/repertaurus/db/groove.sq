@@ -40,6 +40,14 @@ applyMerged:
 INSERT OR REPLACE INTO groove(id, name, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?);
 
+-- E17: what removing this groove would put out of sight — the live songs set to it.
+-- song.groove_id is a plain nullable column, not a junction, so this counts songs directly.
+countLiveSongs:
+SELECT COUNT(*)
+FROM song
+WHERE song.groove_id = ?
+  AND song.deleted_at IS NULL;
+
 update:
 UPDATE groove
 SET name = ?, updated_at = ?, device_id = ?

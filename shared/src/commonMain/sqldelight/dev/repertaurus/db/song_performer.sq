@@ -1,18 +1,33 @@
--- song_performer — junction (decisions 26, 27). Derived id, decision 4:
---     UUIDv5(namespace('song_performer'), song_id || '/' || performer_id)
+-- song_performer — junction (decisions 26, 27; views V1-V9). Derived id, decision 4 as
+-- amended by V3:
+--     UUIDv5(namespace('song_performer'), song_id || '/' || performer_id || '/' || instrument_id)
 --
--- Who *can* sing or play a given song: a song-level capability, true independently of any
--- gig. Distinct from setlist_item_performer, which records who a song is STAGED WITH on
--- one night (decisions 58, 58a). The two answer different questions and must never be
--- merged, and there is no is_duet flag anywhere: any song can be staged as a duet.
+-- Who does WHAT on a given song: a song-level capability, true independently of any gig.
+-- V1 adds instrument_id, which turns "who sings this song" into "who plays what on this
+-- song" — the only place a "songs X plays on Y" filter can read from, because
+-- song_instrument carries per-instrument *facts* about the song and names no performer.
 --
--- vocal_range lives here and not on song, because range is only meaningful for a
+-- Distinct from setlist_item_performer, which records who a song is STAGED WITH on one
+-- night (decisions 58, 58a). The two answer different questions and must never be merged,
+-- and there is no is_duet flag anywhere: any song can be staged as a duet.
+--
+-- V6: is_lead is scoped to its instrument — lead vocal on a `vocal` row, lead guitar on a
+-- `guitar` row. The pair (instrument_id, is_lead) is the full statement of role and there
+-- is no separate role vocabulary. V8: `backing vocal` stays a distinct instrument row, not
+-- `vocal` with is_lead = 0, or "sings on this, not lead" becomes indistinguishable from
+-- "sings backing on this".
+--
+-- V7: vocal_range lives here and not on song, because range is only meaningful for a
 -- particular voice. Closed two-value vocabulary: 1 = high (workbook `H`), 0 = low (`L`).
+-- It is meaningful only on vocal rows and is left unconstrained against instrument_id,
+-- because SQLite cannot CHECK across a foreign table; a range on a guitar row is nonsense
+-- the UI simply never offers.
 
 CREATE TABLE song_performer (
     id            TEXT NOT NULL PRIMARY KEY,
     song_id       TEXT NOT NULL,
     performer_id  TEXT NOT NULL,
+    instrument_id TEXT NOT NULL,
     is_lead       INTEGER NOT NULL DEFAULT 0,
     vocal_range   INTEGER,
     notes         TEXT,
@@ -23,34 +38,48 @@ CREATE TABLE song_performer (
 
     FOREIGN KEY (song_id) REFERENCES song(id),
     FOREIGN KEY (performer_id) REFERENCES performer(id),
+    FOREIGN KEY (instrument_id) REFERENCES instrument(id),
     CHECK (is_lead IN (0, 1)),
     CHECK (vocal_range IS NULL OR vocal_range IN (0, 1)),
     CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
     CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
 );
 
-CREATE UNIQUE INDEX song_performer_pair ON song_performer(song_id, performer_id);
+-- V2: the unique key is the triple, so one person can hold a guitar row and a vocal row on
+-- the same song without the two colliding.
+CREATE UNIQUE INDEX song_performer_key ON song_performer(song_id, performer_id, instrument_id);
 CREATE INDEX song_performer_performer ON song_performer(performer_id);
+CREATE INDEX song_performer_instrument ON song_performer(instrument_id);
 
+-- E40: the editor hides a row whose INSTRUMENT is soft-deleted, exactly as it already hides
+-- one whose performer is. View eligibility (V11a) excludes both, so a row surviving here
+-- would be a capability no View can ever match — noise in the one screen whose job is to
+-- state what is true. The ORDER BY is a deterministic base for the scan only; E35's display
+-- order is applied once, in CapabilityCoordinator.capabilities.
 selectBySong:
 SELECT
     song_performer.id,
     song_performer.performer_id,
     performer.name AS performer_name,
+    song_performer.instrument_id,
+    instrument.name AS instrument_name,
     song_performer.is_lead,
     song_performer.vocal_range,
     song_performer.notes
 FROM song_performer
 JOIN performer ON performer.id = song_performer.performer_id
+JOIN instrument ON instrument.id = song_performer.instrument_id
 WHERE song_performer.song_id = ?
   AND song_performer.deleted_at IS NULL
   AND performer.deleted_at IS NULL
-ORDER BY song_performer.is_lead DESC, performer.name;
+  AND instrument.deleted_at IS NULL
+ORDER BY song_performer.is_lead DESC, performer.name, instrument.name;
 
 selectByPerformer:
 SELECT
     song.id AS song_id,
     song.title,
+    song_performer.instrument_id,
     song_performer.is_lead,
     song_performer.vocal_range
 FROM song_performer
@@ -58,7 +87,56 @@ JOIN song ON song.id = song_performer.song_id
 WHERE song_performer.performer_id = ?
   AND song_performer.deleted_at IS NULL
   AND song.deleted_at IS NULL
-ORDER BY song.title;
+ORDER BY song.title, song_performer.instrument_id;
+
+-- The tombstone check behind editing E6's revive path. Reads the row whatever its
+-- deleted_at, which is the whole point: a re-add derives the SAME primary key, so the
+-- writer has to know whether it is inserting or reviving before it writes anything.
+selectById:
+SELECT *
+FROM song_performer
+WHERE id = ?;
+
+-- E15: the instruments each performer is recorded on, derived from the capability rows and
+-- never stored. There is no performer_instrument table and none is proposed; a second place
+-- to state this would drift from the first.
+--
+-- DISTINCT rather than group_concat: minSdk 26 means SQLite 3.19, which has no ordered
+-- aggregates, so the ordering would be whatever the scan produced. The grouping and
+-- decision 18's display order are applied in the shared core instead, where they are tested.
+--
+-- The accepted gap of E15: a performer added before any song is recorded for them returns
+-- no rows here and shows no instruments. The roster still lists them.
+selectPerformerInstruments:
+SELECT DISTINCT
+    song_performer.performer_id,
+    instrument.id   AS instrument_id,
+    instrument.name AS instrument_name
+FROM song_performer
+JOIN instrument ON instrument.id = song_performer.instrument_id
+JOIN song       ON song.id = song_performer.song_id
+WHERE song_performer.deleted_at IS NULL
+  AND instrument.deleted_at IS NULL
+  AND song.deleted_at IS NULL;
+
+-- E17: what removing this performer would put out of sight — the live capability rows they
+-- hold.
+--
+-- E39: a row is counted only when EVERY parent is live. Both joins are required and neither
+-- is decoration: this count sits beside the subtitle that selectPerformerInstruments feeds,
+-- and that query already excludes a deleted instrument. Counting one and not the other put
+-- two numbers describing the same data, on the same row, on the same screen, in
+-- disagreement — soft-delete `keys` and it left Charlotte's subtitle while staying in her
+-- count. Pinned by its own test.
+countLiveByPerformer:
+SELECT COUNT(*)
+FROM song_performer
+JOIN song ON song.id = song_performer.song_id
+JOIN instrument ON instrument.id = song_performer.instrument_id
+WHERE song_performer.performer_id = ?
+  AND song_performer.deleted_at IS NULL
+  AND song.deleted_at IS NULL
+  AND instrument.deleted_at IS NULL;
 
 selectChangedSince:
 SELECT *
@@ -68,22 +146,72 @@ ORDER BY updated_at, device_id, id;
 
 insert:
 INSERT INTO song_performer(
-    id, song_id, performer_id, is_lead, vocal_range, notes,
+    id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes,
     updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- E38's insert. The read-then-write of E6 is wrapped in a transaction, which is what makes
+-- the three outcomes atomic on the Android driver; OR IGNORE is the second half of the same
+-- guard, for the case where two writers still both observed "absent". The loser writes
+-- nothing at all — unlike OR REPLACE, which would discard the winner's notes and
+-- vocal_range, which is exactly why E6 forbids it. Same clause as practice_event.applyMerged,
+-- and this is the one derived-id insert sitting on a double-tap path.
+--
+-- Two things it does NOT suppress and one it does. Foreign-key violations are outside ON
+-- CONFLICT entirely, so a bad song, performer or instrument id still fails loudly, and a NOT
+-- NULL violation is a programming error the Kotlin signature already rules out. It DOES
+-- swallow a CHECK failure — a malformed updated_at, an is_lead outside (0, 1) — which is the
+-- accepted cost: is_lead is bound as the literal 0 here and the timestamp comes from
+-- Timestamps.now, which has its own tests. If this statement ever takes a caller-supplied
+-- is_lead, it must stop being OR IGNORE.
+insertIfAbsent:
+INSERT OR IGNORE INTO song_performer(
+    id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes,
+    updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 applyMerged:
 INSERT OR REPLACE INTO song_performer(
-    id, song_id, performer_id, is_lead, vocal_range, notes,
+    id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes,
     updated_at, deleted_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- song_id, performer_id and instrument_id are the derived key (V3) and so are not
+-- updatable: changing one is a different row with a different id, not an edit.
+--
+-- E37: deleted_at is NOT in the SET list and `deleted_at IS NULL` IS in the WHERE, matching
+-- performer.rename and band.setNotes, which have always left tombstones alone. This
+-- statement used to write deleted_at, and its only caller always bound NULL — so editing a
+-- removed row silently un-deleted it, a second undocumented revive path beside E6's
+-- deliberate one. A comment saying "only ever called on a live row" is not a guard: the UI
+-- dispatches each write as its own coroutine, so a remove and an in-flight edit on the same
+-- row complete in either order, and under last-write-wins (decision 11) the resurrected row
+-- carries the newer timestamp and wins on every device, forever.
 update:
 UPDATE song_performer
-SET is_lead = ?, vocal_range = ?, notes = ?, updated_at = ?, deleted_at = ?, device_id = ?
-WHERE id = ?;
+SET is_lead = ?, vocal_range = ?, notes = ?, updated_at = ?, device_id = ?
+WHERE id = ?
+  AND deleted_at IS NULL;
 
+-- E7: removing a capability is a soft delete, like every other mutable row in this schema.
+-- A stale device reinserts a hard-deleted row on the next merge.
 softDelete:
 UPDATE song_performer
 SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?;
+
+-- E6, and the whole reason this statement exists rather than a second insert.
+--
+-- The id is derived from song_id/performer_id/instrument_id (V3), so re-adding a pair that
+-- is already a tombstone computes the SAME primary key. A plain INSERT throws on it, and an
+-- INSERT OR REPLACE silently discards the row's notes and vocal_range — the two columns a
+-- user is most likely to have typed. Reviving is clearing deleted_at and bumping
+-- updated_at, and nothing else; the facts on the row are whatever they were before it was
+-- removed. This is also the only outcome last-write-wins can merge.
+--
+-- Same shape as song_tag.restore, deliberately: every derived-id junction re-add is an
+-- untombstone, never a second row.
+restore:
+UPDATE song_performer
+SET deleted_at = NULL, updated_at = ?, device_id = ?
 WHERE id = ?;
