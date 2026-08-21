@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Repertaurus migration, phase 0, pass 2: BUILD.
+Repertosaurus migration, phase 0, pass 2: BUILD.
 
 Three-way merges the human review workbook and emits the SQLite database the phase 1
 Android app imports.
@@ -8,9 +8,9 @@ Android app imports.
     base    .scratch/review.xlsx              the common ancestor, READ ONLY
     user    D:/Dropbox/Work/Gigs/review.xlsx  human decisions, READ ONLY, never written
     next    .scratch/review-next.xlsx         machine's current output, READ ONLY
-    out     .scratch/repertaurus.db
+    out     .scratch/repertosaurus.db
 
-Schema is read from shared/src/commonMain/sqldelight/dev/repertaurus/db/*.sq, which is
+Schema is read from shared/src/commonMain/sqldelight/dev/repertosaurus/db/*.sq, which is
 authoritative. Nothing in this file restates it — including its VERSION, which is derived
 from the migration files and cross-checked against the generated schema (see below).
 
@@ -46,8 +46,8 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 BASE_XLSX = os.path.join(REPO, ".scratch", "review.xlsx")
 USER_XLSX = os.path.join("D:", os.sep, "Dropbox", "Work", "Gigs", "review.xlsx")
 NEXT_XLSX = os.path.join(REPO, ".scratch", "review-next.xlsx")
-OUT_DB = os.path.join(REPO, ".scratch", "repertaurus.db")
-SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", "repertaurus", "db")
+OUT_DB = os.path.join(REPO, ".scratch", "repertosaurus.db")
+SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", "repertosaurus", "db")
 
 
 # --------------------------------------------------------------------------------------
@@ -69,7 +69,7 @@ SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", 
 #      `version = max(N.sqm) + 1`, and 1 when there are none. Reading the same files by the
 #      same rule is not a parallel guess at the version — it IS the rule. It needs no build
 #      output, so it is always available and always current with source.
-#   2. SQLDelight's generated `RepertaurusDatabaseImpl.kt`. This is the value Android
+#   2. SQLDelight's generated `RepertosaurusDatabaseImpl.kt`. This is the value Android
 #      literally compares against `PRAGMA user_version`, so it is the one that matters — but
 #      it is a Gradle output and can be absent or stale, which is why it is the cross-check
 #      rather than the sole source.
@@ -80,7 +80,7 @@ SQ_DIR = os.path.join(REPO, "shared", "src", "commonMain", "sqldelight", "dev", 
 
 MIGRATIONS_DIR = os.path.join(SQ_DIR, "migrations")
 GENERATED_ROOT = os.path.join(REPO, "shared", "build", "generated", "sqldelight")
-GENERATED_IMPL = "RepertaurusDatabaseImpl.kt"
+GENERATED_IMPL = "RepertosaurusDatabaseImpl.kt"
 
 RE_MIGRATION = re.compile(r"^(\d+)\.sqm$")
 # Matches both `override val version: Long\n  get() = N` and `override val version: Long = N`.

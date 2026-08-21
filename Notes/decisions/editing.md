@@ -26,20 +26,20 @@ failure to exclude deleted performers was harmless. E12 closes it.
 
 **Kotlin core — changed**
 
-- `dev.repertaurus.session.LookupKind` — gains `TAG`, `GROOVE`, `VENUE`, `BAND`,
+- `dev.repertosaurus.session.LookupKind` — gains `TAG`, `GROOVE`, `VENUE`, `BAND`,
   `PRACTICE_CONTEXT`, `PERFORMER`, and a `hasNotes: Boolean`.
-- `dev.repertaurus.session.LookupItem` — gains `subtitle: String?` and `notes: String?`.
-- `dev.repertaurus.session.LookupStore` — gains `setNotes(id, notes)`.
-- `dev.repertaurus.data.RepertaurusRepository` — gains the `song_performer` write path, which
+- `dev.repertosaurus.session.LookupItem` — gains `subtitle: String?` and `notes: String?`.
+- `dev.repertosaurus.session.LookupStore` — gains `setNotes(id, notes)`.
+- `dev.repertosaurus.data.RepertosaurusRepository` — gains the `song_performer` write path, which
   does not exist today, plus per-kind lookup reads.
 
 **Kotlin core — new**
 
-- `dev.repertaurus.session.SongCapability` — one resolved `song_performer` row for display:
+- `dev.repertosaurus.session.SongCapability` — one resolved `song_performer` row for display:
   performer, instrument, `isLead`, `vocalRange`.
-- `dev.repertaurus.session.CapabilityCoordinator` — read/add/revive/update/remove capability rows
+- `dev.repertosaurus.session.CapabilityCoordinator` — read/add/revive/update/remove capability rows
   for one song.
-- `dev.repertaurus.session.LookupStores` — the factory mapping a `LookupKind` to its store.
+- `dev.repertosaurus.session.LookupStores` — the factory mapping a `LookupKind` to its store.
 
 **SQLDelight — changed**
 
@@ -50,14 +50,14 @@ failure to exclude deleted performers was harmless. E12 closes it.
 
 **Android — new**
 
-- `dev.repertaurus.android.SongCapabilitySheet` — the capability editor.
+- `dev.repertosaurus.android.SongCapabilitySheet` — the capability editor.
 
 **Android — changed**
 
-- `dev.repertaurus.android.SessionScreen.FeelSheet` — gains the route into the capability editor
+- `dev.repertosaurus.android.SessionScreen.FeelSheet` — gains the route into the capability editor
   without moving the feel rating.
-- `dev.repertaurus.android.Route` — gains one entry per manageable kind.
-- `dev.repertaurus.android.RepertaurusApp` — the drawer lists them.
+- `dev.repertosaurus.android.Route` — gains one entry per manageable kind.
+- `dev.repertosaurus.android.RepertosaurusApp` — the drawer lists them.
 
 ## 2. Decisions
 
@@ -108,9 +108,9 @@ merge.
 high/low vocabulary the schema constrains it to. Range is meaningful only for a voice, and a
 non-null range on a guitar row is nonsense the UI simply never offers.
 
-**E9.** **The editor writes through `RepertaurusRepository`, which has no `song_performer` write
+**E9.** **The editor writes through `RepertosaurusRepository`, which has no `song_performer` write
 path today** — the table has been read-only since the migration created it. Adding that path is
-part of this work, and it derives ids with `dev.repertaurus.core.Ids.songPerformer`, never by
+part of this work, and it derives ids with `dev.repertosaurus.core.Ids.songPerformer`, never by
 hand.
 
 **E10.** **The editor lists existing rows grouped by performer**, so "who plays this" reads as a
@@ -215,7 +215,7 @@ not the enum naming them.
 
 ### The repository split
 
-**E30.** **`RepertaurusRepository` has passed the split trigger its own deferral named, and the
+**E30.** **`RepertosaurusRepository` has passed the split trigger its own deferral named, and the
 deferral is hereby expired.** The architecture review granted it on a stated condition — *"split by
 aggregate, at feature 2. Not yet: 330 lines, 16 members"* — and this arc took it to **698 lines and
 41 public members** across five unrelated aggregates in a single pass. None of the usual reasons to
@@ -229,13 +229,13 @@ row type moves**, and the only callers are the lookup store, the delegates E32 d
 
 **E32.** **The remaining split by aggregate — `CapabilityStore`, `SongCatalog`, `SavedViewStore`,
 `PracticeLog` — is its own piece of work and is deliberately not a subtask of a feature arc.** The
-seven nested row types are referenced as `RepertaurusRepository.Performer` and friends at ~32 sites
-across 10 files, 12 of them in `androidApp`; promoting them to top-level `dev.repertaurus.data`
+seven nested row types are referenced as `RepertosaurusRepository.Performer` and friends at ~32 sites
+across 10 files, 12 of them in `androidApp`; promoting them to top-level `dev.repertosaurus.data`
 types is the non-mechanical part. **It must land before phase 2's sync adapter**, which adds
 `selectChangedSince`/`applyMerged` across ~20 tables and would otherwise take this file past a
 thousand lines.
 
-**E33.** **The lookup key is an `internal enum` in `dev.repertaurus.data`, never a raw `String`.**
+**E33.** **The lookup key is an `internal enum` in `dev.repertosaurus.data`, never a raw `String`.**
 Keeping `data` free of a dependency on `session.LookupKind` is correct and is not in question — but
 that argues for an enum in `data`, not for a stringly-typed key, and the string has already escaped:
 the capability coordinator spells `"performer"` and `"instrument"` by hand, so a typo compiles and

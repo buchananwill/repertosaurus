@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Repertaurus migration, phase 0, pass 1: EXTRACT.
+Repertosaurus migration, phase 0, pass 1: EXTRACT.
 
 Reads the downloaded `Songs 2026` workbook and writes a human review workbook with one
 sheet per concern and a FLAG/NOTE column on everything that needs a human decision.
@@ -148,7 +148,7 @@ def normalise(value) -> str:
 # The shared normalisation vectors [D41]
 # --------------------------------------------------------------------------------------
 #
-# `normalise` above and `dev.repertaurus.core.normalise` in the shared core must produce
+# `normalise` above and `dev.repertosaurus.core.normalise` in the shared core must produce
 # identical output for the same input, or the same name derives two different UUIDv5 ids on
 # two devices and they never converge [D2, D4, D5]. That agreement has forked three times, and
 # each time it had been asserted in prose or in a test written by the same author as the
@@ -156,7 +156,7 @@ def normalise(value) -> str:
 #
 # So it is asserted against a file neither implementation owns, read by BOTH:
 #
-#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertaurus/core/NormalisationVectorsTest.kt
+#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertosaurus/core/NormalisationVectorsTest.kt
 #   Python: verify_normalisation_vectors() below, called by build.py before it emits a row.
 #
 # Adding a vector obliges both sides. Deleting one to make a build pass is the failure the
@@ -3259,7 +3259,7 @@ def main():
     out = openpyxl.Workbook()
     out.remove(out.active)
     # Pinned so two runs differ only in the zip container's own member timestamps.
-    out.properties.creator = "repertaurus tools/import/extract.py"
+    out.properties.creator = "repertosaurus tools/import/extract.py"
     out.properties.title = "Songs 2026 migration review"
     out.properties.created = datetime.datetime(2026, 1, 1)
     out.properties.modified = datetime.datetime(2026, 1, 1)

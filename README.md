@@ -1,4 +1,4 @@
-# Repertaurus
+# Repertosaurus
 
 **Don't let your repertoire fossilize.**
 

@@ -1,14 +1,14 @@
 ---
-title: "Repertaurus Documentation Index"
+title: "Repertosaurus Documentation Index"
 type: design-vision
 area: meta
 status: active
 date: 2026-08-15
 ---
 
-# Repertaurus Documentation Index
+# Repertosaurus Documentation Index
 
-Documentation index for Repertaurus, a repertoire and practice-tracking app for working musicians.
+Documentation index for Repertosaurus, a repertoire and practice-tracking app for working musicians.
 For front matter schema and indexing conventions, see [_schema.md](_schema.md).
 
 **Read [the journal](journal/_index-journal.md) first.** It is the load-bearing document: the

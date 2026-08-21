@@ -38,23 +38,23 @@ Numbers are `V<n>` for citation, grouped by topic. They are **not** an execution
 
 **Kotlin core — new**
 
-- `dev.repertaurus.session.ViewFilter` — the eligibility half of a View, as a value.
-- `dev.repertaurus.session.SessionView` — a resolved View: its identity, its filter, its
+- `dev.repertosaurus.session.ViewFilter` — the eligibility half of a View, as a value.
+- `dev.repertosaurus.session.SessionView` — a resolved View: its identity, its filter, its
   practice instrument, its sort direction.
-- `dev.repertaurus.session.ViewCoordinator` — CRUD over `saved_view` and home-view resolution.
-- `dev.repertaurus.core.Ids.songPerformer(songId, performerId, instrumentId)` — the three-key
+- `dev.repertosaurus.session.ViewCoordinator` — CRUD over `saved_view` and home-view resolution.
+- `dev.repertosaurus.core.Ids.songPerformer(songId, performerId, instrumentId)` — the three-key
   junction derivation.
-- `dev.repertaurus.core.Ids.junction(table, fkA, fkB, fkC)` — the general three-key overload.
+- `dev.repertosaurus.core.Ids.junction(table, fkA, fkB, fkC)` — the general three-key overload.
 
 **Kotlin core — changed**
 
-- `dev.repertaurus.data.RepertaurusRepository.songsByStaleness(instrumentId, today)` →
+- `dev.repertosaurus.data.RepertosaurusRepository.songsByStaleness(instrumentId, today)` →
   `songsByStaleness(practiceInstrumentId, filter, today)`.
-- `dev.repertaurus.session.SessionCoordinator.rows(instrumentId)` →
+- `dev.repertosaurus.session.SessionCoordinator.rows(instrumentId)` →
   `rows(view: SessionView)`.
-- `dev.repertaurus.session.SessionState` — gains the active `SessionView`; `selectedInstrumentId`
+- `dev.repertosaurus.session.SessionState` — gains the active `SessionView`; `selectedInstrumentId`
   becomes the View's practice instrument rather than free-standing state.
-- `dev.repertaurus.session.SessionPreferences` — gains `homeViewId()` / `rememberHomeView(id)`.
+- `dev.repertosaurus.session.SessionPreferences` — gains `homeViewId()` / `rememberHomeView(id)`.
 
 **Python migration — changed**
 
@@ -360,7 +360,7 @@ A table-aware assertion turns a permanent silent id fork into a crash.
 
 - `song.sq :: selectByStaleness` in its unfiltered five-line form — replaced in place by V10, not
   kept alongside.
-- `RepertaurusRepository.songsByStaleness(instrumentId, today)` — replaced by the filter-taking
+- `RepertosaurusRepository.songsByStaleness(instrumentId, today)` — replaced by the filter-taking
   signature; no deprecated overload is kept, because a caller that silently skips the filter is
   the exact bug this spec is fixing.
 - The `(name, is_lead)` tuple shape of `PERFORMER_COLUMNS` and the two-key

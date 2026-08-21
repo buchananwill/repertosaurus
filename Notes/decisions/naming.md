@@ -3,10 +3,16 @@ title: "Product Name — Decision Spec"
 type: decision-spec
 area: meta
 status: active
-date: 2026-08-16
+date: 2026-08-21
 ---
 
 # Product Name — Decision Spec
+
+**Superseded 2026-08-21 — see [The Reversal](#the-reversal--repertosaurus-supersedes-repertaurus)
+at the end of this document.** The product name is now **`Repertosaurus`**, not `Repertaurus`.
+Everything below through N14 and the follow-ups is preserved as the historical record of how
+`Repertaurus` was chosen, cleared and rolled out, and of exactly why it was then abandoned — read
+it for that, not as the current state.
 
 The app was built under the working title **Songbook**, which is taken on both the Google Play
 Store and the Apple App Store and was never intended to survive. This document fixes the real
@@ -175,7 +181,7 @@ thing that actually clears a drawing, which is where the risk sits.
 | **Repetorious** | Reached the point of a full committed rename before being reconsidered. Cleanest exact-string clearance of the spike, but web search **auto-corrected it to "repetitious"** every time — an unflattering word, and a broken first step for word-of-mouth discovery. Five Latinate syllables also sat awkwardly against a product whose pitch is one tap and no bloat. |
 | **Repertorious** | Occupied by a live indexed fan-fiction directory at `repertorious.skyrock.com`. A weak obstacle in itself, but no reason to accept it. |
 | **Reposaurus** | **Taken.** `pip install reposaurus` resolves today — a live PyPI package (v1.0.0, 2025-01-20) that turns git repositories into searchable text files. `reposaurus.com` is registered. Separately, a deliberate search for evidence that musicians clip "repertoire" to "repo" **found none**; the established senses are git repository, repossession and repurchase agreement. The stem does not carry the meaning. |
-| **Repertosaurus** | Not rejected on evidence — it was the cleanest name found in the entire spike, with zero hits on both stores, GitHub, npm, PyPI, crates.io, Docker Hub and the open web, and it makes the *word* carry the dinosaur. Rejected on preference: five syllables, and `-saurus` in the store listing attracts the automated sweeps described at N11. **This is the fallback if `Repertaurus` ever has to be abandoned.** |
+| **Repertosaurus** | Not rejected on evidence — it was the cleanest name found in the entire spike, with zero hits on both stores, GitHub, npm, PyPI, crates.io, Docker Hub and the open web, and it makes the *word* carry the dinosaur. Rejected on preference: five syllables, and `-saurus` in the store listing attracts the automated sweeps described at N11. **This is the fallback if `Repertaurus` ever has to be abandoned. Superseded 2026-08-21 — the fallback was invoked, see N15.** |
 | **Anything shed-rooted** (Shedlog, Shedbook, Woodshed) | Four-plus live practice apps sit on this root — Woodshedding, Woodshedder, WoodShed Music, Woodshed Speed Trainer. Confirmed independently by two agents. |
 | **Fakebook, SetBook, Tutti, GigBag, Practory, RepShed, Rep Book** | All live products in this exact category under these exact names. |
 | **Segno, ChartLog, Rota, Notch** | Segno is a live music app; chartlog.com is established trading SaaS; Rota returns nine-plus Play apps and means shift-scheduling in the target market; NOTCH has registered marks in software goods classes. |
@@ -279,3 +285,108 @@ and permanently in the UUID namespace per N13. Do not rename it in either place.
   completeness audit does not treat it as a miss.
 - **Nothing has run on hardware.** The launcher label, theme, export filename and import-rejection
   messages are unverified visually, as is everything tactile.
+
+## The Reversal — Repertosaurus supersedes Repertaurus
+
+**N15 (supersedes N1).** The product is called `Repertosaurus`. Spelled
+`R-E-P-E-R-T-O-S-A-U-R-U-S`. Canonical everywhere: store listing, launcher label, package
+namespace, repository, documentation.
+
+**N16. Why: N4's mitigation worked on paper and not in practice.** N4 accepted that
+`Repertaurus` and its logo point at two different animals — bull versus dinosaur — and decided
+this was fine because the dinosaur reading is carried by the logo alone. Living with the name
+day to day, the Latin `-taurus` = bull collision kept surfacing anyway and got worse rather than
+better with familiarity. `Repertosaurus` removes the collision by construction: `-saurus` reads
+as dinosaur to every English speaker, so the word and the logo finally name the same animal.
+
+**N17 (supersedes N4).** N4's tension is moot under `Repertosaurus` — there is no second animal
+for the name to accidentally invoke. The word now carries the dinosaur reading directly, which is
+exactly what N12's original evaluation of this candidate flagged: it "makes the *word* carry the
+dinosaur."
+
+**N18 (supersedes N2).** Pronunciation is `re-per-to-SAU-rus` — five syllables, primary stress on
+the fourth, the same two-syllable-pickup-into-falling-close metre as `Brachiosaurus`.
+
+**N19. Clearance audit, re-run 2026-08-21 against `Repertosaurus` specifically, using N6–N10's
+methodology.**
+
+- **Exact-string collisions: zero**, confirmed fresh — GitHub repository search, the npm, PyPI,
+  crates.io and Docker Hub registries (all 404), Google Play, the Apple App Store, and open web
+  search. This matches N12's original finding for this candidate and holds five days later.
+- **Trademark register search: still unreachable**, by the same means N7 found blocked —
+  `tmsearch.uspto.gov` is a JS shell, `uspto.report` 403s. This gap is permanent for either name
+  and is not closed by this audit. N7's guidance stands unchanged: a Google Play Console name
+  reservation and a paid or attorney-run register search are the only real closes, and neither has
+  been done.
+- **Crowded-field check.** `-saurus` is a common suffix among dinosaur-themed apps — AR camera
+  apps, name-quiz games, zoo-management games — but every hit is squarely education/AR/gaming.
+  None is in music, none begins `Repert-`. This is N8's "remote goods, no shared trade channel"
+  reasoning, applied to a different crowded term, and it holds for the same reason.
+- **N5's dominant-reading argument carries over unchanged.** Nothing found suggests musicians clip
+  "repertoire" in speech in any way that would make the stem itself ownable or confusable.
+
+Verdict: workable, and on the trademark axis arguably cleaner than `Repertaurus` was — there is no
+`Repertosaurus` analogue to the `TAURUSX` near-precedent N8 had to weigh.
+
+**N20. N9 and N11's logo guidance is untouched.** Both are about the illustration, not the word —
+the Jurassic Park device-mark risk (N9) and the illustrator's brief (N11's "do" and "do not"
+lists) apply exactly as written to whichever name ships.
+
+**N21. N11's instruction to keep `-saurus` out of the name and store listing is now directly
+overridden — a known, accepted cost of this reversal, not a curveball surfaced by the audit.**
+Putting `-saurus` in the literal store listing is exactly the kind of string an automated
+brand-protection sweep pattern-matches on. This was weighed against the daily cost of the
+etymology collision in `Repertaurus`, and the user chose to accept the sweep-visibility risk
+over the collision.
+
+**N22 (supersedes N12's Repertosaurus row).** The rejected-candidates table above is left
+unedited as the historical record of the original spike; only that one row's verdict is
+superseded. `Repertosaurus` is adopted.
+
+**N23 (supersedes N14).** The rename is one piece of work and must land whole. Scope, verified
+against the current tree (post-N14, not the pre-N14 tree N14 was written against):
+
+- `settings.gradle.kts` — `rootProject.name`
+- `androidApp/build.gradle.kts` — `namespace`, `applicationId`
+- `shared/build.gradle.kts` — `namespace`, and the SQLDelight database name (`RepertaurusDatabase`
+  → `RepertosaurusDatabase`) and its `packageName` (`dev.repertaurus.db` → `dev.repertosaurus.db`)
+- The `dev/repertaurus/*` package directories in both `androidApp` and `shared` — every source
+  set, main and test alike — move to `dev/repertosaurus/*`, and every `package`/`import`
+  declaration in every file under them updates to match
+- The `shared/src/commonMain/sqldelight/dev/repertaurus/db` directory, which moves by directory
+  only — zero content change to any `.sq` file
+- Type and file names carrying the old brand: `RepertaurusApp.kt`, `RepertaurusRepository.kt`,
+  the SQLDelight-generated `RepertaurusDatabase`, `RepertaurusDatabaseTest.kt`
+- `androidApp/src/main/res/values/strings.xml` — `app_name`
+- `androidApp/src/main/res/values/themes.xml` and `AndroidManifest.xml` — `Theme.Repertaurus` →
+  `Theme.Repertosaurus`
+- `DatabaseFactory.DATABASE_NAME` (`repertaurus.db`), `DatabaseHolder.exportFileName`'s prefix,
+  and `AppGraph.PREFERENCES` (the SharedPreferences file name)
+- The four user-facing/constant strings carrying the brand: two in `RecoveryScreen.kt`, one in
+  `RepertaurusApp.kt`'s headline text, and two in `SchemaCompatibility.kt`'s rejection messages
+- The Python migration's `tools/import/build.py` and `extract.py` — `OUT_DB`, `SQ_DIR`,
+  `GENERATED_IMPL`, the workbook `creator` string, and prose comments — mirroring the Kotlin
+  package path change exactly, per the twin-implementation rule in
+  [CLAUDE.md](../../CLAUDE.md). This is a path rename only; no id-derivation logic changes, so the
+  cross-check is "same ids before and after," not a derivation re-check.
+- `.scratch/repertaurus.db` — regenerated at `.scratch/repertosaurus.db` rather than renamed,
+  since it is a gitignored build artifact reproducible by `build.py`
+- The current-state prose in `Notes/decisions/editing.md`, `views.md`, `schema-compatibility.md`,
+  `Notes/migration/import-songs-2026.md`, `Notes/platform/architecture-review-2026-08-16.md`,
+  `Notes/_index.md`, `Notes/decisions/_index-decisions.md`, `README.md` and `CLAUDE.md`, which cite
+  the live package paths and type names above and drift into stale evidence exactly as warned
+  against in CLAUDE.md's engineering conventions if left unupdated. **Journal entries are exempt —
+  append-only per [Notes/_schema.md](../_schema.md) and never edited retroactively — and so is
+  every historical decision in this document through N14.**
+
+`songbook.dev` and the four locations pinned at N13 do not change with this rename either, for
+the same reason N13 gives: it is an opaque UUID derivation seed, not a brand, and re-deriving it
+is a data migration, not a rename.
+
+**N24. The repository directory and the Dropbox delivery folder remain deferred, for the same
+reason N14's follow-ups deferred them the first time.** The repository directory is now
+`D:\coding\repertaurus`, and needs a second rename to `D:\coding\repertosaurus`; a live session's
+working directory sits inside it, and Windows will not rename a directory in use. The Dropbox
+delivery folder `D:\Dropbox\Work\Gigs\Songbook\` was never renamed off its original working title
+in the first place (verified still present) and stays deferred for the same reason. Do both with
+every editor and terminal closed, as a standalone step outside any coding session.

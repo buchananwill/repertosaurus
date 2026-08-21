@@ -22,7 +22,7 @@ Adding `saved_view` and `song_performer.instrument_id` changed the schema, but S
 the user's delivery folder: **all three carry `user_version = 1`, all three pass the import
 validator's five-table check, and only one has `saved_view`.** They are indistinguishable to the
 app. Importing either obsolete file succeeds and the app then dies on next boot with
-`no such table: saved_view`, thrown from `RepertaurusRepository.savedViews` on the start-up path —
+`no such table: saved_view`, thrown from `RepertosaurusRepository.savedViews` on the start-up path —
 before any screen is drawn, and therefore before the import UI that could fix it is reachable.
 
 Three independent failures stacked: a version that did not move, a validator that checked the
@@ -32,21 +32,21 @@ wrong thing, and a boot path with no failure mode short of a crash.
 
 **Kotlin — new**
 
-- `dev.repertaurus.data.SchemaCompatibility` — pure: given the tables and `user_version` present
-  in a candidate database, decides `Loadable` / `TooOld` / `TooNew` / `NotRepertaurus`.
-- `dev.repertaurus.data.DatabaseState` — what the app booted into: `Ready`, or `Unloadable` with
+- `dev.repertosaurus.data.SchemaCompatibility` — pure: given the tables and `user_version` present
+  in a candidate database, decides `Loadable` / `TooOld` / `TooNew` / `NotRepertosaurus`.
+- `dev.repertosaurus.data.DatabaseState` — what the app booted into: `Ready`, or `Unloadable` with
   the reason and the file it came from.
-- `dev.repertaurus.android.RecoveryScreen` — the screen shown for `Unloadable`.
+- `dev.repertosaurus.android.RecoveryScreen` — the screen shown for `Unloadable`.
 
 **Kotlin — changed**
 
-- `dev.repertaurus.data.DatabaseHolder` — `open()` gains a compatibility gate; the import
+- `dev.repertosaurus.data.DatabaseHolder` — `open()` gains a compatibility gate; the import
   validator delegates to `SchemaCompatibility` instead of counting five tables.
-- `dev.repertaurus.android.SessionViewModel` — start-up tolerates `Unloadable` instead of throwing.
+- `dev.repertosaurus.android.SessionViewModel` — start-up tolerates `Unloadable` instead of throwing.
 
 **SQLDelight**
 
-- `RepertaurusDatabase.Schema.version` → **2**, via a real migration file.
+- `RepertosaurusDatabase.Schema.version` → **2**, via a real migration file.
 - `shared/src/commonMain/sqldelight/.../migrations/1.sqm` — 1 → 2.
 
 ## 2. Decisions
@@ -78,7 +78,7 @@ must leave the import path reachable. That is the whole reason S8 exists.
 hardcoded list of five.** `REQUIRED_TABLES = 5L` counting `song`, `artist`, `instrument`,
 `practice_event`, `practice_event_void` was a phase-1 snapshot that silently stopped describing the
 schema the moment a sixth table mattered. Derive the requirement from
-`RepertaurusDatabase.Schema` where possible; where it must be a list, that list lives beside the
+`RepertosaurusDatabase.Schema` where possible; where it must be a list, that list lives beside the
 schema and its staleness is a test failure, not a runtime crash.
 
 **S6.** **The import validator and the boot gate use one implementation — `SchemaCompatibility` —

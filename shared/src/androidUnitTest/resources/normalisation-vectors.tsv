@@ -1,13 +1,13 @@
 # Normalisation agreement vectors - decision 17, and decision 41's mechanism.
 #
-# The Kotlin core (dev.repertaurus.core.normalise) and the Python migration
+# The Kotlin core (dev.repertosaurus.core.normalise) and the Python migration
 # (tools/import/extract.py :: normalise) must produce identical output for the same input, or
 # the same name derives two different UUIDv5 ids on two devices and they never converge
 # (decisions 2, 4, 5). That agreement has now forked three times. It is asserted here ONCE, in
 # a file both implementations read, rather than in two test suites that each agree with their
 # own author.
 #
-#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertaurus/core/NormalisationVectorsTest.kt
+#   Kotlin: shared/src/androidUnitTest/kotlin/dev/repertosaurus/core/NormalisationVectorsTest.kt
 #   Python: tools/import/extract.py :: verify_normalisation_vectors(), called from build.py
 #
 # Format: one vector per line, `input<TAB>expected`. A vector is any line carrying a TAB;

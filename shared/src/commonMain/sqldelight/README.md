@@ -1,6 +1,6 @@
 # SQLDelight schema
 
-The Repertaurus local store. This is the implementation of
+The Repertosaurus local store. This is the implementation of
 [Notes/decisions/data-model.md](../../../../Notes/decisions/data-model.md) — that document is
 the contract, this directory is the code. Where the two disagree, the decision spec wins and
 this directory is wrong.
@@ -8,7 +8,7 @@ this directory is wrong.
 ## Layout
 
 SQLDelight treats the directory under `sqldelight/` as the generated Kotlin package, so the
-schema lives in `dev/repertaurus/db/`. **One `.sq` file per table, named after the table.** Each
+schema lives in `dev/repertosaurus/db/`. **One `.sq` file per table, named after the table.** Each
 file carries, in order:
 
 1. A header comment citing the decisions it implements.
@@ -19,39 +19,39 @@ file carries, in order:
 
 | File | Table | Nature |
 |---|---|---|
-| [artist.sq](./dev/repertaurus/db/artist.sq) | `artist` | mutable record, seeded (`Unknown Artist`) |
-| [artist_alias.sq](./dev/repertaurus/db/artist_alias.sq) | `artist_alias` | child of artist |
-| [performer.sq](./dev/repertaurus/db/performer.sq) | `performer` | mutable record |
-| [instrument.sq](./dev/repertaurus/db/instrument.sq) | `instrument` | lookup, seeded |
-| [tag.sq](./dev/repertaurus/db/tag.sq) | `tag` | lookup, seeded |
-| [groove.sq](./dev/repertaurus/db/groove.sq) | `groove` | lookup |
-| [venue.sq](./dev/repertaurus/db/venue.sq) | `venue` | lookup |
-| [band.sq](./dev/repertaurus/db/band.sq) | `band` | lookup |
-| [practice_context.sq](./dev/repertaurus/db/practice_context.sq) | `practice_context` | lookup, seeded |
-| [song.sq](./dev/repertaurus/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
-| [song_performer.sq](./dev/repertaurus/db/song_performer.sq) | `song_performer` | junction, **three keys** (`song_id`, `performer_id`, `instrument_id`) |
-| [song_instrument.sq](./dev/repertaurus/db/song_instrument.sq) | `song_instrument` | junction, carries facts |
-| [song_tag.sq](./dev/repertaurus/db/song_tag.sq) | `song_tag` | junction |
-| [practice_event.sq](./dev/repertaurus/db/practice_event.sq) | `practice_event` | **append-only** |
-| [practice_event_void.sq](./dev/repertaurus/db/practice_event_void.sq) | `practice_event_void` | **append-only** |
-| [setlist.sq](./dev/repertaurus/db/setlist.sq) | `setlist` | mutable record |
-| [setlist_set.sq](./dev/repertaurus/db/setlist_set.sq) | `setlist_set` | child of setlist |
-| [setlist_item.sq](./dev/repertaurus/db/setlist_item.sq) | `setlist_item` | mutable record |
-| [setlist_item_performer.sq](./dev/repertaurus/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
-| [saved_view.sq](./dev/repertaurus/db/saved_view.sq) | `saved_view` | mutable record, random id |
+| [artist.sq](./dev/repertosaurus/db/artist.sq) | `artist` | mutable record, seeded (`Unknown Artist`) |
+| [artist_alias.sq](./dev/repertosaurus/db/artist_alias.sq) | `artist_alias` | child of artist |
+| [performer.sq](./dev/repertosaurus/db/performer.sq) | `performer` | mutable record |
+| [instrument.sq](./dev/repertosaurus/db/instrument.sq) | `instrument` | lookup, seeded |
+| [tag.sq](./dev/repertosaurus/db/tag.sq) | `tag` | lookup, seeded |
+| [groove.sq](./dev/repertosaurus/db/groove.sq) | `groove` | lookup |
+| [venue.sq](./dev/repertosaurus/db/venue.sq) | `venue` | lookup |
+| [band.sq](./dev/repertosaurus/db/band.sq) | `band` | lookup |
+| [practice_context.sq](./dev/repertosaurus/db/practice_context.sq) | `practice_context` | lookup, seeded |
+| [song.sq](./dev/repertosaurus/db/song.sq) | `song` | mutable record; **the Session screen query lives here** |
+| [song_performer.sq](./dev/repertosaurus/db/song_performer.sq) | `song_performer` | junction, **three keys** (`song_id`, `performer_id`, `instrument_id`) |
+| [song_instrument.sq](./dev/repertosaurus/db/song_instrument.sq) | `song_instrument` | junction, carries facts |
+| [song_tag.sq](./dev/repertosaurus/db/song_tag.sq) | `song_tag` | junction |
+| [practice_event.sq](./dev/repertosaurus/db/practice_event.sq) | `practice_event` | **append-only** |
+| [practice_event_void.sq](./dev/repertosaurus/db/practice_event_void.sq) | `practice_event_void` | **append-only** |
+| [setlist.sq](./dev/repertosaurus/db/setlist.sq) | `setlist` | mutable record |
+| [setlist_set.sq](./dev/repertosaurus/db/setlist_set.sq) | `setlist_set` | child of setlist |
+| [setlist_item.sq](./dev/repertosaurus/db/setlist_item.sq) | `setlist_item` | mutable record |
+| [setlist_item_performer.sq](./dev/repertosaurus/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
+| [saved_view.sq](./dev/repertosaurus/db/saved_view.sq) | `saved_view` | mutable record, random id |
 
 Create tables in that table order if you replay the DDL by hand; it is dependency-ordered.
 
 ## Versions and migrations
 
 **`Schema.version` is currently 2.** SQLDelight derives it from the highest migration number in
-[dev/repertaurus/db/migrations/](./dev/repertaurus/db/migrations/) plus one, so the version moves
+[dev/repertosaurus/db/migrations/](./dev/repertosaurus/db/migrations/) plus one, so the version moves
 when — and only when — a `.sqm` lands.
 
 | Version | Migration | What changed |
 |---|---|---|
 | 1 | — | Phase 1: everything above except `saved_view`, and `song_performer` keyed on two columns. |
-| 2 | [migrations/1.sqm](./dev/repertaurus/db/migrations/1.sqm) | Views: `saved_view` added; `song_performer` gains `instrument_id` and the key widens to the triple. |
+| 2 | [migrations/1.sqm](./dev/repertosaurus/db/migrations/1.sqm) | Views: `saved_view` added; `song_performer` gains `instrument_id` and the key widens to the triple. |
 
 **Every `.sq` edit that adds, removes or retypes a table or column ships with a new `.sqm` in the
 same change** (schema-compatibility decision S1). Adding `saved_view` without one is exactly how
@@ -225,5 +225,5 @@ Both of these must hold:
 - every labelled query compiles (`EXPLAIN <query>` with placeholder bindings) against the
   created schema.
 
-Once the Gradle module lands, `./gradlew :shared:generateCommonMainRepertaurusDatabaseInterface`
+Once the Gradle module lands, `./gradlew :shared:generateCommonMainRepertosaurusDatabaseInterface`
 replaces this and will additionally type-check the queries.

@@ -12,7 +12,7 @@ Contracts implementers execute against.
 
 - [Data Model — Decision Spec](data-model.md) — The schema. Six tables, the immutable practice
   log, the three-field key model, and the two merge invariants the schema must satisfy.
-- [Product Name — Decision Spec](naming.md) — The app is **Repertaurus**, with a dinosaur logo
+- [Product Name — Decision Spec](naming.md) — The app is **Repertosaurus**, with a dinosaur logo
   and a "monster performer" brand idea; the tagline is still open. Carries the rejected
   candidates with the evidence that killed each, the IP exposure on both the name and the logo,
   the illustrator's do/don't brief, and the rename scope. Read **N13** before touching id
