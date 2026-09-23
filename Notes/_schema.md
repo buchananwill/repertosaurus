@@ -19,8 +19,8 @@ Every markdown file in `Notes/` carries YAML front matter:
 ---
 title: "Human-readable document title"
 type: design-vision | decision-spec | workflow | commentary | technical-reference | issue
-area: meta | data-model | sync | platform | migration | ui | journal
-status: active | done | archived | superseded | draft
+area: meta | product | data-model | sync | platform | migration | ui | journal
+status: active | done | archived | superseded | draft   # design-vision: see below
 superseded_by: relative/path.md          # optional, only when status: superseded
 date: YYYY-MM-DD
 ---
@@ -37,6 +37,18 @@ date: YYYY-MM-DD
 - `commentary` — Journal entries, development logs, observational notes.
 - `technical-reference` — Derivations, algorithms, protocol detail supporting implementation.
 - `issue` — A recorded defect or investigation, with reproduction detail and resolution state.
+
+**design-vision statuses** (adopted 2026-09-23 from the Piste Perfect schema,
+`D:\Coding\resort_game\PistePerfect_5_7\Notes\_schema.md`). A vision uses the product's own
+language, argues "why" aesthetically as well as functionally, and carries no ordering. It takes:
+
+- `speculative`: written, not yet chosen for pursuit.
+- `active`: the user has ruled it worth narrowing into specs.
+- `rejected`: the user has ruled against it.
+- `superseded`: replaced by the vision its `superseded_by` names.
+
+**Only the user moves a vision to `active`, `rejected` or `superseded`.** Index files (`_*.md`)
+take `active` whatever their type.
 
 **area** — Controlled vocabulary matching the topic folders. Pick the dominant area when a
 document spans several.

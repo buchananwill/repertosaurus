@@ -16,6 +16,13 @@ was made, and the reversal is recorded where it happened.
   — The user's five-point direction, recorded in their words: suggest a song, timed practice,
   habit scorecards, UI beauty, and a triage sort driven by two 0–3 ratings (priority, confidence).
   The handover to the new app is confirmed on the phone.
+  - The vision [from-logger-to-nudger.md](../vision/from-logger-to-nudger.md) is written and
+    `active`. The user corrected its premise from "tell them what to play" to "support a long-term
+    routine; assist, never impose".
+  - Locked: per-song–performer–role ratings, a radar-chart suggester, counted or discarded skips
+    (append-only), and feel rescaled to 0–3.
+  - The editing arc is committed as `8dc64d5` and pushed. No arc code yet.
+  - Read §4 first.
 
 - [2026-09-23 — Session 09: Repertoire Editing Arc Opens](2026-09-23-session-09.md)
   — After a month of daily use: "core database content is still inaccessible". The arc delivered

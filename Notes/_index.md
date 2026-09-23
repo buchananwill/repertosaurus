@@ -20,6 +20,9 @@ most recent entry states where the project is, what was decided, and what is in 
 The chronological thread of leadership. Decisions, reversals, open questions, and the state a
 fresh context needs to resume.
 
+### [Vision](vision/_index-vision.md)
+Where the product should arrive and why, including its aesthetics, before specs narrow it.
+
 ### [Decisions](decisions/_index-decisions.md)
 Contracts implementers execute against. The schema and, in time, the sync protocol.
 
