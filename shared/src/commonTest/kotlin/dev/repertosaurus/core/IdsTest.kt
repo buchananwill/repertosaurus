@@ -450,6 +450,39 @@ class IdsTest {
         )
     }
 
+    /**
+     * Schema-3 M5: `part_rating` is registered at arity 4, so deriving it from any other number of
+     * keys throws rather than returning an id nothing else would flag.
+     */
+    @Test
+    fun partRatingIsAFourKeyIdAndRefusesAnyOtherArity() {
+        val song = Ids.song(Ids.derived("artist", "Amy Winehouse"), "Valerie")
+        val will = Ids.derived("performer", "Will")
+        val vocal = Ids.derived("instrument", "vocal")
+
+        assertFailsWith<IllegalArgumentException> { Ids.junction("part_rating", song, will) }
+        assertFailsWith<IllegalArgumentException> { Ids.junction("part_rating", song, will, vocal) }
+
+        // The same construction as every other derived id, one more key appended.
+        assertEquals(
+            uuid5(Ids.namespaceFor("part_rating"), "$song/$will/$vocal/PRIORITY"),
+            Ids.partRating(song, will, vocal, RatingKind.PRIORITY),
+        )
+        // Pinned as a literal, computed independently with Python's `uuid.uuid5` over the same
+        // keys, so a change to the derivation cannot agree with itself here.
+        assertEquals("eb97eab6-2ac2-5d11-b8e5-55b429631a91", Ids.partRating(song, will, vocal, RatingKind.PRIORITY))
+        // M4: priority and confidence are separate rows, so separate ids.
+        assertNotEquals(
+            Ids.partRating(song, will, vocal, RatingKind.PRIORITY),
+            Ids.partRating(song, will, vocal, RatingKind.CONFIDENCE),
+        )
+        // Deterministic: two devices rating the same part converge on one id.
+        assertEquals(
+            Ids.partRating(song, will, vocal, RatingKind.CONFIDENCE),
+            Ids.partRating(song, will, vocal, RatingKind.CONFIDENCE),
+        )
+    }
+
     /** Decision 6: practice events must be random, or same-day sessions collapse. */
     @Test
     fun randomIdsAreDistinctAndWellFormedV4() {

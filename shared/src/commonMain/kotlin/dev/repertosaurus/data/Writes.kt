@@ -93,12 +93,7 @@ internal fun <R : Any> RepertosaurusDatabase.insertOrRevive(
     when {
         existing == null -> {
             insert.statement()
-            // R4a: an OR IGNORE that wrote nothing is a failure, never CREATED. The count is
-            // SQLite's changes() for the statement just run, in the same transaction ([wrote]'s
-            // contract: the insert is one unconditional DML statement).
-            if (insert is Insert.OrIgnore && changesQueries.rowsChanged().executeAsOne() == 0L) {
-                throw InsertIgnored()
-            }
+            if (insert is Insert.OrIgnore) requireInserted()
             Resolution.CREATED
         }
         deletedAt(existing) != null -> {
@@ -161,6 +156,16 @@ internal sealed class Insert(val statement: () -> Unit) {
 public class InsertIgnored : IllegalStateException(
     "The row was not written: the database already holds one under that key.",
 )
+
+/**
+ * **R4a: an `INSERT OR IGNORE` that wrote nothing is a failure, never a creation.** Call it
+ * straight after the insert, inside the caller's transaction: it reads SQLite's `changes()` for the
+ * statement just run, under [wrote]'s contract (one unconditional DML statement), and throws
+ * [InsertIgnored] when that was zero.
+ */
+internal fun RepertosaurusDatabase.requireInserted() {
+    if (changesQueries.rowsChanged().executeAsOne() == 0L) throw InsertIgnored()
+}
 
 /**
  * Run one guarded `UPDATE` and report whether it changed a row — the E37 and R23d guards

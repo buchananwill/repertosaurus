@@ -1,5 +1,6 @@
 package dev.repertosaurus.session
 
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.ArtistResolution
 import dev.repertosaurus.data.JunctionWrite
 import dev.repertosaurus.data.RepertosaurusRepository
@@ -60,6 +61,14 @@ class MessagesTest {
                 alreadyRemoved = Messages.capabilityAlreadyRemoved("Coralie"),
             ),
         )
+    }
+
+    /** rating-scale RS14: the feel in words, and no suffix for no feel. */
+    @Test
+    fun theLoggedLineNamesTheFeelInWords() {
+        assertEquals("Logged Jolene · feel: certainly", Messages.logged("Jolene", RatingLevel.CERTAINLY))
+        assertEquals("Logged Jolene · feel: not at all", Messages.logged("Jolene", RatingLevel.NOT_AT_ALL))
+        assertEquals("Logged Jolene", Messages.logged("Jolene", null))
     }
 
     /** F19 N2: the singular/plural rule, once. */

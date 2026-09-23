@@ -1,0 +1,62 @@
+-- suggestion_skip — IMMUTABLE, APPEND-ONLY. Random id (UUIDv4), schema-3 M12-M14.
+--
+-- M13: no updated_at or deleted_at, union merge on id, no void and no pruning — an undone skip
+-- is never written.
+-- M14: "skips since last practised" is a read, never a stored count. practice_event carries no
+-- performer (views V12a), so the boundary is per song and instrument, compared on created_at —
+-- never logged_on, or a same-day skip-then-log would not reset.
+
+CREATE TABLE suggestion_skip (
+    id            TEXT NOT NULL PRIMARY KEY,
+    song_id       TEXT NOT NULL,
+    performer_id  TEXT NOT NULL,
+    instrument_id TEXT NOT NULL,
+
+    created_at    TEXT NOT NULL,
+    device_id     TEXT NOT NULL,
+
+    FOREIGN KEY (song_id)       REFERENCES song(id),
+    FOREIGN KEY (performer_id)  REFERENCES performer(id),
+    FOREIGN KEY (instrument_id) REFERENCES instrument(id),
+    CHECK (created_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE INDEX suggestion_skip_part ON suggestion_skip(song_id, instrument_id, created_at);
+
+insert:
+INSERT INTO suggestion_skip(id, song_id, performer_id, instrument_id, created_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- M14: every part on one instrument with a skip since its song was last practised on it, with
+-- the count; a part with none is absent. The boundary is the newest LIVE event, so a voided log
+-- does not reset; no live event means every skip counts.
+countSinceLastPractisedOnInstrument:
+SELECT
+    suggestion_skip.song_id,
+    suggestion_skip.performer_id,
+    COUNT(*) AS skips
+FROM suggestion_skip
+LEFT JOIN (
+    SELECT practice_event.song_id, MAX(practice_event.created_at) AS last_created
+    FROM practice_event
+    LEFT JOIN practice_event_void
+           ON practice_event_void.practice_event_id = practice_event.id
+    WHERE practice_event.instrument_id = :instrumentId
+      AND practice_event_void.id IS NULL
+    GROUP BY practice_event.song_id
+) AS last_practised ON last_practised.song_id = suggestion_skip.song_id
+WHERE suggestion_skip.instrument_id = :instrumentId
+  AND (last_practised.last_created IS NULL
+       OR suggestion_skip.created_at > last_practised.last_created)
+GROUP BY suggestion_skip.song_id, suggestion_skip.performer_id;
+
+-- Append-only tables merge by union on id (decision 11); this is the export side.
+selectCreatedSince:
+SELECT *
+FROM suggestion_skip
+WHERE created_at > ?
+ORDER BY created_at, device_id, id;
+
+applyMerged:
+INSERT OR IGNORE INTO suggestion_skip(id, song_id, performer_id, instrument_id, created_at, device_id)
+VALUES (?, ?, ?, ?, ?, ?);

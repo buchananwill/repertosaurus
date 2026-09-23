@@ -35,7 +35,8 @@ public class MainActivity : ComponentActivity() {
                     val songs: SongsViewModel = viewModel(factory = SongsViewModel.factory(graph))
                     val artists: ArtistsViewModel =
                         viewModel(factory = ArtistsViewModel.factory(graph))
-                    RepertosaurusApp(model, repertoire, songs, artists)
+                    val settings: DeviceSettings = viewModel(factory = DeviceSettings.factory(graph))
+                    RepertosaurusApp(model, repertoire, songs, artists, settings)
                 }
             }
         }

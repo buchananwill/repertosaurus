@@ -20,8 +20,7 @@ public enum class NoteSpelling {
          * The stored preference read back: its [name], or [DEFAULT] when nothing was stored or
          * the stored text is not a spelling this build knows.
          */
-        public fun fromStored(stored: String?): NoteSpelling =
-            entries.firstOrNull { it.name == stored } ?: DEFAULT
+        public fun fromStored(stored: String?): NoteSpelling = enumByName(stored, DEFAULT)
     }
 }
 

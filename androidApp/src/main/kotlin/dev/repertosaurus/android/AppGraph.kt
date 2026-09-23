@@ -1,9 +1,11 @@
 package dev.repertosaurus.android
 
 import android.content.Context
+import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseHolder
+import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.SessionPreferences
 
 /**
@@ -18,7 +20,9 @@ public class AppGraph private constructor(context: Context) {
 
     public val deviceId: String = deviceId(context)
     public val holder: DatabaseHolder = DatabaseHolder(context, deviceId)
-    public val preferences: SessionPreferences = AndroidSessionPreferences(context)
+    private val stored = AndroidSessionPreferences(context)
+    public val preferences: SessionPreferences = stored
+    public val devicePreferences: DevicePreferences = stored
 
     public companion object {
         private var instance: AppGraph? = null
@@ -45,9 +49,9 @@ public class AppGraph private constructor(context: Context) {
 }
 
 /**
- * The instrument chip, the sort direction, the home View and the note spelling, remembered
- * across launches. The rules live in the shared core and are tested there; this is only the
- * storage. None of the four is data, so none is ever synced.
+ * Everything this device remembers across launches, in one `SharedPreferences` file: the Session
+ * screen's preferences and the app-wide display ones. The rules live in the shared core and are
+ * tested there; this is only the storage. None of it is data, so none of it is ever synced.
  *
  * The home View is here and **not** an `is_home` column on `saved_view` (views V19). A flag
  * on many rows has no total order under last-write-wins — two devices each promoting a
@@ -58,7 +62,7 @@ internal class AndroidSessionPreferences(
     context: Context,
     // A parameter only so the persistence test can write a file of its own, never the app's.
     fileName: String = AppGraph.PREFERENCES,
-) : SessionPreferences {
+) : SessionPreferences, DevicePreferences {
 
     private val preferences =
         context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
@@ -89,10 +93,19 @@ internal class AndroidSessionPreferences(
         preferences.edit().putString(KEY_NOTE_SPELLING, spelling.name).apply()
     }
 
+    // Rating-scale RS7: stored by name, as the note spelling is.
+    override fun colourRamp(): ColourRamp =
+        ColourRamp.fromStored(preferences.getString(KEY_COLOUR_RAMP, null))
+
+    override fun rememberColourRamp(ramp: ColourRamp) {
+        preferences.edit().putString(KEY_COLOUR_RAMP, ramp.name).apply()
+    }
+
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
         const val KEY_ORDER = "last_order"
         const val KEY_HOME_VIEW = "home_view_id"
         const val KEY_NOTE_SPELLING = "note_spelling"
+        const val KEY_COLOUR_RAMP = "colour_ramp"
     }
 }

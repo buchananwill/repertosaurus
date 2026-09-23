@@ -2,6 +2,7 @@ package dev.repertosaurus.session
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog
@@ -334,7 +335,7 @@ class SessionCoordinatorTest {
     @Test
     fun theLongPressSheetWritesFeelAndNote() {
         val song = insertSong("Valerie", "The Zutons")
-        coordinator.persist(coordinator.newTap(song, guitar, feel = 2L, note = "  dropped the bridge  "))
+        coordinator.persist(coordinator.newTap(song, guitar, feel = RatingLevel.CERTAINLY, note = "  dropped the bridge  "))
 
         val entry = repository.practiceHistory(song).single()
         assertEquals(2L, entry.feel)

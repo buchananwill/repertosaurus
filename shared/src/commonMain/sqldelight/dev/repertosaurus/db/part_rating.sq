@@ -1,0 +1,99 @@
+-- part_rating — mutable record, DERIVED id (schema-3 M3-M8).
+--
+-- M4: priority and confidence are separate rows by `kind`, so offline edits to one part's two
+-- ratings never overwrite each other under per-row last-write-wins.
+-- M5, M6: the id is Ids.partRating over the triple's own ids plus kind — never song_performer.id,
+-- which differs between upgraded and imported databases (schema-compatibility S3).
+-- M7: unrated is a tombstone, never a null level. SQLite 3.19 has no UPSERT, so a write is
+-- setLevelByKey then insertIfAbsent, in one transaction (PartRatingStore).
+-- M8: soft-deleting the song_performer row leaves its ratings here.
+
+CREATE TABLE part_rating (
+    id            TEXT NOT NULL PRIMARY KEY,
+    song_id       TEXT NOT NULL,
+    performer_id  TEXT NOT NULL,
+    instrument_id TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    level         INTEGER NOT NULL,
+
+    updated_at    TEXT NOT NULL,
+    deleted_at    TEXT,
+    device_id     TEXT NOT NULL,
+
+    FOREIGN KEY (song_id)       REFERENCES song(id),
+    FOREIGN KEY (performer_id)  REFERENCES performer(id),
+    FOREIGN KEY (instrument_id) REFERENCES instrument(id),
+    CHECK (kind IN ('PRIORITY', 'CONFIDENCE')),
+    CHECK (level BETWEEN 0 AND 3),
+    CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+    CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+);
+
+CREATE UNIQUE INDEX part_rating_key ON part_rating(song_id, performer_id, instrument_id, kind);
+CREATE INDEX part_rating_performer_instrument ON part_rating(performer_id, instrument_id);
+
+-- By key, never by assuming the stored id is the derived one.
+selectByKey:
+SELECT *
+FROM part_rating
+WHERE song_id = :songId
+  AND performer_id = :performerId
+  AND instrument_id = :instrumentId
+  AND kind = :kind;
+
+-- Song merge reads the loser's (M20).
+selectBySong:
+SELECT *
+FROM part_rating
+WHERE song_id = ?;
+
+-- M8: by the triple directly, no song_performer join. Whole rows, so one decoder reads them.
+selectLiveByPerformerInstrument:
+SELECT *
+FROM part_rating
+WHERE performer_id = :performerId
+  AND instrument_id = :instrumentId
+  AND deleted_at IS NULL;
+
+-- M7, first half: set the level on the row holding the key, reviving a tombstone.
+setLevelByKey:
+UPDATE part_rating
+SET level = :level,
+    deleted_at = NULL,
+    updated_at = :updatedAt,
+    device_id = :deviceId
+WHERE song_id = :songId
+  AND performer_id = :performerId
+  AND instrument_id = :instrumentId
+  AND kind = :kind;
+
+-- M7, second half. OR IGNORE, so a race's loser writes nothing; the caller's requireInserted
+-- turns a swallowed insert (or CHECK) into a loud failure.
+insertIfAbsent:
+INSERT OR IGNORE INTO part_rating(
+    id, song_id, performer_id, instrument_id, kind, level, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?);
+
+-- M7: clearing is a soft delete; an already-cleared rating is not re-stamped (R23d).
+softDeleteByKey:
+UPDATE part_rating
+SET deleted_at = :now,
+    updated_at = :now,
+    device_id = :deviceId
+WHERE song_id = :songId
+  AND performer_id = :performerId
+  AND instrument_id = :instrumentId
+  AND kind = :kind
+  AND deleted_at IS NULL;
+
+-- Mutable rows merge last-write-wins per row (decision 11); this is the export side.
+selectChangedSince:
+SELECT *
+FROM part_rating
+WHERE updated_at > ?
+ORDER BY updated_at, device_id, id;
+
+applyMerged:
+INSERT OR REPLACE INTO part_rating(
+    id, song_id, performer_id, instrument_id, kind, level, updated_at, deleted_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);

@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,7 +25,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -37,7 +35,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,10 +44,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.Messages
@@ -60,13 +60,16 @@ import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.identity
-import kotlinx.datetime.LocalDate
 
 /** Stable handles for the instrumented tests and for on-device inspection. */
 internal object SessionTags {
     /** E47's way out of a View whose filter names a row that is gone. */
     const val EDIT_BROKEN_VIEW: String = "session-edit-broken-view"
 }
+
+/** The colour a staleness badge wears, so a test can see a ramp change without sampling pixels. */
+internal val BadgeColour: SemanticsPropertyKey<Color> = SemanticsPropertyKey("BadgeColour")
+internal var SemanticsPropertyReceiver.badgeColour: Color by BadgeColour
 
 /**
  * The Session screen — the interaction the whole product exists for.
@@ -114,7 +117,7 @@ public fun SessionScreen(
     LaunchedEffect(undo?.tapId) {
         if (undo != null) {
             val result = snackbarHostState.showSnackbar(
-                message = "Logged ${undo.songTitle}" + (undo.feel?.let { " · feel $it" } ?: ""),
+                message = Messages.logged(undo.songTitle, undo.feel),
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Short,
             )
@@ -286,10 +289,6 @@ public fun SessionScreen(
                 viewModel.log(row.songId, feel, note, loggedOn)
                 feelFor = null
             },
-            // E2: the route into the capability editor, added to the sheet that already
-            // exists rather than in front of it. The feel chips are untouched and stay one
-            // long-press away; this row sits below the Log button, so nothing that was on
-            // the rating path has moved or grown a step.
             onEditLineUp = {
                 feelFor = null
                 viewModel.openCapabilities(row.identity())
@@ -620,24 +619,22 @@ private fun SongRow(
     }
 }
 
-/** Days since the last live practice on the selected instrument, "never" when there is none. */
+/**
+ * Days since the last live practice on the selected instrument, "never" when there is none.
+ * rating-scale RS12: "logged" keeps `primary`, so this session's taps stay distinct from heat.
+ */
 @Composable
 private fun StalenessBadge(row: SessionRow, loggedCount: Int) {
-    val days = row.daysSince
     val scheme = MaterialTheme.colorScheme
-    val container = when {
-        loggedCount > 0 -> scheme.primary
-        days == null -> scheme.errorContainer
-        days >= 30L -> scheme.tertiaryContainer
-        else -> scheme.surfaceVariant
-    }
-    val content = when {
-        loggedCount > 0 -> scheme.onPrimary
-        days == null -> scheme.onErrorContainer
-        days >= 30L -> scheme.onTertiaryContainer
-        else -> scheme.onSurfaceVariant
-    }
-    Surface(color = container, contentColor = content, shape = RoundedCornerShape(50)) {
+    val logged = loggedCount > 0
+    val container = if (logged) scheme.primary else heatColour(row.daysSince)
+    val content = if (logged) scheme.onPrimary else scheme.onSurface
+    Surface(
+        color = container,
+        contentColor = content,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier.semantics { badgeColour = container },
+    ) {
         Text(
             text = when {
                 loggedCount > 1 -> "logged ×$loggedCount"
@@ -647,121 +644,5 @@ private fun StalenessBadge(row: SessionRow, loggedCount: Int) {
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
-    }
-}
-
-/**
- * Long-press: `feel` 1-3 and an optional note (decision 46). Both are optional — the sheet
- * can log with neither, which is exactly what a plain tap does.
- *
- * The numbers carry no words because the spec assigns them no meaning; decision 46 says
- * "1-3, optional" and nothing about which end is good.
- *
- * The date sits here too, and only here: decision 45 makes logging for a past date
- * available but demoted, never on the primary tap path. Three days back is as far as it
- * goes, because a fortnight of real use is meant to tell us whether it is needed at all.
- *
- * **E2: the capability editor is reached from here, and the feel rating keeps its exact
- * cost.** Decision 46 makes long-press *the* rating affordance and a plain tap the log, so
- * this sheet shows the feel chips **and** a row opening the editor — never a chooser in front
- * of them. Everything above [onEditLineUp]'s row is unchanged and in the same place: the
- * rating is still one long-press and one chip, and the new row is appended below the Log
- * button where nothing that was already on the rating path has to move past it.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FeelSheet(
-    row: SessionRow,
-    onDismiss: () -> Unit,
-    onLog: (Long?, String?, String) -> Unit,
-    onEditLineUp: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState()
-    var feel by remember { mutableStateOf<Long?>(null) }
-    var note by remember { mutableStateOf("") }
-    var daysAgo by remember { mutableStateOf(0) }
-    val today = remember { LocalDate.parse(Timestamps.today()) }
-    val loggedOn = LocalDate.fromEpochDays(today.toEpochDays() - daysAgo).toString()
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(row.title, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                row.artistName ?: "unknown artist",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Text("Feel", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                for (value in 1L..3L) {
-                    FilterChip(
-                        selected = feel == value,
-                        onClick = { feel = if (feel == value) null else value },
-                        label = { Text(value.toString()) },
-                        modifier = Modifier.weight(1f).height(56.dp),
-                    )
-                }
-            }
-
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("Note (optional)") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Text("Date", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Short labels: four chips share the width of a 360dp phone.
-                val labels = listOf("Today", "1d ago", "2d ago", "3d ago")
-                for ((offset, label) in labels.withIndex()) {
-                    FilterChip(
-                        selected = daysAgo == offset,
-                        onClick = { daysAgo = offset },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f).height(44.dp),
-                    )
-                }
-            }
-
-            Button(
-                onClick = { onLog(feel, note, loggedOn) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Text("Log it")
-            }
-
-            // E2's other half, and the only new thing on this sheet. It is below the Log
-            // button on purpose: the rating is what a long-press is for, and this must not
-            // sit between the user and it.
-            HorizontalDivider()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 64.dp)
-                    .clickable(onClick = onEditLineUp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Who plays this", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        // E1 in the one place a user could confuse the two.
-                        "Edit the line-up. Recording it never logs practice.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text("Edit", style = MaterialTheme.typography.labelLarge)
-            }
-        }
     }
 }

@@ -502,6 +502,18 @@ NOT_POPULATED = {
     "instrument": "seeded by instrument.sq [D18]",
     "practice_context": "seeded by practice_context.sq",
     "saved_view": "[V28] the migration seeds no views",
+    "part_rating": "[schema-3 M3] user data created in the app, never in the workbook",
+    "suggestion_skip": "[schema-3 M12] user data created in the app, never in the workbook",
+}
+
+
+# Tables whose rows `Build.write` inserts by NAMED column rather than by position. A positional
+# insert binds by the table's column order, so a column added mid-table (schema 3 put
+# `duration_seconds` before `created_at`) would shift every later value into the wrong column —
+# or, with the count off by one, fail. Naming the columns makes the tuple's layout explicit.
+INSERT_COLUMNS = {
+    "practice_event": ("id", "song_id", "logged_on", "instrument_id", "context_id",
+                       "feel", "note", "created_at", "device_id"),
 }
 
 
@@ -914,7 +926,12 @@ class Build(object):
                 counts[table] = 0
                 continue
             width = len(rows[0])
-            sql = "INSERT INTO %s VALUES (%s)" % (table, ",".join("?" * width))
+            columns = INSERT_COLUMNS.get(table)
+            if columns is not None and len(columns) != width:
+                sys.exit("FATAL: %s rows carry %d values but INSERT_COLUMNS names %d columns"
+                         % (table, width, len(columns)))
+            target = table if columns is None else "%s(%s)" % (table, ", ".join(columns))
+            sql = "INSERT INTO %s VALUES (%s)" % (target, ",".join("?" * width))
             try:
                 conn.executemany(sql, rows)
             except sqlite3.Error:
@@ -990,7 +1007,7 @@ def verify(path):
          "(SELECT COUNT(*) FROM song WHERE key_signature NOT BETWEEN -7 AND 7), "
          "(SELECT COUNT(*) FROM song WHERE tonal_centre NOT BETWEEN 0 AND 11), "
          "(SELECT COUNT(*) FROM song_instrument WHERE difficulty NOT BETWEEN 1 AND 5), "
-         "(SELECT COUNT(*) FROM practice_event WHERE feel NOT BETWEEN 1 AND 3), "
+         "(SELECT COUNT(*) FROM practice_event WHERE feel NOT BETWEEN 0 AND 3), "
          "(SELECT COUNT(*) FROM setlist_item WHERE LENGTH(position) = 0), "
          "(SELECT COUNT(*) FROM setlist_item_performer WHERE position < 1)")
 

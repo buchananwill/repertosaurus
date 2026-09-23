@@ -37,24 +37,26 @@ public object Ids {
     public fun namespaceFor(table: String): String = uuid5(ROOT, table)
 
     /**
-     * How many foreign keys each junction's canonical key holds. Views V31: `song_performer`
+     * How many keys each multi-key derived id's canonical key holds. Views V31: `song_performer`
      * is three since V3, and the two-key overload still compiles for it — so
      * `junction("song_performer", song, performer)` would silently return the **superseded**
      * id, and decision 5 makes a written id permanent. A table absent from this map is
      * unconstrained; a table present in it must be called with exactly its arity.
+     * `part_rating` is four (schema-3 M5).
      */
     private val JUNCTION_KEYS: Map<String, Int> = mapOf(
         "song_instrument" to 2,
         "song_tag" to 2,
         "setlist_item_performer" to 2,
         "song_performer" to 3,
+        "part_rating" to 4,
     )
 
     private fun requireArity(table: String, keys: Int) {
         val expected = JUNCTION_KEYS[table]
         require(expected == null || expected == keys) {
-            "$table is a $expected-key junction (views V31); deriving it from $keys keys " +
-                "returns a superseded id that nothing else would flag"
+            "$table is a $expected-key derived id (views V31, schema-3 M5); deriving it from " +
+                "$keys keys returns an id that nothing else would flag"
         }
     }
 
@@ -98,10 +100,7 @@ public object Ids {
      * The overload still resolves for it, and without the check it would quietly return the
      * superseded two-key id.
      */
-    public fun junction(table: String, fkA: String, fkB: String): String {
-        requireArity(table, 2)
-        return uuid5(namespaceFor(table), fkA + "/" + fkB)
-    }
+    public fun junction(table: String, fkA: String, fkB: String): String = derivedKey(table, fkA, fkB)
 
     /**
      * A three-key junction row id — decision 4 as amended by views decision V3:
@@ -119,9 +118,26 @@ public object Ids {
      * The keys are **ordered**, exactly as in the two-key form: `song_performer` is
      * `(song_id, performer_id, instrument_id)`.
      */
-    public fun junction(table: String, fkA: String, fkB: String, fkC: String): String {
-        requireArity(table, 3)
-        return uuid5(namespaceFor(table), fkA + "/" + fkB + "/" + fkC)
+    public fun junction(table: String, fkA: String, fkB: String, fkC: String): String =
+        derivedKey(table, fkA, fkB, fkC)
+
+    /**
+     * A `part_rating` row id (schema-3 M5, M6): the derived key over
+     * `(song_id, performer_id, instrument_id, kind)`, so two devices rating one part offline
+     * converge on one row. Only Kotlin derives it; if `tools/import/` ever emits ratings, the
+     * two-implementations rule engages.
+     */
+    public fun partRating(songId: String, performerId: String, instrumentId: String, kind: RatingKind): String =
+        derivedKey("part_rating", songId, performerId, instrumentId, kind.name)
+
+    /**
+     * **The one multi-key derivation** (decision 4 as amended by V3):
+     * `UUIDv5(namespace(table), keys joined by "/")`, keys in the table's declared order, after
+     * [requireArity].
+     */
+    private fun derivedKey(table: String, vararg keys: String): String {
+        requireArity(table, keys.size)
+        return uuid5(namespaceFor(table), keys.joinToString("/"))
     }
 
     /**

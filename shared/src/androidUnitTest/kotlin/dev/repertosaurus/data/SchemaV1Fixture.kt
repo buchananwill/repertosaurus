@@ -1,31 +1,15 @@
 package dev.repertosaurus.data
 
 import app.cash.sqldelight.db.SqlDriver
-import dev.repertosaurus.db.RepertosaurusDatabase
 
 /**
- * Builds a **schema version 1** database — the shape that shipped before Views — so the 1 → 2
- * migration is tested against the thing it actually has to upgrade (schema-compatibility S13).
+ * Builds a **schema version 1** database — the shape that shipped before Views (schema-
+ * compatibility S13) — two ways, held equal by `theTwoWaysOfBuildingVersionOneAgree`.
  *
- * There are two ways to build one here, and having both is the point.
- *
- * [fromRealDump] replays `resources/schema-v1.sql`, which was dumped out of the user's real
- * pre-Views database with `SELECT sql FROM sqlite_master`. That is **evidence**: nobody typed it,
- * so it cannot quietly stop describing what version 1 was.
- *
- * [byDowngrade] creates the current schema and undoes the two things version 2 added. That is
- * **convenient** — it stays in step with everything versions 1 and 2 have in common — and it is
- * also the same script the `androidApp` instrumented tests use, which cannot see this source set
- * and cannot read this resource.
- *
- * `SchemaCompatibilityTest.theTwoWaysOfBuildingVersionOneAgree` asserts they produce an identical
- * `sqlite_master`. That assertion is what makes the convenient one trustworthy, and it is a
- * mechanism where the previous arrangement had only a comment saying "change both".
- *
- * **Caveat this fixture does not close**: [byDowngrade] starts from the *current* schema, so once
- * `2.sqm` lands it will produce "version 3 minus the version-2 deltas", not version 1. The
- * agreement test above is what will catch that — it will fail against the real dump — and the
- * answer then is to dump a version-2 fixture and downgrade from it, not to relax the assertion.
+ * [fromRealDump] replays `resources/schema-v1.sql`, dumped from the user's real pre-Views
+ * database: evidence, not a transcription. [byDowngrade] undoes `1.sqm` on the version-2 dump.
+ * [DOWNGRADE] is mirrored in the `androidApp` `DatabaseFixtures`, which cannot see this source set;
+ * `downgradingTwiceFromTheCurrentSchemaReachesVersionOne` holds that route to the real dump.
  */
 internal object SchemaV1Fixture {
 
@@ -34,39 +18,17 @@ internal object SchemaV1Fixture {
 
     /** Replay the dump taken from the user's real pre-Views database. */
     fun fromRealDump(driver: SqlDriver) {
-        for (statement in statements(readDump())) driver.execute(null, statement, 0)
+        driver.replay("schema-v1.sql")
     }
 
-    /** Create the current schema, then undo the two things version 2 added. */
+    /** Build the version-2 shape, then undo the two things version 2 added. */
     fun byDowngrade(driver: SqlDriver) {
-        RepertosaurusDatabase.Schema.create(driver)
+        SchemaV2Fixture.fromRealDump(driver)
         for (statement in DOWNGRADE) driver.execute(null, statement, 0)
     }
 
-    /**
-     * `\r\n` is normalised to `\n` after reading, so a checkout that converts line endings
-     * (Git on Windows with `core.autocrlf`) still splits on the `--;` separator below. The
-     * dump itself is not touched.
-     */
-    private fun readDump(): String =
-        checkNotNull(javaClass.classLoader?.getResourceAsStream(DUMP)) {
-            "$DUMP is not on the test classpath"
-        }.bufferedReader().use { it.readText() }.replace("\r\n", "\n")
-
-    /** The dump separates statements with a line containing only `--;`. */
-    private fun statements(dump: String): List<String> = dump.split("\n--;\n")
-        .map { chunk -> chunk.lines().filterNot { it.startsWith("--") }.joinToString("\n").trim() }
-        .filter { it.isNotEmpty() }
-        .map { it.removeSuffix(";") }
-
-    private const val DUMP = "schema-v1.sql"
-
-    /**
-     * The inverse of `1.sqm`. There is a second copy in the `androidApp` instrumented tests,
-     * which cannot see this source set; the agreement test keeps both honest against the real
-     * dump, so if they ever diverge something fails rather than nothing.
-     */
-    private val DOWNGRADE: List<String> = listOf(
+    /** The inverse of `1.sqm`. Mirrored in `androidApp`'s `DatabaseFixtures`. */
+    val DOWNGRADE: List<String> = listOf(
         // Views did not exist. DROP TABLE takes saved_view_position with it.
         "DROP TABLE saved_view",
 

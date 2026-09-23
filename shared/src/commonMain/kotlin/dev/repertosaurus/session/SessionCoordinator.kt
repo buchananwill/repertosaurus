@@ -1,7 +1,7 @@
 package dev.repertosaurus.session
 
 import dev.repertosaurus.core.Ids
-import dev.repertosaurus.core.NoteSpelling
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.normalise
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog
@@ -83,7 +83,7 @@ public class SessionCoordinator(
     public fun newTap(
         songId: String,
         instrumentId: String,
-        feel: Long? = null,
+        feel: RatingLevel? = null,
         note: String? = null,
         loggedOn: String = repository.today(),
     ): SessionTap = SessionTap(
@@ -174,12 +174,9 @@ public object SessionInstruments {
 /**
  * What the Session screen remembers between launches: the discipline chip (a phase 1
  * question in the delivery spec — *should the app remember it rather than asking each
- * session?* — this build says yes), the sort direction, and the home View. All three are
- * view preferences and none is data; nothing here is ever synced.
- *
- * The note spelling (repertoire-editing R40-R42) lives here too, though it is the whole app's
- * and not the Session screen's: it is a display preference, never data, and never synced.
- * Unset, it reads as [NoteSpelling.DEFAULT] (R41).
+ * session?* — this build says yes), the sort direction, and the home View. These are view
+ * preferences, never data, and nothing here is ever synced. The app-wide display preferences are
+ * [DevicePreferences].
  *
  * The home View is here and **not** an `is_home` column on `saved_view` (V19). A flag on
  * many rows has no total order under last-write-wins: two devices each promoting a different
@@ -196,8 +193,6 @@ public interface SessionPreferences {
     public fun rememberOrder(order: String)
     public fun homeViewId(): String?
     public fun rememberHomeView(viewId: String)
-    public fun noteSpelling(): NoteSpelling
-    public fun rememberNoteSpelling(spelling: NoteSpelling)
 }
 
 /** For tests and previews. */
@@ -205,7 +200,6 @@ public class InMemorySessionPreferences(
     private var instrumentId: String? = null,
     private var order: String? = null,
     private var homeViewId: String? = null,
-    private var noteSpelling: NoteSpelling = NoteSpelling.DEFAULT,
 ) : SessionPreferences {
     override fun lastInstrumentId(): String? = instrumentId
 
@@ -223,11 +217,5 @@ public class InMemorySessionPreferences(
 
     override fun rememberHomeView(viewId: String) {
         this.homeViewId = viewId
-    }
-
-    override fun noteSpelling(): NoteSpelling = noteSpelling
-
-    override fun rememberNoteSpelling(spelling: NoteSpelling) {
-        this.noteSpelling = spelling
     }
 }

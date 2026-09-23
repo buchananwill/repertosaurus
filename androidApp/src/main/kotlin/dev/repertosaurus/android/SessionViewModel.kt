@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.repertosaurus.core.Ids
-import dev.repertosaurus.core.NoteSpelling
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
@@ -99,21 +99,6 @@ public class SessionViewModel(
      */
     private val _homeViewId = MutableStateFlow<String?>(null)
     public val homeViewId: StateFlow<String?> = _homeViewId.asStateFlow()
-
-    /**
-     * How every surface spells a double sharp or flat (repertoire-editing R40-R42): the drawer
-     * toggle sets it, and each note-naming call reads it. Read once at construction — the same
-     * `SharedPreferences` file [AppGraph] has already loaded for the device id — and held here,
-     * so a flip shows at once and the write goes to [io] behind it.
-     */
-    private val _noteSpelling = MutableStateFlow(preferences.noteSpelling())
-    public val noteSpelling: StateFlow<NoteSpelling> = _noteSpelling.asStateFlow()
-
-    public fun setNoteSpelling(spelling: NoteSpelling) {
-        if (_noteSpelling.value == spelling) return
-        _noteSpelling.value = spelling
-        viewModelScope.launch(io) { preferences.rememberNoteSpelling(spelling) }
-    }
 
     /**
      * Whether the database opened at all (schema-compatibility S9).
@@ -389,7 +374,7 @@ public class SessionViewModel(
      */
     public fun log(
         songId: String,
-        feel: Long? = null,
+        feel: RatingLevel? = null,
         note: String? = null,
         loggedOn: String = Timestamps.today(),
     ) {

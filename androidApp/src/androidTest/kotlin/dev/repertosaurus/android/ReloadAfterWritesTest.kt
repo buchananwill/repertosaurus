@@ -6,6 +6,7 @@ import dev.repertosaurus.android.EditingFixtures.await
 import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.SongCatalog
+import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.SongIdentity
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
@@ -43,7 +44,7 @@ class ReloadAfterWritesTest {
         val holder = EditingFixtures.holder(context, name)
         val coralie = EditingFixtures.performer(holder, "Coralie")
         val shake = EditingFixtures.song(holder, "Shake It Off")
-        val preferences = InMemoryPreferences()
+        val preferences = InMemorySessionPreferences()
         // V20: with no home set, the logger opens on the first saved View — this one, which
         // holds nothing until Coralie is given a song on vocal.
         ViewCoordinator(holder.repository, preferences).createView(

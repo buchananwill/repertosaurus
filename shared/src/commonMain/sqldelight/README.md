@@ -39,12 +39,14 @@ file carries, in order:
 | [setlist_item.sq](./dev/repertosaurus/db/setlist_item.sq) | `setlist_item` | mutable record |
 | [setlist_item_performer.sq](./dev/repertosaurus/db/setlist_item_performer.sq) | `setlist_item_performer` | junction |
 | [saved_view.sq](./dev/repertosaurus/db/saved_view.sq) | `saved_view` | mutable record, random id |
+| [part_rating.sq](./dev/repertosaurus/db/part_rating.sq) | `part_rating` | mutable record, **derived id over four keys** (`song_id`, `performer_id`, `instrument_id`, `kind`) |
+| [suggestion_skip.sq](./dev/repertosaurus/db/suggestion_skip.sq) | `suggestion_skip` | **append-only**, random id |
 
 Create tables in that table order if you replay the DDL by hand; it is dependency-ordered.
 
 ## Versions and migrations
 
-**`Schema.version` is currently 2.** SQLDelight derives it from the highest migration number in
+**`Schema.version` is currently 3.** SQLDelight derives it from the highest migration number in
 [dev/repertosaurus/db/migrations/](./dev/repertosaurus/db/migrations/) plus one, so the version moves
 when — and only when — a `.sqm` lands.
 
@@ -52,6 +54,7 @@ when — and only when — a `.sqm` lands.
 |---|---|---|
 | 1 | — | Phase 1: everything above except `saved_view`, and `song_performer` keyed on two columns. |
 | 2 | [migrations/1.sqm](./dev/repertosaurus/db/migrations/1.sqm) | Views: `saved_view` added; `song_performer` gains `instrument_id` and the key widens to the triple. |
+| 3 | [migrations/2.sqm](./dev/repertosaurus/db/migrations/2.sqm) | The habit arc (schema-3 spec): `part_rating` and `suggestion_skip` added; `practice_event` gains `duration_seconds` and its `feel` CHECK widens to 0-3; `saved_view.sort_order`'s CHECK admits the four triage names. `practice_event` and `saved_view` are rebuilt. |
 
 **Every `.sq` edit that adds, removes or retypes a table or column ships with a new `.sqm` in the
 same change** (schema-compatibility decision S1). Adding `saved_view` without one is exactly how
@@ -62,7 +65,7 @@ saved_view`.
 Three things must move together, and a test fails if any is left behind:
 
 1. the `.sq` file;
-2. a new `.sqm` — `2.sqm` next, which makes `Schema.version` 3;
+2. a new `.sqm` — `3.sqm` next, which makes `Schema.version` 4;
 3. `SchemaCompatibility.REQUIRED`, the table-and-column map the boot gate and the import
    validator both check against.
 
@@ -79,11 +82,20 @@ has three-key ones (S3). That is invisible until phase 2 sync and must be resolv
 `NOT NULL` column carrying a `REFERENCES` clause, which is why `1.sqm` rebuilds `song_performer`
 rather than altering it.
 
+**Migrations run with `foreign_keys = ON`, inside the upgrade transaction.** The Android driver
+enables foreign keys in `onConfigure`, before `onUpgrade`, and the pragma cannot be changed inside
+a transaction. So rebuilding a table that another table references — dropping it fires an
+implicit `DELETE` — fails on any database holding child rows: the child rows must be held aside in
+a table with no foreign key first, and restored after the rebuild (schema-3 M18; `2.sqm` does this
+for `practice_event_void`). And because `SchemaCompatibility` judges a file by its tables and
+columns, **a CHECK widening must never ship on its own**: it must travel with a change that
+`missingFrom` can see, or two structurally different databases share one verdict (schema-3 M2).
+
 ## Conventions that hold everywhere
 
 - **Ids are `TEXT`.** UUIDv4 or UUIDv5, generated client-side. No autoincrement anywhere.
 - **The standard three.** Every mutable table — including children and junctions — carries
-  `updated_at TEXT NOT NULL`, `deleted_at TEXT` and `device_id TEXT NOT NULL`. The two
+  `updated_at TEXT NOT NULL`, `deleted_at TEXT` and `device_id TEXT NOT NULL`. The three
   append-only tables carry `created_at TEXT NOT NULL` and `device_id`, and **no `deleted_at`**.
 - **Timestamps** are `YYYY-MM-DDTHH:MM:SS.sssZ`, always three decimals, always literal `Z`,
   enforced by a `GLOB` `CHECK` on every timestamp column. Variable precision breaks string
@@ -93,7 +105,7 @@ rather than altering it.
   `deleted_at IS NULL`. A hard delete cannot be merged — a stale device reinserts the row.
 - **`applyMerged`** on each table is the write the sync engine issues *after* it has decided a
   winner. Mutable tables use `INSERT OR REPLACE` (last-write-wins on
-  `(updated_at, device_id, id)` with a tombstone taking a tie); the two append-only tables use
+  `(updated_at, device_id, id)` with a tombstone taking a tie); the three append-only tables use
   `INSERT OR IGNORE`, which is union-on-id. The comparison itself is Kotlin in the shared core,
   not SQL — it has to run over records read from Dropbox that are not yet in the database.
 - **`selectChangedSince` / `selectCreatedSince`** on each table are the export side of a sync.

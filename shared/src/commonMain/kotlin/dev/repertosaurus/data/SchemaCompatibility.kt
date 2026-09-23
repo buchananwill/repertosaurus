@@ -84,6 +84,9 @@ public object SchemaCompatibility {
      * file short of any part of it was written by a different build, and the honest answer to
      * that is a refusal with the difference named — not a guess about which absences happen to
      * be survivable this week.
+     *
+     * **Schema-3 M2: this map cannot see a `CHECK`, so no change may widen one without also adding
+     * something this map can see**, or two structurally different databases share a verdict.
      */
     public val REQUIRED: Map<String, Set<String>> = mapOf(
         "artist" to setOf(
@@ -101,6 +104,10 @@ public object SchemaCompatibility {
         "instrument" to setOf(
             "id", "name", "updated_at", "deleted_at", "device_id",
         ),
+        "part_rating" to setOf(
+            "id", "song_id", "performer_id", "instrument_id", "kind", "level",
+            "updated_at", "deleted_at", "device_id",
+        ),
         "performer" to setOf(
             "id", "name", "notes", "updated_at", "deleted_at", "device_id",
         ),
@@ -109,7 +116,7 @@ public object SchemaCompatibility {
         ),
         "practice_event" to setOf(
             "id", "song_id", "logged_on", "instrument_id", "context_id", "feel", "note",
-            "created_at", "device_id",
+            "duration_seconds", "created_at", "device_id",
         ),
         "practice_event_void" to setOf(
             "id", "practice_event_id", "created_at", "device_id",
@@ -151,6 +158,9 @@ public object SchemaCompatibility {
         ),
         "song_tag" to setOf(
             "id", "song_id", "tag_id", "updated_at", "deleted_at", "device_id",
+        ),
+        "suggestion_skip" to setOf(
+            "id", "song_id", "performer_id", "instrument_id", "created_at", "device_id",
         ),
         "tag" to setOf(
             "id", "name", "updated_at", "deleted_at", "device_id",

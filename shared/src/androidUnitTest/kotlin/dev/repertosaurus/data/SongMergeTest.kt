@@ -1,10 +1,11 @@
 package dev.repertosaurus.data
 
-import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.TestClock
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.NoteSpelling
+import dev.repertosaurus.core.RatingKind
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.SongCatalog.LookupChoice
 import dev.repertosaurus.db.RepertosaurusDatabase
 import dev.repertosaurus.session.MergeConfirmation
@@ -95,7 +96,7 @@ class SongMergeTest {
 
     private fun merged(plan: MergePlan = plan()): SongMerge.Outcome.Merged = assertIs(merge(plan))
 
-    private fun log(songId: String, instrument: String, on: String, feel: Long? = null, note: String? = null, context: String? = null): String =
+    private fun log(songId: String, instrument: String, on: String, feel: RatingLevel? = null, note: String? = null, context: String? = null): String =
         oldPhone.logPractice(songId, instrument, contextId = context, feel = feel, note = note, loggedOn = on)
 
     private fun rows(table: SongChildKey, songId: String): List<SongChildRow> =
@@ -179,7 +180,7 @@ class SongMergeTest {
     @Test
     fun aCopyKeepsCreatedAtAndLoggedOn() {
         val context = repository.lookups.add(LookupTableKey.PRACTICE_CONTEXT, "rehearsal")
-        val original = log(ifOff, guitar, "2026-07-04", feel = 2L, note = "capo 2", context = context)
+        val original = log(ifOff, guitar, "2026-07-04", feel = RatingLevel.CERTAINLY, note = "capo 2", context = context)
 
         merged()
 
@@ -195,6 +196,88 @@ class SongMergeTest {
         assertEquals(MERGED_AT to DEVICE, voidRow.created_at to voidRow.device_id, "the void is the merge's own act")
         val stored = database.practice_eventQueries.selectCreatedSince("").executeAsList().single { it.id == original }
         assertEquals(ifOff, stored.song_id, "R32: the original is never re-pointed")
+    }
+
+    // ---- Schema 3's facts (schema-3 M20) --------------------------------------------------------
+
+    /** **M20: a copy carries `duration_seconds`.** The merge copies column by column. */
+    @Test
+    fun aCopyCarriesItsDuration() {
+        oldPhone.logPractice(ifOff, guitar, feel = RatingLevel.NOT_AT_ALL, loggedOn = "2026-07-04", durationSeconds = 1_200L)
+        oldPhone.logPractice(ifOff, vocal, loggedOn = "2026-07-05")
+
+        merged()
+
+        val copies = database.practice_eventQueries.selectLiveRowsBySong(itOff).executeAsList().associateBy { it.logged_on }
+        assertEquals(1_200L to 0L, copies.getValue("2026-07-04").let { it.duration_seconds to it.feel })
+        assertNull(copies.getValue("2026-07-05").duration_seconds, "an untimed tap stays untimed")
+        assertEquals(1_200L, side(itOff).events.single { it.loggedOn == "2026-07-04" }.durationSeconds, "the preview reads it")
+    }
+
+    /**
+     * **M20: ratings follow the per-song child-row rule.** The survivor's live rating wins; where
+     * it has none, or only a tombstone, the loser's is written — reviving the tombstone in place
+     * (M7) — and every loser rating ends cleared. Skips are not carried.
+     */
+    @Test
+    fun ratingsFollowTheChildRowRuleAndSkipsAreNotCarried() {
+        val will = repository.lookups.add(LookupTableKey.PERFORMER, "Will")
+        val ratings = repository.ratings
+        // Survivor live: the survivor's wins.
+        ratings.setRating(Part(itOff, will, vocal), RatingKind.PRIORITY, RatingLevel.SOMEWHAT)
+        ratings.setRating(Part(ifOff, will, vocal), RatingKind.PRIORITY, RatingLevel.EXCEPTIONALLY)
+        // Survivor absent: the loser's is created on the survivor's triple.
+        ratings.setRating(Part(ifOff, will, vocal), RatingKind.CONFIDENCE, RatingLevel.CERTAINLY)
+        // Survivor tombstoned: the loser's revives it, keeping its id.
+        ratings.setRating(Part(itOff, will, guitar), RatingKind.PRIORITY, RatingLevel.NOT_AT_ALL)
+        ratings.setRating(Part(itOff, will, guitar), RatingKind.PRIORITY, null)
+        ratings.setRating(Part(ifOff, will, guitar), RatingKind.PRIORITY, RatingLevel.CERTAINLY)
+        repository.skips.recordSkip(Part(ifOff, will, vocal))
+
+        merged()
+
+        assertEquals(mapOf(itOff to PartRatings(RatingLevel.SOMEWHAT, RatingLevel.CERTAINLY)), ratings.ratingsFor(will, vocal))
+        assertEquals(mapOf(itOff to PartRatings(RatingLevel.CERTAINLY, null)), ratings.ratingsFor(will, guitar))
+        val revived = database.part_ratingQueries.selectByKey(itOff, will, guitar, "PRIORITY").executeAsOne()
+        assertEquals(Ids.partRating(itOff, will, guitar, RatingKind.PRIORITY), revived.id)
+        assertTrue(
+            database.part_ratingQueries.selectBySong(ifOff).executeAsList().all { it.deleted_at != null },
+            "the loser ends with no live ratings",
+        )
+        assertEquals(0L, repository.skips.skipsSinceLastPractised(Part(itOff, will, vocal)), "skips are not carried")
+        assertEquals(1L, driver.long("SELECT COUNT(*) FROM suggestion_skip"), "the loser's skip stays, append-only")
+    }
+
+    /**
+     * M20 / M7: a loser rating that was set and then cleared is a tombstone — unrated — and is
+     * not carried. The survivor, which had no rating, still has none.
+     */
+    @Test
+    fun aTombstonedLoserRatingIsNotCarried() {
+        val will = repository.lookups.add(LookupTableKey.PERFORMER, "Will")
+        repository.ratings.setRating(Part(ifOff, will, vocal), RatingKind.PRIORITY, RatingLevel.EXCEPTIONALLY)
+        repository.ratings.setRating(Part(ifOff, will, vocal), RatingKind.PRIORITY, null)
+
+        merged()
+
+        assertEquals(emptyMap(), repository.ratings.ratingsFor(will, vocal))
+        assertNull(database.part_ratingQueries.selectByKey(itOff, will, vocal, "PRIORITY").executeAsOneOrNull())
+    }
+
+    /**
+     * **B4 / S8: a loser rating the decoder cannot read is skipped by the carry, never thrown on**,
+     * and the merge completes, carrying the loser's readable rating.
+     */
+    @Test
+    fun anUndecodableLoserRatingIsSkippedAndTheMergeCompletes() {
+        val will = repository.lookups.add(LookupTableKey.PERFORMER, "Will")
+        driver.insertRatingOfUnknownKind(ifOff, will, vocal)
+        repository.ratings.setRating(Part(ifOff, will, vocal), RatingKind.CONFIDENCE, RatingLevel.SOMEWHAT)
+
+        merged()
+
+        assertEquals(mapOf(itOff to PartRatings(null, RatingLevel.SOMEWHAT)), repository.ratings.ratingsFor(will, vocal))
+        assertEquals(0L, driver.long("SELECT count(*) FROM part_rating WHERE song_id = '$itOff' AND kind = 'URGENCY'"))
     }
 
     // ---- Children (R35, R38a) -----------------------------------------------------------------
@@ -635,15 +718,8 @@ class SongMergeTest {
 
     /** Every row of every table the merge can touch, as text, in id order. */
     private fun snapshot(): Map<String, List<List<String?>>> = SNAPSHOT_TABLES.associateWith { table ->
-        val width = driver.executeQuery(null, "SELECT COUNT(*) FROM pragma_table_info('$table')", { cursor ->
-            cursor.next()
-            QueryResult.Value(cursor.getLong(0)!!.toInt())
-        }, 0).value
-        driver.executeQuery(null, "SELECT * FROM $table ORDER BY id", { cursor ->
-            val out = mutableListOf<List<String?>>()
-            while (cursor.next().value) out += (0 until width).map { cursor.getString(it) }
-            QueryResult.Value(out)
-        }, 0).value
+        val width = driver.long("SELECT COUNT(*) FROM pragma_table_info('$table')").toInt()
+        driver.rows("SELECT * FROM $table ORDER BY id", width)
     }
 
     private fun execute(sql: String) {
@@ -658,7 +734,8 @@ class SongMergeTest {
 
         val SNAPSHOT_TABLES = listOf(
             "song", "artist", "song_tag", "song_instrument", "song_performer", "tag", "instrument",
-            "performer", "practice_event", "practice_event_void", "setlist_item",
+            "performer", "practice_event", "practice_event_void", "setlist_item", "part_rating",
+            "suggestion_skip",
         )
 
         /** Trigger name to DDL: a `RAISE(ABORT)` partway through, and one at the very last write. */

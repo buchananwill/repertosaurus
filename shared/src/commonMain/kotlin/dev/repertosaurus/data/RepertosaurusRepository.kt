@@ -1,6 +1,7 @@
 package dev.repertosaurus.data
 
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.db.RepertosaurusDatabase
 import kotlinx.datetime.Clock
@@ -110,8 +111,14 @@ public class RepertosaurusRepository(
      */
     public val catalog: SongCatalog = SongCatalog(database, deviceId, clock, lookups, children)
 
-    /** Merging two songs (repertoire-editing R31-R39): composes [catalog] and [children]. */
-    public val merge: SongMerge = SongMerge(database, deviceId, clock, newId, catalog, children)
+    /** A part's priority and confidence (schema-3 M3-M8, M19). Declared before [merge], which takes it. */
+    public val ratings: PartRatingStore = PartRatingStore(database, deviceId, clock)
+
+    /** Counted suggestion skips (schema-3 M12-M14, M19). */
+    public val skips: SuggestionSkips = SuggestionSkips(database, deviceId, clock, newId)
+
+    /** Merging two songs (repertoire-editing R31-R39): composes [catalog], [children] and [ratings]. */
+    public val merge: SongMerge = SongMerge(database, deviceId, clock, newId, catalog, children, ratings)
 
     /**
      * E38: run several statements as one unit, so a caller that reads and then writes cannot
@@ -521,7 +528,10 @@ public class RepertosaurusRepository(
      * deriving it would collapse two legitimate same-day sessions into one row.
      *
      * [contextId] is nullable — a one-tap log must never require a second chip
-     * (decision 45a). [feel] is the optional 1-3 long-press rating (decision 46).
+     * (decision 45a). [feel] is the optional long-press rating (decision 46, schema-3 M9); its type
+ * is the range, and it becomes a stored `Long` only here.
+     * [durationSeconds] is null for an untimed tap (schema-3 M10); it is last and defaulted so the
+     * tap path's call is unchanged (M11).
      *
      * @return the id of the event just written, so the caller can offer undo.
      */
@@ -529,11 +539,14 @@ public class RepertosaurusRepository(
         songId: String,
         instrumentId: String,
         contextId: String? = null,
-        feel: Long? = null,
+        feel: RatingLevel? = null,
         note: String? = null,
         loggedOn: String = today(),
+        durationSeconds: Long? = null,
     ): String {
-        require(feel == null || feel in 1L..3L) { "feel is 1-3 or null, got $feel" }
+        require(durationSeconds == null || durationSeconds in 1L..MAX_DURATION_SECONDS) {
+            "duration_seconds is 1-$MAX_DURATION_SECONDS or null, got $durationSeconds"
+        }
         val id = newId()
         database.practice_eventQueries.insert(
             id = id,
@@ -541,8 +554,9 @@ public class RepertosaurusRepository(
             logged_on = loggedOn,
             instrument_id = instrumentId,
             context_id = contextId,
-            feel = feel,
+            feel = feel?.value,
             note = note,
+            duration_seconds = durationSeconds,
             created_at = Timestamps.now(clock),
             device_id = deviceId,
         )
@@ -583,6 +597,7 @@ public class RepertosaurusRepository(
                 contextName = row.context_name,
                 feel = row.feel,
                 note = row.note,
+                durationSeconds = row.duration_seconds,
             )
         }
 
@@ -594,6 +609,8 @@ public class RepertosaurusRepository(
         val contextName: String?,
         val feel: Long?,
         val note: String?,
+        /** Null for a tap-logged, untimed event (schema-3 M10). */
+        val durationSeconds: Long?,
     )
 
     /**
@@ -629,4 +646,9 @@ public class RepertosaurusRepository(
     /** Live count for a song, derived and never stored (decision 48). */
     public fun timesPractised(songId: String): Long =
         database.practice_eventQueries.countLiveBySong(songId).executeAsOne()
+
+    internal companion object {
+        /** Schema-3 M10's sanity ceiling on a timed session: a day. */
+        const val MAX_DURATION_SECONDS: Long = 86_400L
+    }
 }

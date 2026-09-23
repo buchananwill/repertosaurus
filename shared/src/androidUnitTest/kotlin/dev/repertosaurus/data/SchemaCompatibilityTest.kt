@@ -1,6 +1,5 @@
 package dev.repertosaurus.data
 
-import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
@@ -48,12 +47,13 @@ class SchemaCompatibilityTest {
      * or retypes a table or column. It stayed at 1 across a change that added a table and a
      * column, and that single fault made every other failure possible.
      *
-     * **When you add `2.sqm`, this number becomes 3.** If you are here because this test failed
-     * and you did not add a migration, the version moved without one and something is wrong.
+     * **Schema 3 (`2.sqm`, schema-3 M1). When you add `3.sqm`, this number becomes 4.** If you
+     * are here because this test failed and you did not add a migration, the version moved
+     * without one and something is wrong.
      */
     @Test
-    fun schemaVersionIsTwo() {
-        assertEquals(2L, RepertosaurusDatabase.Schema.version)
+    fun schemaVersionIsThree() {
+        assertEquals(3L, RepertosaurusDatabase.Schema.version)
         assertEquals(RepertosaurusDatabase.Schema.version, SchemaCompatibility.VERSION)
     }
 
@@ -207,10 +207,7 @@ class SchemaCompatibilityTest {
 
         val upgradable = assertIs<SchemaVerdict.Upgradable>(verdict)
         assertEquals(1L, upgradable.fromVersion)
-        assertEquals(
-            listOf("saved_view", "song_performer.instrument_id"),
-            upgradable.missing,
-        )
+        assertEquals(VERSION_ONE_MISSING, upgradable.missing)
     }
 
     /**
@@ -241,7 +238,7 @@ class SchemaCompatibilityTest {
         val verdict = SchemaCompatibility.check(SchemaCompatibility.inspect(driver), 0)
 
         val old = assertIs<SchemaVerdict.TooOld>(verdict)
-        assertEquals(listOf("saved_view", "song_performer.instrument_id"), old.missing)
+        assertEquals(VERSION_ONE_MISSING, old.missing)
     }
 
     @Test
@@ -281,6 +278,157 @@ class SchemaCompatibilityTest {
             if (table == "song") columns - "chart_url" else columns
         }
         assertEquals(listOf("song.chart_url"), SchemaCompatibility.missingFrom(present))
+    }
+
+    // ---- Schema 3: the 2 -> 3 upgrade (S13, schema-3 M1, M2, M17, M18, §3) ------------------
+
+    /**
+     * S13: the convenient version-2 shape — the current schema with `2.sqm` undone — against the
+     * dump of a real schema-2 database, structure **and** CHECK text. It is what the `androidApp`
+     * fixtures build their version-1 file from, so it is held to the evidence here.
+     */
+    @Test
+    fun theTwoWaysOfBuildingVersionTwoAgree() {
+        SchemaV2Fixture.fromRealDump(driver)
+        val downgraded = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        try {
+            downgraded.execute(null, "PRAGMA foreign_keys = ON", 0)
+            SchemaV2Fixture.byDowngrade(downgraded)
+            assertEquals(driver.structure(), downgraded.structure())
+            assertEquals(driver.normalisedDdl(), downgraded.normalisedDdl())
+        } finally {
+            downgraded.close()
+        }
+    }
+
+    /**
+     * The `androidApp` route to version 1 in full — current schema, `2.sqm` undone, then `1.sqm`
+     * undone — against the real version-1 dump. `DatabaseFixtures.writeVersionOne` runs exactly
+     * these two scripts, from its own copies.
+     */
+    @Test
+    fun downgradingTwiceFromTheCurrentSchemaReachesVersionOne() {
+        SchemaV1Fixture.fromRealDump(driver)
+        val downgraded = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        try {
+            downgraded.execute(null, "PRAGMA foreign_keys = ON", 0)
+            SchemaV2Fixture.byDowngrade(downgraded)
+            for (statement in SchemaV1Fixture.DOWNGRADE) downgraded.execute(null, statement, 0)
+            assertEquals(driver.structure(), downgraded.structure())
+        } finally {
+            downgraded.close()
+        }
+    }
+
+    /** M2: a schema-2 file is Upgradable, not TooOld and not Current, and names what 2.sqm adds. */
+    @Test
+    fun aVersionTwoDatabaseIsUpgradable() {
+        SchemaV2Fixture.withRows(driver)
+        val verdict = SchemaCompatibility.check(SchemaCompatibility.inspect(driver), 2)
+
+        val upgradable = assertIs<SchemaVerdict.Upgradable>(verdict)
+        assertEquals(2L, upgradable.fromVersion)
+        assertEquals(
+            listOf("part_rating", "practice_event.duration_seconds", "suggestion_skip"),
+            upgradable.missing,
+        )
+    }
+
+    /**
+     * **The S13 upgrade test.** The schema-2 fixture — a voided event, an event with feel, a saved
+     * View and a tombstoned one — migrated **with foreign keys enforced and inside a transaction**,
+     * as Android runs `onUpgrade` (M18). Every event and void survives with its id, `created_at`
+     * and `device_id` byte for byte; the anti-join still hides the voided event; the Views are
+     * untouched, tombstone included; and the result is Current.
+     *
+     * Without M18's holding steps this fails with `FOREIGN KEY constraint failed` on
+     * `DROP TABLE practice_event`.
+     */
+    @Test
+    fun theVersionTwoFixtureUpgradesLosslesslyWithForeignKeysEnforced() {
+        SchemaV2Fixture.withRows(driver)
+        assertEquals(1L, driver.long("PRAGMA foreign_keys"))
+        val eventsBefore = driver.rows(EVENTS, 9)
+        val voidsBefore = driver.rows(VOIDS, 4)
+        val viewsBefore = driver.rows(VIEWS, 12)
+        assertEquals(3, eventsBefore.size)
+        assertEquals(1, voidsBefore.size)
+        assertEquals(2, viewsBefore.size)
+
+        RepertosaurusDatabase(driver).transaction { RepertosaurusDatabase.Schema.migrate(driver, 2, current) }
+
+        assertEquals(
+            SchemaVerdict.Current,
+            SchemaCompatibility.check(SchemaCompatibility.inspect(driver), current),
+        )
+        assertEquals(eventsBefore, driver.rows(EVENTS, 9), "every event, byte for byte")
+        assertEquals(voidsBefore, driver.rows(VOIDS, 4), "every void, byte for byte")
+        assertEquals(viewsBefore, driver.rows(VIEWS, 12), "every View, the tombstone included")
+        assertEquals(0L, driver.long("SELECT count(*) FROM practice_event WHERE duration_seconds IS NOT NULL"))
+        assertEquals(0L, driver.long("SELECT count(*) FROM pragma_foreign_key_check"))
+        assertFalse("practice_event_void_hold" in SchemaCompatibility.inspect(driver))
+
+        // The anti-join still hides the voided event, and feel reads back unchanged (RS3).
+        val repository = RepertosaurusRepository(RepertosaurusDatabase(driver), "test")
+        val history = repository.practiceHistory(FIXTURE_SONG)
+        assertEquals(2, history.size)
+        assertFalse(history.any { it.id == SchemaV2Fixture.VOIDED_EVENT })
+        assertEquals(listOf(3L, null), history.map { it.feel })
+    }
+
+    /**
+     * The whole chain, 1 -> 2 -> 3, as a device still on version 1 would run it: foreign keys on,
+     * one transaction, and a void in the database — so `2.sqm`'s M18 holding steps run on top of
+     * `1.sqm`'s rebuild. Events and voids come through byte for byte.
+     */
+    @Test
+    fun theOneToThreeChainKeepsEventsAndVoidsWithForeignKeysEnforced() {
+        SchemaV1Fixture.fromRealDump(driver)
+        seedSongAndPerformer()
+        val guitar = Ids.derived("instrument", "guitar")
+        for ((id, at) in listOf("event-kept" to "2026-08-15T09:00:00.000Z", "event-undone" to "2026-08-15T10:00:00.000Z")) {
+            driver.execute(
+                null,
+                """
+                INSERT INTO practice_event(id, song_id, logged_on, instrument_id, context_id, feel, note,
+                                           created_at, device_id)
+                VALUES ('$id', '$SONG', '2026-08-15', '$guitar', NULL, 2, NULL, '$at', 'v1-phone')
+                """.trimIndent(),
+                0,
+            )
+        }
+        driver.execute(
+            null,
+            "INSERT INTO practice_event_void(id, practice_event_id, created_at, device_id) " +
+                "VALUES ('void-1', 'event-undone', '2026-08-15T10:00:01.000Z', 'v1-phone')",
+            0,
+        )
+        val eventsBefore = driver.rows(EVENTS, 9)
+        val voidsBefore = driver.rows(VOIDS, 4)
+
+        RepertosaurusDatabase(driver).transaction { RepertosaurusDatabase.Schema.migrate(driver, 1, current) }
+
+        assertEquals(1L, driver.long("PRAGMA foreign_keys"))
+        assertEquals(eventsBefore, driver.rows(EVENTS, 9))
+        assertEquals(voidsBefore, driver.rows(VOIDS, 4))
+        assertEquals(0L, driver.long("SELECT count(*) FROM pragma_foreign_key_check"))
+        assertEquals(
+            SchemaVerdict.Current,
+            SchemaCompatibility.check(SchemaCompatibility.inspect(driver), current),
+        )
+        val history = RepertosaurusRepository(RepertosaurusDatabase(driver), "test").practiceHistory(SONG)
+        assertEquals(listOf("event-kept"), history.map { it.id })
+    }
+
+    /** M17: the upgraded schema is the created one — columns, keys, indexes and CHECK text. */
+    @Test
+    fun migratingTheVersionTwoDatabaseReproducesTheCreatedSchema() {
+        SchemaV2Fixture.withRows(driver)
+        RepertosaurusDatabase(driver).transaction { RepertosaurusDatabase.Schema.migrate(driver, 2, current) }
+
+        val created = created()
+        assertEquals(created.structure, driver.structure())
+        assertEquals(created.ddl, driver.normalisedDdl())
     }
 
     // ---- helpers --------------------------------------------------------------------------
@@ -402,35 +550,40 @@ class SchemaCompatibilityTest {
         )
     }
 
-    private fun SqlDriver.long(sql: String): Long =
-        executeQuery(null, sql, { QueryResult.Value(if (it.next().value) it.getLong(0) else null) }, 0)
-            .value ?: error("no row for $sql")
-
-    private fun SqlDriver.string(sql: String): String =
-        executeQuery(null, sql, { QueryResult.Value(if (it.next().value) it.getString(0) else null) }, 0)
-            .value ?: error("no row for $sql")
+    private fun SqlDriver.string(sql: String): String = rows(sql, 1).firstOrNull()?.get(0) ?: error("no row for $sql")
 
     private fun SqlDriver.strings(sql: String): List<String> =
         rows(sql, 1).mapNotNull { it[0] }
-
-    private fun SqlDriver.rows(sql: String, columns: Int): List<List<String?>> =
-        executeQuery(
-            null,
-            sql,
-            { cursor ->
-                val values = mutableListOf<List<String?>>()
-                while (cursor.next().value) {
-                    values += (0 until columns).map { cursor.getString(it) }
-                }
-                QueryResult.Value(values.toList())
-            },
-            0,
-        ).value
 
     private companion object {
         /** The seeded `Unknown Artist`, so a song row satisfies `song.artist_id NOT NULL`. */
         const val ARTIST = "cf06771d-4e8d-53fc-83fb-359be7dfaefc"
         const val SONG = "song-under-test"
         const val PERFORMER = "performer-under-test"
+
+        /** The song `schema-v2-rows.sql` logs against. */
+        const val FIXTURE_SONG = "8a1b2c3d-0000-4000-8000-000000000001"
+
+        /** The version-2 columns of each rebuilt table, in a stable order, for byte comparison. */
+        const val EVENTS =
+            "SELECT id, song_id, logged_on, instrument_id, context_id, feel, note, created_at, " +
+                "device_id FROM practice_event ORDER BY id"
+        const val VOIDS = "SELECT id, practice_event_id, created_at, device_id FROM practice_event_void ORDER BY id"
+        const val VIEWS =
+            "SELECT id, name, filter_performer_id, filter_instrument_id, filter_lead_only, " +
+                "practice_instrument_id, sort_order, position, notes, updated_at, deleted_at, " +
+                "device_id FROM saved_view ORDER BY id"
+
+        /**
+         * What a version-1 file lacks against this build: version 2's two deltas and schema 3's
+         * three, in [SchemaCompatibility.REQUIRED]'s order.
+         */
+        val VERSION_ONE_MISSING = listOf(
+            "part_rating",
+            "practice_event.duration_seconds",
+            "saved_view",
+            "song_performer.instrument_id",
+            "suggestion_skip",
+        )
     }
 }

@@ -20,8 +20,13 @@ import kotlin.test.assertEquals
  * `user_version = 1`, no `saved_view`, a `song_performer` with no `instrument_id`, and exactly
  * the indexes `song_performer_pair` and `song_performer_performer`.
  *
- * There is a second copy of the downgrade in `shared`'s unit tests, which this source set
- * cannot see. Change both.
+ * The version-1 shape is reached in two steps, as the schema history went up in two: the current
+ * (version 3) schema with `2.sqm` undone ([THREE_TO_TWO]), then with `1.sqm` undone ([DOWNGRADE]).
+ * A single "current minus version 2's deltas" stopped being version 1 when `2.sqm` landed.
+ *
+ * Both scripts have a second copy in `shared`'s unit tests (`SchemaV2Fixture.DOWNGRADE`,
+ * `SchemaV1Fixture.DOWNGRADE`), which this source set cannot see; there, they are held to dumps of
+ * real version-1 and version-2 databases. Change both.
  */
 internal object DatabaseFixtures {
 
@@ -55,7 +60,7 @@ internal object DatabaseFixtures {
     fun writeVersionOne(context: Context, name: String, userVersion: Long = 1): File {
         val file = writeCurrent(context, name)
         edit(file) { db ->
-            for (statement in DOWNGRADE) db.execSQL(statement)
+            for (statement in THREE_TO_TWO + DOWNGRADE) db.execSQL(statement)
             db.execSQL("PRAGMA user_version = $userVersion")
         }
         return file
@@ -130,6 +135,95 @@ internal object DatabaseFixtures {
         SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE).use(block)
     }
 
+    /** The inverse of `2.sqm` (schema 3). Mirrors `SchemaV2Fixture.DOWNGRADE` in `shared`. */
+    private val THREE_TO_TWO: List<String> = listOf(
+        "DROP TABLE part_rating",
+        "DROP TABLE suggestion_skip",
+        "CREATE TABLE practice_event_void_hold AS SELECT * FROM practice_event_void",
+        "DROP TABLE practice_event_void",
+        """
+        CREATE TABLE practice_event_v2 (
+            id             TEXT NOT NULL PRIMARY KEY,
+            song_id        TEXT NOT NULL,
+            logged_on      TEXT NOT NULL,
+            instrument_id  TEXT NOT NULL,
+            context_id     TEXT,
+            feel           INTEGER,
+            note           TEXT,
+
+            created_at     TEXT NOT NULL,
+            device_id      TEXT NOT NULL,
+
+            FOREIGN KEY (song_id) REFERENCES song(id),
+            FOREIGN KEY (instrument_id) REFERENCES instrument(id),
+            FOREIGN KEY (context_id) REFERENCES practice_context(id),
+            CHECK (feel IS NULL OR feel BETWEEN 1 AND 3),
+            CHECK (logged_on GLOB '????-??-??'),
+            CHECK (created_at GLOB '????-??-??T??:??:??.???Z')
+        )
+        """.trimIndent(),
+        """
+        INSERT INTO practice_event_v2(
+            id, song_id, logged_on, instrument_id, context_id, feel, note, created_at, device_id
+        )
+        SELECT id, song_id, logged_on, instrument_id, context_id, feel, note, created_at, device_id
+        FROM practice_event
+        """.trimIndent(),
+        "DROP TABLE practice_event",
+        "ALTER TABLE practice_event_v2 RENAME TO practice_event",
+        "CREATE INDEX practice_event_song_instrument_logged ON practice_event(song_id, instrument_id, logged_on DESC)",
+        "CREATE INDEX practice_event_instrument_logged ON practice_event(instrument_id, logged_on DESC)",
+        "CREATE INDEX practice_event_logged ON practice_event(logged_on DESC)",
+        """
+        CREATE TABLE practice_event_void (
+            id                 TEXT NOT NULL PRIMARY KEY,
+            practice_event_id  TEXT NOT NULL,
+
+            created_at         TEXT NOT NULL,
+            device_id          TEXT NOT NULL,
+
+            FOREIGN KEY (practice_event_id) REFERENCES practice_event(id),
+            CHECK (created_at GLOB '????-??-??T??:??:??.???Z')
+        )
+        """.trimIndent(),
+        "CREATE INDEX practice_event_void_event ON practice_event_void(practice_event_id)",
+        """
+        INSERT INTO practice_event_void(id, practice_event_id, created_at, device_id)
+        SELECT id, practice_event_id, created_at, device_id FROM practice_event_void_hold
+        """.trimIndent(),
+        "DROP TABLE practice_event_void_hold",
+        """
+        CREATE TABLE saved_view_v2 (
+            id                     TEXT NOT NULL PRIMARY KEY,
+            name                   TEXT NOT NULL,
+            filter_performer_id    TEXT,
+            filter_instrument_id   TEXT,
+            filter_lead_only       INTEGER NOT NULL DEFAULT 0,
+            practice_instrument_id TEXT NOT NULL,
+            sort_order             TEXT NOT NULL,
+            position               INTEGER NOT NULL,
+            notes                  TEXT,
+
+            updated_at             TEXT NOT NULL,
+            deleted_at             TEXT,
+            device_id              TEXT NOT NULL,
+
+            FOREIGN KEY (filter_performer_id)    REFERENCES performer(id),
+            FOREIGN KEY (filter_instrument_id)   REFERENCES instrument(id),
+            FOREIGN KEY (practice_instrument_id) REFERENCES instrument(id),
+            CHECK (filter_lead_only IN (0, 1)),
+            CHECK (sort_order IN ('COLDEST_FIRST', 'HOTTEST_FIRST')),
+            CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
+            CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
+        )
+        """.trimIndent(),
+        "INSERT INTO saved_view_v2 SELECT * FROM saved_view",
+        "DROP TABLE saved_view",
+        "ALTER TABLE saved_view_v2 RENAME TO saved_view",
+        "CREATE INDEX saved_view_position ON saved_view(position)",
+    )
+
+    /** The inverse of `1.sqm` (Views). Mirrors `SchemaV1Fixture.DOWNGRADE` in `shared`. */
     private val DOWNGRADE: List<String> = listOf(
         "DROP TABLE saved_view",
         """

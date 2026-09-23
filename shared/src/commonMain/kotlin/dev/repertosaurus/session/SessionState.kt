@@ -1,5 +1,8 @@
 package dev.repertosaurus.session
 
+import dev.repertosaurus.core.RatingLevel
+import dev.repertosaurus.core.enumByName
+
 /**
  * The Session screen's state, as a plain immutable value with pure transitions.
  *
@@ -233,8 +236,7 @@ public enum class SessionOrder {
          * and be written back on the next update. Both halves move together, and a test pins
          * them together.
          */
-        public fun parse(name: String?): SessionOrder =
-            entries.firstOrNull { it.name == name } ?: COLDEST_FIRST
+        public fun parse(name: String?): SessionOrder = enumByName(name, COLDEST_FIRST)
     }
 }
 
@@ -293,10 +295,10 @@ public data class SessionTap(
     val tapId: String,
     val songId: String,
     val instrumentId: String,
-    val feel: Long?,
+    val feel: RatingLevel?,
     val note: String?,
     val loggedOn: String,
 )
 
 /** What the snackbar offers after a tap. */
-public data class UndoOffer(val tapId: String, val songTitle: String, val feel: Long?)
+public data class UndoOffer(val tapId: String, val songTitle: String, val feel: RatingLevel?)

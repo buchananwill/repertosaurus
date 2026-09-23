@@ -22,6 +22,9 @@
 -- this CHECK are two statements of one vocabulary and a test pins them together by inserting
 -- every SessionOrder name. The unmeasured claim is the defect worth remembering.
 --
+-- schema-3 M15, M16: the CHECK admits the four TRIAGE_* names ahead of their SessionOrder
+-- constants, which arrive in P9 with the extended pin. Until then nothing writes one.
+--
 -- V24: a View stores ids, never names, so renaming a performer or an instrument leaves
 -- every View intact — the same discipline as song.artist_id.
 --
@@ -54,7 +57,11 @@ CREATE TABLE saved_view (
     FOREIGN KEY (filter_instrument_id)   REFERENCES instrument(id),
     FOREIGN KEY (practice_instrument_id) REFERENCES instrument(id),
     CHECK (filter_lead_only IN (0, 1)),
-    CHECK (sort_order IN ('COLDEST_FIRST', 'HOTTEST_FIRST')),
+    CHECK (sort_order IN (
+        'COLDEST_FIRST', 'HOTTEST_FIRST',
+        'TRIAGE_PRIORITY', 'TRIAGE_PRIORITY_REVERSED',
+        'TRIAGE_CONFIDENCE', 'TRIAGE_CONFIDENCE_REVERSED'
+    )),
     CHECK (updated_at GLOB '????-??-??T??:??:??.???Z'),
     CHECK (deleted_at IS NULL OR deleted_at GLOB '????-??-??T??:??:??.???Z')
 );

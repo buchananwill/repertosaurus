@@ -7,6 +7,7 @@ import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.data.ImportRejected
 import dev.repertosaurus.data.SchemaCompatibility
 import dev.repertosaurus.data.SchemaVerdict
+import dev.repertosaurus.db.RepertosaurusDatabase
 import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,7 +66,7 @@ class DatabaseHolderBootTest {
         // now answerable.
         assertEquals(emptyList(), holder.repository.savedViews())
         holder.close()
-        assertEquals(2L, DatabaseFixtures.userVersion(file))
+        assertEquals(CURRENT, DatabaseFixtures.userVersion(file))
         assertTrue("saved_view" in DatabaseFixtures.tables(file))
     }
 
@@ -86,7 +87,7 @@ class DatabaseHolderBootTest {
         assertEquals(emptyList(), holder.repository.savedViews())
         holder.close()
 
-        assertEquals(2L, DatabaseFixtures.userVersion(file))
+        assertEquals(CURRENT, DatabaseFixtures.userVersion(file))
     }
 
     /**
@@ -103,7 +104,7 @@ class DatabaseHolderBootTest {
         assertEquals(DatabaseState.Ready, holder.load())
         assertEquals(emptyList(), holder.repository.savedViews())
         holder.close()
-        assertEquals(2L, DatabaseFixtures.userVersion(context.getDatabasePath(name)))
+        assertEquals(CURRENT, DatabaseFixtures.userVersion(context.getDatabasePath(name)))
     }
 
     // ---- The states that must refuse rather than crash ---------------------------------
@@ -176,7 +177,7 @@ class DatabaseHolderBootTest {
         assertIs<DatabaseState.Unloadable>(holder.load())
 
         // The user puts a readable file in place from outside the app.
-        DatabaseFixtures.stamp(context.getDatabasePath(name), 2)
+        DatabaseFixtures.stamp(context.getDatabasePath(name), CURRENT)
 
         assertIs<DatabaseState.Unloadable>(holder.load())
         assertEquals(DatabaseState.Ready, holder.retry())
@@ -194,7 +195,7 @@ class DatabaseHolderBootTest {
         assertEquals(DatabaseState.Ready, holder.startFresh())
         assertEquals(emptyList(), holder.repository.savedViews())
         holder.close()
-        assertEquals(2L, DatabaseFixtures.userVersion(context.getDatabasePath(name)))
+        assertEquals(CURRENT, DatabaseFixtures.userVersion(context.getDatabasePath(name)))
     }
 
     // ---- Import: one implementation, two callers (S6, S7) ------------------------------
@@ -234,7 +235,7 @@ class DatabaseHolderBootTest {
         assertEquals(DatabaseState.Ready, holder.commitImport())
         assertEquals(emptyList(), holder.repository.savedViews())
         holder.close()
-        assertEquals(2L, DatabaseFixtures.userVersion(context.getDatabasePath(live)))
+        assertEquals(CURRENT, DatabaseFixtures.userVersion(context.getDatabasePath(live)))
     }
 
     /**
@@ -277,10 +278,18 @@ class DatabaseHolderBootTest {
     fun theRequirementCoversSavedViewAndTheThreeKeyJunction() {
         assertTrue("saved_view" in SchemaCompatibility.REQUIRED)
         assertTrue("instrument_id" in SchemaCompatibility.REQUIRED.getValue("song_performer"))
-        assertEquals(2L, SchemaCompatibility.VERSION)
+        assertTrue("part_rating" in SchemaCompatibility.REQUIRED)
+        assertTrue("duration_seconds" in SchemaCompatibility.REQUIRED.getValue("practice_event"))
+        assertEquals(CURRENT, SchemaCompatibility.VERSION)
     }
 
     private companion object {
         const val DEVICE = "instrumented-test-device"
+
+        /**
+         * The version the migration chain reaches, read from the schema rather than written as a
+         * literal: every literal here went stale at once when `2.sqm` moved the version to 3.
+         */
+        val CURRENT: Long = RepertosaurusDatabase.Schema.version
     }
 }

@@ -2,8 +2,6 @@ package dev.repertosaurus.android
 
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.junit4.ComposeTestRule
-import dev.repertosaurus.core.NoteSpelling
-import dev.repertosaurus.session.SessionPreferences
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import java.util.concurrent.CountDownLatch
@@ -55,25 +53,4 @@ internal class Gate : CoroutineDispatcher() {
             block.run()
         })
     }
-}
-
-/**
- * Preferences with no `SharedPreferences` behind them, so one test cannot leak a remembered
- * instrument, sort direction or home View into the next — and so a test never touches the real
- * app's preferences file.
- */
-internal class InMemoryPreferences : SessionPreferences {
-    private var instrument: String? = null
-    private var order: String? = null
-    private var homeView: String? = null
-    private var spelling: NoteSpelling = NoteSpelling.DEFAULT
-
-    override fun lastInstrumentId(): String? = instrument
-    override fun rememberInstrument(instrumentId: String) { instrument = instrumentId }
-    override fun lastOrder(): String? = order
-    override fun rememberOrder(order: String) { this.order = order }
-    override fun homeViewId(): String? = homeView
-    override fun rememberHomeView(viewId: String) { homeView = viewId }
-    override fun noteSpelling(): NoteSpelling = spelling
-    override fun rememberNoteSpelling(spelling: NoteSpelling) { this.spelling = spelling }
 }

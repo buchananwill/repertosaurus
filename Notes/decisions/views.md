@@ -146,6 +146,10 @@ carries `song_id`, `logged_on`, `instrument_id`, `context_id`, `feel` and `note`
 because every logged event is the owner's. Staleness is therefore keyed on the practice
 instrument alone, and the filter is the only place a performer appears. Adding a performer to the
 sort would mean logging practice on someone else's behalf, which is a different product.
+**AMENDED 2026-09-23 by [triage.md](triage.md) T9:** this still holds for *staleness*. The
+triage sorts add a second input, the part's priority and confidence ratings, which **are**
+per performer. They are read for the View's filter performer, or else the owner performer. No
+event gains a performer.
 
 **V13.** **The instrument a View logs to is the instrument it measures staleness on** — one
 field, `practice_instrument_id`, not two. Today's chip already unifies log target and staleness

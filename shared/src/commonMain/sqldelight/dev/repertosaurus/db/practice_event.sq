@@ -17,25 +17,30 @@
 -- misdate a late-night session. Logging for a past date is available but demoted into a
 -- menu; it is never on the primary tap path.
 --
--- feel is 1-3 and optional (decision 46): a plain tap logs with feel null, long-press
--- opens the rating.
+-- feel is 0-3 and optional (decision 46; schema-3 M9): a plain tap logs with feel null,
+-- long-press opens the rating. Stored 1-3 values read on rating-scale RS3 unchanged.
+--
+-- duration_seconds (schema-3 M10): null is "logged by tap, untimed". A timer writes one new
+-- event carrying it, never an update (decision 7).
 
 CREATE TABLE practice_event (
-    id             TEXT NOT NULL PRIMARY KEY,
-    song_id        TEXT NOT NULL,
-    logged_on      TEXT NOT NULL,
-    instrument_id  TEXT NOT NULL,
-    context_id     TEXT,
-    feel           INTEGER,
-    note           TEXT,
+    id               TEXT NOT NULL PRIMARY KEY,
+    song_id          TEXT NOT NULL,
+    logged_on        TEXT NOT NULL,
+    instrument_id    TEXT NOT NULL,
+    context_id       TEXT,
+    feel             INTEGER,
+    note             TEXT,
+    duration_seconds INTEGER,
 
-    created_at     TEXT NOT NULL,
-    device_id      TEXT NOT NULL,
+    created_at       TEXT NOT NULL,
+    device_id        TEXT NOT NULL,
 
     FOREIGN KEY (song_id) REFERENCES song(id),
     FOREIGN KEY (instrument_id) REFERENCES instrument(id),
     FOREIGN KEY (context_id) REFERENCES practice_context(id),
-    CHECK (feel IS NULL OR feel BETWEEN 1 AND 3),
+    CHECK (feel IS NULL OR feel BETWEEN 0 AND 3),
+    CHECK (duration_seconds IS NULL OR duration_seconds BETWEEN 1 AND 86400),
     CHECK (logged_on GLOB '????-??-??'),
     CHECK (created_at GLOB '????-??-??T??:??:??.???Z')
 );
@@ -54,8 +59,9 @@ CREATE INDEX practice_event_logged ON practice_event(logged_on DESC);
 -- The primary tap path. One statement, no read first.
 insert:
 INSERT INTO practice_event(
-    id, song_id, logged_on, instrument_id, context_id, feel, note, created_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, song_id, logged_on, instrument_id, context_id, feel, note, duration_seconds,
+    created_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Live history for a song, voided events removed by left anti-join (decision 8).
 selectBySong:
@@ -67,7 +73,8 @@ SELECT
     practice_event.context_id,
     practice_context.name AS context_name,
     practice_event.feel,
-    practice_event.note
+    practice_event.note,
+    practice_event.duration_seconds
 FROM practice_event
 LEFT JOIN practice_event_void
        ON practice_event_void.practice_event_id = practice_event.id
@@ -141,5 +148,6 @@ ORDER BY created_at, device_id, id;
 -- The import side of a union merge: an id already present is the same event.
 applyMerged:
 INSERT OR IGNORE INTO practice_event(
-    id, song_id, logged_on, instrument_id, context_id, feel, note, created_at, device_id
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, song_id, logged_on, instrument_id, context_id, feel, note, duration_seconds,
+    created_at, device_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

@@ -1,13 +1,19 @@
 package dev.repertosaurus.android
 
 import android.content.Context
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.SongCatalog
+import dev.repertosaurus.session.DevicePreferences
+import dev.repertosaurus.session.InMemoryDevicePreferences
+import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupStores
+import dev.repertosaurus.session.SessionPreferences
 import kotlin.test.assertEquals
 
 /**
@@ -61,7 +67,7 @@ internal object EditingFixtures {
      */
     fun session(holder: DatabaseHolder): SessionViewModel {
         lateinit var model: SessionViewModel
-        onMain { model = SessionViewModel(holder, InMemoryPreferences(), TEST_DEVICE) }
+        onMain { model = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE) }
         awaitSession(model)
         return model
     }
@@ -75,5 +81,45 @@ internal object EditingFixtures {
         await("the logger and the capability editor") {
             !model.capabilities.value.busy && !model.state.value.loading
         }
+    }
+
+    /**
+     * **Every ViewModel [RepertosaurusApp] takes, over [holder]** (style review F9 N4), built on the
+     * main thread. Not waited on: a boot against a broken database never settles into a loaded
+     * logger, so each test waits for what it expects.
+     */
+    fun app(
+        holder: DatabaseHolder,
+        preferences: SessionPreferences = InMemorySessionPreferences(),
+        device: DevicePreferences = InMemoryDevicePreferences(),
+    ): AppModels {
+        lateinit var app: AppModels
+        onMain {
+            app = AppModels(
+                session = SessionViewModel(holder, preferences, TEST_DEVICE),
+                // The editing routes' ViewModels read nothing until their screen is entered.
+                repertoire = RepertoireViewModel(holder),
+                songs = SongsViewModel(holder),
+                artists = ArtistsViewModel(holder),
+                settings = DeviceSettings(device),
+            )
+        }
+        return app
+    }
+}
+
+/** What [EditingFixtures.app] builds. */
+internal class AppModels(
+    val session: SessionViewModel,
+    val repertoire: RepertoireViewModel,
+    val songs: SongsViewModel,
+    val artists: ArtistsViewModel,
+    val settings: DeviceSettings,
+)
+
+/** Compose the whole app over [app], as `MainActivity` does. */
+internal fun ComposeContentTestRule.setApp(app: AppModels) {
+    setContent {
+        MaterialTheme { RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings) }
     }
 }

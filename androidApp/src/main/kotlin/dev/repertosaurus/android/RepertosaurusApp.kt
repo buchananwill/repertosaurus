@@ -20,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,6 +112,9 @@ internal object DrawerTags {
     /** Repertoire-editing R40-R42: the note spelling toggle. */
     const val NOTE_SPELLING: String = "drawer-note-spelling"
     const val NOTE_SPELLING_SWITCH: String = "drawer-note-spelling-switch"
+
+    /** Rating-scale RS16: opens the colour ramp picker. */
+    const val COLOUR_RAMP: String = "drawer-colour-ramp"
 }
 
 /**
@@ -145,13 +149,16 @@ public fun RepertosaurusApp(
     repertoire: RepertoireViewModel,
     songs: SongsViewModel,
     artists: ArtistsViewModel,
+    settings: DeviceSettings,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var route by remember { mutableStateOf(Route.SESSION) }
     val databaseState by viewModel.databaseState.collectAsState()
-    val noteSpelling by viewModel.noteSpelling.collectAsState()
+    val noteSpelling by settings.noteSpelling.collectAsState()
+    val colourRamp by settings.colourRamp.collectAsState()
+    var pickingRamp by remember { mutableStateOf(false) }
 
     val close = { scope.launch { drawerState.close() } }
 
@@ -208,152 +215,191 @@ public fun RepertosaurusApp(
     BackHandler(enabled = drawerState.isOpen) { close() }
     BackHandler(enabled = !drawerState.isOpen && route != Route.SESSION) { toLogger() }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = drawerState.isOpen,
-        drawerContent = {
-            // Seven lookup entries plus export and import overflow a short phone, and the
-            // drawer's own scroll is vertical while the gesture E28 disables is horizontal —
-            // the two do not compete.
-            //
-            // **The scroll goes on the content, not on the sheet.** `ModalDrawerSheet` applies
-            // `fillMaxHeight()` *after* the caller's modifier, so a `verticalScroll` out here
-            // measures its child under an infinite height constraint and the fill has nothing
-            // left to fill: the panel shrink-wraps its content instead of covering the screen,
-            // and the scroll itself never engages because the viewport is as tall as the
-            // content. The symptom is screen-size and font-scale dependent, which is exactly
-            // how it survived being looked at.
-            ModalDrawerSheet {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Repertosaurus", style = MaterialTheme.typography.headlineSmall)
-                        Text(
-                            "Offline. This phone holds the only copy.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    // First item, and still in the top bar: until sync exists, the exported
-                    // file is the only backup that exists anywhere.
-                    NavigationDrawerItem(
-                        label = { Text("Export database") },
-                        selected = false,
-                        onClick = {
-                            close()
-                            export()
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-
-                    // Repertoire-editing R27: the three routes that reach the database outside
-                    // a logger View. "Better too many routes than anything inaccessible" — which
-                    // of them is foregrounded is decided later, from use.
-                    for (target in Route.EDITING) {
-                        NavigationDrawerItem(
-                            label = { Text(target.label.orEmpty()) },
-                            selected = route == target,
-                            onClick = {
-                                close()
-                                route = target
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                    }
-
-                    // Repertoire-editing R40-R42: a toggle in the drawer itself, not a route —
-                    // one switch needs no screen. It leaves the drawer open so the flip is seen.
-                    val simplified = noteSpelling == NoteSpelling.SIMPLIFIED
-                    val flipSpelling = {
-                        viewModel.setNoteSpelling(
-                            if (simplified) NoteSpelling.AS_WRITTEN else NoteSpelling.SIMPLIFIED,
-                        )
-                    }
-                    NavigationDrawerItem(
-                        // One line: the drawer item is a fixed 56dp, and a second line is clipped.
-                        label = { Text("Simplify F♯♯ to G") },
-                        badge = {
-                            Switch(
-                                checked = simplified,
-                                onCheckedChange = { flipSpelling() },
-                                modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING_SWITCH),
-                            )
-                        },
-                        selected = false,
-                        onClick = flipSpelling,
-                        modifier = Modifier.padding(horizontal = 12.dp).testTag(DrawerTags.NOTE_SPELLING),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Text(
-                        "Advanced",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 16.dp),
-                    )
-
-                    // E26: **the drawer is the only menu of routes, and every manageable kind
-                    // is in it**, so "where do I edit X" has one answer rather than a scavenger
-                    // hunt through long-presses. Driven off the `Route` entries (F17 N4), and
-                    // `Route.of` is exhaustive over `LookupKind`, so adding a kind without a
-                    // route — and so without a drawer entry — is a compile error.
-                    //
-                    // E19 is worth remembering at the Practice contexts entry: it manages the
-                    // *vocabulary* and nothing else. The app still cannot attach a context to a
-                    // logged event — that is a change on the logging path, and the drawer entry
-                    // is not the feature.
-                    for (target in Route.LOOKUPS) {
-                        NavigationDrawerItem(
-                            label = { Text(target.label.orEmpty()) },
-                            selected = route == target,
-                            onClick = {
-                                close()
-                                route = target
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                        )
-                    }
-
-                    NavigationDrawerItem(
-                        label = { Text("Replace database from file") },
-                        selected = false,
-                        onClick = {
-                            close()
-                            import()
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-                }
+    CompositionLocalProvider(LocalColourRamp provides colourRamp) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = drawerState.isOpen,
+            drawerContent = {
+                AppDrawerContent(
+                    route = route,
+                    noteSpelling = noteSpelling,
+                    onNavigate = { target ->
+                        close()
+                        route = target
+                    },
+                    onExport = {
+                        close()
+                        export()
+                    },
+                    onImport = {
+                        close()
+                        import()
+                    },
+                    onNoteSpelling = settings::setNoteSpelling,
+                    onColourRamp = {
+                        close()
+                        pickingRamp = true
+                    },
+                )
+            },
+        ) {
+            // E24: every `onBack` and the back handler above land on `Route.SESSION`, never on
+            // another route, and R26 reloads the logger on the way. A drill-down inside a route has
+            // its own back handler, composed below this one's and so consulted first.
+            when (route) {
+                Route.SESSION -> SessionScreen(
+                    viewModel = viewModel,
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onExport = { export() },
+                )
+                Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, onBack = toLogger)
+                Route.SONGS -> SongsScreen(
+                    viewModel = songs,
+                    session = viewModel,
+                    settings = settings,
+                    onBack = toLogger,
+                )
+                Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
+                // One screen serves every lookup kind (E13, E18); the route only says which.
+                Route.INSTRUMENTS,
+                Route.PERFORMERS,
+                Route.TAGS,
+                Route.GROOVES,
+                Route.VENUES,
+                Route.BANDS,
+                Route.PRACTICE_CONTEXTS,
+                -> ManageLookupScreen(
+                    viewModel = viewModel,
+                    kind = checkNotNull(route.lookup) { "$route is a lookup route with no kind" },
+                    onBack = toLogger,
+                )
             }
-        },
-    ) {
-        // E24: every `onBack` and the back handler above land on `Route.SESSION`, never on
-        // another route, and R26 reloads the logger on the way. A drill-down inside a route has
-        // its own back handler, composed below this one's and so consulted first.
-        when (route) {
-            Route.SESSION -> SessionScreen(
-                viewModel = viewModel,
-                onOpenDrawer = { scope.launch { drawerState.open() } },
-                onExport = { export() },
-            )
-            Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, onBack = toLogger)
-            Route.SONGS -> SongsScreen(viewModel = songs, session = viewModel, onBack = toLogger)
-            Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
-            // One screen serves every lookup kind (E13, E18); the route only says which.
-            Route.INSTRUMENTS,
-            Route.PERFORMERS,
-            Route.TAGS,
-            Route.GROOVES,
-            Route.VENUES,
-            Route.BANDS,
-            Route.PRACTICE_CONTEXTS,
-            -> ManageLookupScreen(
-                viewModel = viewModel,
-                kind = checkNotNull(route.lookup) { "$route is a lookup route with no kind" },
-                onBack = toLogger,
+        }
+
+        // RS16.
+        if (pickingRamp) {
+            ColourRampPicker(
+                onSelect = { ramp ->
+                    settings.setColourRamp(ramp)
+                    pickingRamp = false
+                },
+                onDismiss = { pickingRamp = false },
             )
         }
     }
 }
 
+/**
+ * The drawer's items (style review F9 B7). Every callback that leaves the drawer closes it first;
+ * that is the caller's, so this only lays the items out.
+ *
+ * Seven lookup entries plus export and import overflow a short phone, and the drawer's own scroll
+ * is vertical while the gesture E28 disables is horizontal — the two do not compete.
+ *
+ * **The scroll goes on the content, not on the sheet.** `ModalDrawerSheet` applies
+ * `fillMaxHeight()` *after* the caller's modifier, so a `verticalScroll` out there measures its
+ * child under an infinite height constraint and the fill has nothing left to fill: the panel
+ * shrink-wraps its content instead of covering the screen, and the scroll itself never engages
+ * because the viewport is as tall as the content. The symptom is screen-size and font-scale
+ * dependent, which is exactly how it survived being looked at.
+ */
+@Composable
+private fun AppDrawerContent(
+    route: Route,
+    noteSpelling: NoteSpelling,
+    onNavigate: (Route) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onNoteSpelling: (NoteSpelling) -> Unit,
+    onColourRamp: () -> Unit,
+) {
+    ModalDrawerSheet {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Repertosaurus", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "Offline. This phone holds the only copy.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // First item, and still in the top bar: until sync exists, the exported file is the
+            // only backup that exists anywhere.
+            DrawerItem("Export database", onClick = onExport)
+
+            // Repertoire-editing R27: the three routes that reach the database outside a logger
+            // View. "Better too many routes than anything inaccessible" — which of them is
+            // foregrounded is decided later, from use.
+            for (target in Route.EDITING) {
+                DrawerItem(target.label.orEmpty(), onClick = { onNavigate(target) }, selected = route == target)
+            }
+
+            // Repertoire-editing R40-R42: a toggle in the drawer itself, not a route — one switch
+            // needs no screen. It leaves the drawer open so the flip is seen.
+            val simplified = noteSpelling == NoteSpelling.SIMPLIFIED
+            val flipSpelling = {
+                onNoteSpelling(if (simplified) NoteSpelling.AS_WRITTEN else NoteSpelling.SIMPLIFIED)
+            }
+            DrawerItem(
+                // One line: the drawer item is a fixed 56dp, and a second line is clipped.
+                "Simplify F♯♯ to G",
+                onClick = flipSpelling,
+                modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING),
+                badge = {
+                    Switch(
+                        checked = simplified,
+                        onCheckedChange = { flipSpelling() },
+                        modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING_SWITCH),
+                    )
+                },
+            )
+
+            // Rating-scale RS16. Three ramps with swatches need more room than a switch, so this
+            // opens a sheet.
+            DrawerItem("Colour ramp", onClick = onColourRamp, modifier = Modifier.testTag(DrawerTags.COLOUR_RAMP))
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider()
+            Text(
+                "Advanced",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 16.dp),
+            )
+
+            // E26: **the drawer is the only menu of routes, and every manageable kind is in it**,
+            // so "where do I edit X" has one answer rather than a scavenger hunt through
+            // long-presses. Driven off the `Route` entries (F17 N4), and `Route.of` is exhaustive
+            // over `LookupKind`, so adding a kind without a route — and so without a drawer
+            // entry — is a compile error.
+            //
+            // E19 is worth remembering at the Practice contexts entry: it manages the *vocabulary*
+            // and nothing else. The app still cannot attach a context to a logged event — that is
+            // a change on the logging path, and the drawer entry is not the feature.
+            for (target in Route.LOOKUPS) {
+                DrawerItem(target.label.orEmpty(), onClick = { onNavigate(target) }, selected = route == target)
+            }
+
+            DrawerItem("Replace database from file", onClick = onImport)
+        }
+    }
+}
+
+/** One drawer row, inset as every row is. */
+@Composable
+private fun DrawerItem(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    badge: (@Composable () -> Unit)? = null,
+) {
+    NavigationDrawerItem(
+        label = { Text(label) },
+        selected = selected,
+        onClick = onClick,
+        badge = badge,
+        modifier = modifier.padding(horizontal = 12.dp),
+    )
+}

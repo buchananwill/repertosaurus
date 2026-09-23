@@ -179,7 +179,7 @@ class SongMergeFlowTest {
         val record = fixture.holder.repository.catalog.song(itOff.id)!!
         val fields = (SongDraft.from(record).copy(keySignature = 6, tonalCentre = 7).validate() as SongDraftValidation.Valid).fields
         assertTrue(fixture.holder.repository.catalog.updateSong(itOff.id, fields) is SongCatalog.SongSave.Saved)
-        assertEquals(NoteSpelling.SIMPLIFIED, fixture.session.noteSpelling.value, "R41: simplified by default")
+        assertEquals(NoteSpelling.SIMPLIFIED, fixture.route.settings.noteSpelling.value, "R41: simplified by default")
 
         openDetail(fixture, itOff)
         val g = SongDetailTags.choice(SongField.TONAL_CENTRE, SongDraft.TONAL_CENTRE_CHOICES.indexOf(7))
@@ -199,7 +199,7 @@ class SongMergeFlowTest {
     // ---- Harness -------------------------------------------------------------------------
 
     private fun spell(fixture: Fixture, spelling: NoteSpelling) {
-        onMain { fixture.session.setNoteSpelling(spelling) }
+        onMain { fixture.route.settings.setNoteSpelling(spelling) }
         compose.waitForIdle()
     }
 

@@ -156,6 +156,15 @@ N11 asks for:
 The same restraint suits the app, which must stay fast and legible on a music stand in bad light.
 Whatever is beautiful must also be readable at a glance, mid-song.
 
+**Added by the user, 2026-09-23, after seeing the first mockups:** the look should be bold and
+rectilinear, with hard shadows, and carry **texture**: something hand-made and organic. The
+deeper theme, in their words: "Music is maybe the oldest art we have. Birds sing. Humans probably
+made music before they fully had language or painting, definitely before we had writing.
+Repertosaurus needs to evoke some of that ancient tradition. … 'tradition' comes from 'handing
+on', so we want to make the user feel like they're part of a tradition, holding hands with
+musicians since humans began." **It must not look like the Anthropic brand** (warm ivory, clay
+accent, serif over sans).
+
 The fossil metaphor is there to be used, lightly. Songs going cold can *look* like they are
 settling into stone, and a well-worked song can look warm and alive. Colour does most of this
 work, which is why colour is the user's to choose.
@@ -168,6 +177,12 @@ blue**. Others will want **danger-red rising to safe green**, or **cold blue ris
 The ramp is therefore **a user setting in the menu**, applied consistently wherever a 0–3 value
 or a heat is shown. The same number always wears the same colour within one ramp. No ramp relies
 on colour alone: position and label carry the meaning too.
+
+**Updated by the user, 2026-09-23, after seeing the three ramps rendered:**
+- all three are good;
+- **danger-red rising to safe green is the default**;
+- **choosing a ramp is one of the questions a new musician is asked when they first open the
+  app.** It stays in the menu afterwards.
 
 ## What this is not
 

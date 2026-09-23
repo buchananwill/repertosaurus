@@ -60,13 +60,18 @@ internal object SongsTags {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-public fun SongsScreen(viewModel: SongsViewModel, session: SessionViewModel, onBack: () -> Unit) {
+public fun SongsScreen(
+    viewModel: SongsViewModel,
+    session: SessionViewModel,
+    settings: DeviceSettings,
+    onBack: () -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     val merge by viewModel.merge.collectAsState()
     val capabilities by session.capabilities.collectAsState()
     val sessionState by session.state.collectAsState()
     val performers by session.performers.collectAsState()
-    val spelling by session.noteSpelling.collectAsState()
+    val spelling by settings.noteSpelling.collectAsState()
 
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
     var adding by rememberSaveable { mutableStateOf(false) }

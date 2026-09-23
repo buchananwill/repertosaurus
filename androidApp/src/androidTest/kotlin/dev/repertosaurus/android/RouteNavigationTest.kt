@@ -1,7 +1,6 @@
 package dev.repertosaurus.android
 
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -11,9 +10,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.SampleData
+import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
 import org.junit.After
@@ -118,7 +117,7 @@ class RouteNavigationTest {
         val name = "navigation-test-$suffix.db".also { names += it }
         val holder = EditingFixtures.holder(context, name)
         val coralie = EditingFixtures.performer(holder, "Coralie")
-        val preferences = InMemoryPreferences()
+        val preferences = InMemorySessionPreferences()
         // V20: with no home set, the logger opens on the first saved View — this one.
         ViewCoordinator(holder.repository, preferences).createView(
             name = "Coralie sings",
@@ -126,24 +125,16 @@ class RouteNavigationTest {
             practiceInstrumentId = SampleData.VOCAL,
         )
 
-        lateinit var fixture: Fixture
-        lateinit var artists: ArtistsViewModel
-        onMain {
-            fixture = Fixture(
-                holder = holder,
-                session = SessionViewModel(holder, preferences, TEST_DEVICE),
-                repertoire = RepertoireViewModel(holder),
-                songs = SongsViewModel(holder),
-                coralie = coralie,
-            )
-            artists = ArtistsViewModel(holder)
-        }
+        val app = EditingFixtures.app(holder, preferences)
+        val fixture = Fixture(
+            holder = holder,
+            session = app.session,
+            repertoire = app.repertoire,
+            songs = app.songs,
+            coralie = coralie,
+        )
         await("the logger") { !fixture.session.state.value.loading && fixture.session.state.value.view != null }
-        compose.setContent {
-            MaterialTheme {
-                RepertosaurusApp(fixture.session, fixture.repertoire, fixture.songs, artists)
-            }
-        }
+        compose.setApp(app)
         compose.waitForIdle()
         return fixture
     }

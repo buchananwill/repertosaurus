@@ -10,12 +10,15 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.SongCatalog
+import dev.repertosaurus.session.InMemoryDevicePreferences
+import dev.repertosaurus.session.InMemorySessionPreferences
 
 /** One Songs route under test: its database and the two ViewModels the screen is driven by (R18). */
 internal class SongsRoute(
     val holder: DatabaseHolder,
     val songs: SongsViewModel,
     val session: SessionViewModel,
+    val settings: DeviceSettings,
 )
 
 /**
@@ -43,18 +46,22 @@ internal class SongsRouteHarness(private val compose: ComposeContentTestRule, pr
         setUp(holder)
         lateinit var songs: SongsViewModel
         lateinit var session: SessionViewModel
+        lateinit var settings: DeviceSettings
         onMain {
             songs = SongsViewModel(holder)
-            session = SessionViewModel(holder, InMemoryPreferences(), TEST_DEVICE)
+            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE)
+            settings = DeviceSettings(InMemoryDevicePreferences())
         }
         compose.awaitUntil("the logger") { !session.state.value.loading }
-        return SongsRoute(holder, songs, session)
+        return SongsRoute(holder, songs, session, settings)
     }
 
     /** Compose the Songs screen over [route] and wait for its list. */
     fun show(route: SongsRoute) {
         compose.setContent {
-            MaterialTheme { SongsScreen(viewModel = route.songs, session = route.session, onBack = {}) }
+            MaterialTheme {
+                SongsScreen(viewModel = route.songs, session = route.session, settings = route.settings, onBack = {})
+            }
         }
         shown = route
         compose.awaitUntil("the list") { route.songs.state.value.songs.isNotEmpty() }

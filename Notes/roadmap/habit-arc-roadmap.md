@@ -89,8 +89,9 @@ parallel lane.
 | G7 | **"Reliable day"** | A day with at least one non-voided log. Weekday reliability is the share of that weekday, over the window, that has one. Minutes shading is added after the timer. | P6 | Soft |
 | G8 | **Timer placement** | Start from the long-press sheet (never on the tap). A running timer shows as one persistent bar at the top of the session screen. Its start time persists across process death. | P11 | Soft |
 | G9 | **Does feel feed triage?** | No, not in v1. Triage uses priority, confidence and days-since. | P7 | Soft |
-| G10 | **Beauty direction** | None. This is explored with the user. | P13 | **Hard** |
+| G10 | **Beauty direction** | None. This is explored with the user. **Ramps ruled 2026-09-23** (session 11, D36): all three are approved and `DANGER_TO_SAFE` is the default. The overall look (ground, accent, type) is still open. | P13 | **Hard** (for the look only) |
 | G11 | Fast-forward `main`, and adopt Piste Perfect's full notes schema? | Leave `main` alone. Keep this schema. | nothing | User's call |
+| G12 | **Whose ratings does a View read when it names no performer?** Ratings belong to a song–performer–role, but a View may filter on no performer (journal session 11, F4). | The View's filter performer when set. Otherwise an **owner performer** ("me"): a device preference, asked for once, the first time a feature needs it. Until it is set, the priority and confidence inputs are simply absent. | P4 (v2 spokes), P7 | Soft |
 
 ## 5. Packages
 
@@ -151,7 +152,9 @@ G5 (soft).
 
 **P5. Suggest v1** (impl) 📱. The core weighting with the coldness and hotness spokes. The
 Suggest button and suggestion card on the session screen. The radar control with the unimplemented
-spokes absent (not disabled). Skips are always discarded in v1. **Owns the hot files** while in
+spokes ~~absent (not disabled)~~ **drawn but locked at zero, greyed, with the reason shown**
+(AMENDED 2026-09-23 by [suggest.md](../decisions/suggest.md) SG11: a two-spoke radar is a
+line, not an instrument). Skips are always discarded in v1. **Owns the hot files** while in
 flight. Depends on: P4, P3.
 
 **P6. Scorecards v1** (spec + impl) 📱. A new route from the drawer showing:
@@ -169,6 +172,8 @@ or to all instruments, per a toggle. The tone is encouraging: gaps are neutral, 
 - the ratings editor, placed on the Repertoire route's performer → role → song list
   ([RepertoireScreen.kt](../../androidApp/src/main/kotlin/dev/repertosaurus/android/RepertoireScreen.kt)
   `ToggleListScreen`), with one priority control and one confidence control per enabled part;
+- **A–Z pagination (one letter a page, with a letter strip), search, and an unrated or rated
+  filter**, for both the ratings editor and the toggle list (journal session 11, D40);
 - the blend of days-since, priority and confidence;
 - the G1 sorts as new `SessionOrder` entries.
 
@@ -176,7 +181,8 @@ Depends on: P1 (P7 may be written while P2 is in flight).
 
 **P8. Ratings editor** (impl) 📱. Depends on: P2, P3, P7. It does not touch the hot files.
 
-**P9. Triage sort + Suggest v2** (impl) 📱. This adds:
+**P9. Triage sort + Suggest v2** (impl) 📱. It also fixes journal session 11's F7: a sort change
+scrolls the list to the top. This adds:
 - the triage `SessionOrder` entries and their comparator (shared core, with null-handling
   tests per V14);
 - the priority, confidence and skips spokes;
@@ -196,6 +202,26 @@ and merged by the lead. Depends on: P2, P10.
 **P12. Scorecards v2** (impl). Shades by minutes where timed data exists, falling back to count.
 A per-song history shows minutes accumulating. Depends on: P6, P11.
 
+### Onboarding
+
+**P14. First-run onboarding** (spec + impl) 📱. Added 2026-09-23 on the user's ruling (journal
+session 11, D37).
+
+It is a short, **skippable** sequence of questions, shown once, before the session screen on an
+install that has not completed it. It asks:
+- **the colour ramp**, as three rendered choices with `DANGER_TO_SAFE` preselected;
+- **which performer is "me"**: the owner performer that G12 needs, chosen from the roster or
+  skipped.
+
+Every question has a default, and **skipping all of it costs one tap**. Nothing in it blocks
+logging (the obligation test). Every answer stays changeable from the drawer.
+
+The spec must decide what an existing install sees: the user's phone already has data. The lead's
+lean is to show it once there too, because the user is the one person who can check it.
+
+Depends on: P3 (the ramp picker is reused). It does **not** touch the hot files: it is a separate
+route shown before the session screen.
+
 ### Beauty
 
 **P13a. Beauty exploration** (with the user, starting now). Visual mockups as artifacts, not
@@ -206,7 +232,14 @@ code:
 The lead produces them and the user rules. Depends on: nothing. **Hard-gated on G10 for anything
 beyond mockups.**
 
-**P13. Theme implementation** (impl) 📱. A Material theme and tokens, the brand palette and
+**P13b. Theme foundation** (impl) 📱. Added 2026-09-23 (journal session 11, D49), after the
+user approved the round 3 look. It builds tokens, fonts, square shapes, hard shadows, grain, the
+header gradient and the hand mark as Compose primitives, and restyles the session screen. The
+contract is [visual-identity.md](../decisions/visual-identity.md). **It owns the hot files, so
+it runs before P5.** Every later UI package builds on its primitives. Depends on: P3.
+
+**P13. Theme implementation** (impl) 📱. **AMENDED 2026-09-23: it is now the closing polish pass
+over what P13b did not restyle.** A Material theme and tokens, the brand palette and
 typography, applied across screens that have stopped moving. Depends on: P13a ruled, P8, P9, P11.
 
 ## 6. Status board
@@ -215,28 +248,34 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 
 | Pkg | What | Kind | Depends on | Gates | Status |
 |---|---|---|---|---|---|
-| P1 | Schema-3 spec | spec | — | G1 answered; G2, G3, G6 soft | **frontier** (unblocked) |
-| P2 | Schema-3 impl | impl | P1 | — | blocked |
-| P3 | Rating vocabulary + ramp primitive | spec+impl | — | — | **frontier** |
-| P4 | Suggest spec | spec | — | G4, G5 soft | **frontier** |
-| P5 | Suggest v1 📱 | impl | P3, P4 | — | blocked |
-| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | blocked (on P3 only) |
-| P7 | Triage spec | spec | P1 | G9 soft | blocked |
+| P1 | Schema-3 spec | spec | — | G1 answered; G2, G3, G6 soft | **done**: [schema-3.md](../decisions/schema-3.md) |
+| P2 | Schema-3 impl | impl | P1, P3 (for `RatingLevel` and the emulator; journal session 11, D31) | — | **complete, green, awaiting commit** (journal session 11, D48) |
+| P3 | Rating vocabulary + ramp primitive | spec+impl | — | — | **complete, green, awaiting commit**: spec [rating-scale.md](../decisions/rating-scale.md) (journal session 11, D48) |
+| P4 | Suggest spec | spec | — | G4, G5 soft | **done**: [suggest.md](../decisions/suggest.md) (defaults adopted) |
+| P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | blocked on P13b |
+| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); impl blocked on P3 |
+| P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
 | P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | blocked |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
 | P10 | Timer spec | spec | P1 | G8 soft | blocked |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |
-| P13a | Beauty exploration | with the user | — | — | **frontier** |
+| P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); impl ready once P3 is committed |
+| P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **frontier**: spec [visual-identity.md](../decisions/visual-identity.md); dispatch after the commit |
+| P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |
 | P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard | blocked |
 
-**Critical path:** P1 → P2 → P9 → P11 → P13. P7 and P10 are written alongside P2, so they are off
+**Critical path (amended 2026-09-23):** P1 → P2 ✓ → P13b → P5 → P9 → P11 → P13. After
+P13b, P6, P8 and P14 run in parallel with P5, because none of them owns the hot files.
+**Superseded:** P1 → P2 → P9 → P11 → P13. P7 and P10 are written alongside P2, so they are off
 the path.
 
 ## 7. Explicitly out of this arc
 
 - Sync (phase 2) and its prerequisites from journal session 09 §4, item 4. Schema 3 must not make
-  them harder: every new table follows data-model 9–11.
+  them harder: every new table follows data-model 9–11. **Carried to the sync spec** (journal
+  session 11, F14 N2): `part_rating` and `song_performer` have unique keys that are not their
+  ids, so a merge must compare by key before `applyMerged`'s `INSERT OR REPLACE`.
 - A spaced-repetition scheduler, notifications, and streak-loss mechanics (the vision's "What this
   is not").
 - Per-View radar tuning (G6 default), and set-list-scoped Views (views.md §3).

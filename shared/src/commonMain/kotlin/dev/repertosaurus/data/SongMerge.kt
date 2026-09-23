@@ -40,6 +40,7 @@ public class SongMerge internal constructor(
     private val newId: () -> String,
     private val catalog: SongCatalog,
     private val children: SongChildren,
+    private val ratings: PartRatingStore,
 ) {
 
     // ---- Row and result types -----------------------------------------------------------
@@ -69,6 +70,8 @@ public class SongMerge internal constructor(
         val instrumentName: String?,
         val feel: Long?,
         val note: String?,
+        /** Null for a tap-logged, untimed event (schema-3 M10). */
+        val durationSeconds: Long?,
     )
 
     /**
@@ -137,7 +140,7 @@ public class SongMerge internal constructor(
             record = record,
             children = SongChildKey.entries.flatMap { key -> liveRows(key, songId).map { child(key, it) } },
             events = database.practice_eventQueries.selectLiveRowsBySong(songId).executeAsList().map {
-                Event(it.id, it.logged_on, it.instrument_id, it.instrument_name, it.feel, it.note)
+                Event(it.id, it.logged_on, it.instrument_id, it.instrument_name, it.feel, it.note, it.duration_seconds)
             },
             setlistItems = database.setlist_itemQueries.countLiveBySong(songId).executeAsOne(),
         )
@@ -161,6 +164,7 @@ public class SongMerge internal constructor(
      * 2. **R34:** the survivor's row is written with the picked fields ([SongCatalog.updateSong]);
      * 3. **R35 / R38a:** per child table, every key the user deselected is removed from the
      *    survivor, and every live loser row is carried (unless deselected, R38b) and then removed;
+     *    ratings follow the same rule ([mergeRatings], schema-3 M20);
      * 4. **R32 / R33:** every live loser event is voided, and each one not dropped is appended to
      *    the survivor as a new row with a new random id, keeping `created_at`;
      * 5. **R37:** live set-list items on the loser are re-pointed to the survivor;
@@ -203,6 +207,9 @@ public class SongMerge internal constructor(
         // R35 / R38a: the children, table by table, through the envelope.
         val carried = SongChildKey.entries.sumOf { key -> mergeChildren(key, request) }
 
+        // Schema-3 M20.
+        mergeRatings(survivorId, loserId)
+
         // R32 / R33: void on the loser, append to the survivor.
         val events = database.practice_eventQueries.selectLiveRowsBySong(loserId).executeAsList()
         val now = Timestamps.now(clock)
@@ -223,6 +230,8 @@ public class SongMerge internal constructor(
                 context_id = event.context_id,
                 feel = event.feel,
                 note = event.note,
+                // Schema-3 M20: a column not named here is silently dropped.
+                duration_seconds = event.duration_seconds,
                 // R32: the same act of practice, so every "last practised" and ordering read
                 // treats the copy exactly as the original.
                 created_at = event.created_at,
@@ -273,6 +282,30 @@ public class SongMerge internal constructor(
             removeOrThrow(key, row.id)
         }
         return carried
+    }
+
+    /**
+     * **Schema-3 M20: the loser's live ratings, by [carry]'s rule.** A live survivor rating wins;
+     * a tombstoned or absent one takes the loser's level (reviving in place, M7). Each loser rating
+     * is then cleared, so the loser ends with none live (R38a). A row [PartRatingStore.decode]
+     * cannot read is skipped, not thrown on (S8). Skips are not carried: "since last practised" on
+     * the survivor comes from its own events.
+     */
+    private fun mergeRatings(survivorId: String, loserId: String) {
+        val now = Timestamps.now(clock)
+        val queries = database.part_ratingQueries
+        for (row in queries.selectBySong(loserId).executeAsList()) {
+            val stored = ratings.decode(row) ?: continue
+            if (!stored.live) continue
+            val onSurvivor = queries.selectByKey(survivorId, row.performer_id, row.instrument_id, row.kind)
+                .executeAsOneOrNull()
+            if (onSurvivor == null || onSurvivor.deleted_at != null) {
+                ratings.write(stored.part.copy(songId = survivorId), stored.kind, stored.level, now)
+            }
+            if (!ratings.write(stored.part, stored.kind, level = null, now = now)) {
+                throw MergeRefused(Refusal.NOT_WRITTEN)
+            }
+        }
     }
 
     /**

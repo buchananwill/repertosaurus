@@ -2,6 +2,7 @@ package dev.repertosaurus.session
 
 import dev.repertosaurus.core.Keys
 import dev.repertosaurus.core.NoteSpelling
+import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.JunctionWrite
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.Resolution
@@ -42,6 +43,12 @@ public data class Notice(val text: String, val channel: Channel) {
  * gone is gone.
  */
 public object Messages {
+
+    // ---- The logger (rating-scale RS14) ---------------------------------------------------
+
+    /** The undo snackbar: "Logged Jolene · feel: certainly". */
+    public fun logged(title: String, feel: RatingLevel?): String =
+        "Logged $title" + (feel?.let { " · feel: ${it.label}" } ?: "")
 
     // ---- Adding a song (R21-R23a) ---------------------------------------------------------
 

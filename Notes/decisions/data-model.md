@@ -139,7 +139,8 @@ It is equally a design error to make a table out of something that does not repe
     three decimal places, always literal `Z`. Variable precision breaks string comparison —
     `...:00Z` sorts after `...:00.500Z` because `Z` > `.`.
 11. The merge rules, in full. There are two and there must never be a third:
-    - **Append-only tables** (`practice_event`, `practice_event_void`) merge by **union on id**.
+    - **Append-only tables** (`practice_event`, `practice_event_void`, and since schema 3
+      `suggestion_skip`, per [schema-3.md](schema-3.md) M13) merge by **union on id**.
     - **Every other table** merges **last-write-wins per row**, ordered by
       `(updated_at, device_id, id)`, with a tombstone winning a tie against a live row.
 12. The `device_id` and `id` components of decision 11 are not decoration. Without a total
@@ -315,13 +316,16 @@ It is equally a design error to make a table out of something that does not repe
 
 44. The high-frequency table and the reason the product exists. Columns: `id`, `song_id`,
     `logged_on` (date), `instrument_id`, `context_id`, `feel`, `note`, `created_at`,
-    `device_id`.
+    `device_id`. **Schema 3 adds `duration_seconds` (nullable, 1–86400)**, where null means an
+    untimed tap ([schema-3.md](schema-3.md) M10).
 45. `logged_on TEXT NOT NULL` defaults to today. Logging for a past date is available but
     demoted into a menu; it must never be on the primary tap path.
 45a. **`context_id` is nullable.** A one-tap log must never require a second chip. The app
     writes the session's context when the user has set one and null otherwise; a null context
     reads as "just practising" and is not an error.
-46. `feel INTEGER NULL` is 1–3, optional. **Surfaced as long-press on the row, not as an extra
+46. `feel INTEGER NULL` is ~~1–3~~ **0–3 since schema 3** ([schema-3.md](schema-3.md) M9;
+    read on [rating-scale.md](rating-scale.md)'s scale, with stored values never rewritten), and
+    optional. **Surfaced as long-press on the row, not as an extra
     step in the tap path.** A plain tap logs with `feel` null; long-press opens the rating.
     Day-one affordance, not a later addition.
 47. **No uniqueness constraint on `(song_id, logged_on, instrument_id)`.** Working the same
