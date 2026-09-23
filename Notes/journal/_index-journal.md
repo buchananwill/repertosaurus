@@ -12,6 +12,16 @@ The chronological thread of leadership, newest first. Entries are append-only an
 edited to reflect later understanding — a decision that was later reversed stays written as it
 was made, and the reversal is recorded where it happened.
 
+- [2026-09-23 — Session 11: The Habit Arc Gets a Roadmap](2026-09-23-session-11.md)
+  — [habit-arc-roadmap.md](../roadmap/habit-arc-roadmap.md) is written: 14 packages, 11 gates and
+  a live status board, run by a frontier rule so the arc keeps moving without the user having to
+  restart it. Schema 3 is the single keystone migration. Suggest v1, Scorecards v1 and the ramp
+  primitive ship ahead of it.
+  - Only two gates block work: G1 (the triage sort names, because they fix a CHECK, F1) and G10
+    (beauty).
+  - Measured: 386 shared tests, 0 failures.
+  - Read §4 first.
+
 - [2026-09-23 — Session 10: From Logger to Nudger, the Habit Arc Opens](2026-09-23-session-10.md)
   — The user's five-point direction, recorded in their words: suggest a song, timed practice,
   habit scorecards, UI beauty, and a triage sort driven by two 0–3 ratings (priority, confidence).

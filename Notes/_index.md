@@ -23,6 +23,9 @@ fresh context needs to resume.
 ### [Vision](vision/_index-vision.md)
 Where the product should arrive and why, including its aesthetics, before specs narrow it.
 
+### [Roadmap](roadmap/_index-roadmap.md)
+The lead's plan for an active vision: packages, dependencies, gates and a live status board.
+
 ### [Decisions](decisions/_index-decisions.md)
 Contracts implementers execute against. The schema and, in time, the sync protocol.
 
