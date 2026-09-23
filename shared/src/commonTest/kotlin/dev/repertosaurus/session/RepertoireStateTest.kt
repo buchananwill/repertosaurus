@@ -17,10 +17,11 @@ import kotlin.test.assertTrue
  */
 class RepertoireStateTest {
 
+    // One letter page (triage T3, T5a), so R7's order is seen whole on it.
     private val rows = listOf(
         HeldSong("s-valerie", "Valerie", "The Zutons", held = false),
-        HeldSong("s-jolene", "Jolene", "Dolly Parton", held = true),
-        HeldSong("s-dakota", "Dakota", "Stereophonics", held = false),
+        HeldSong("s-vienna", "Vienna", "Ultravox", held = true),
+        HeldSong("s-vertigo", "Vertigo", "U2", held = false),
     )
 
     private fun loaded(): ToggleList = ToggleList("p", "i", ticket = 1L, loading = true).reread(rows)
@@ -28,7 +29,7 @@ class RepertoireStateTest {
     /** R7 at load: held first, then title. */
     @Test
     fun aLoadFixesTheOrderHeldFirst() {
-        assertEquals(listOf("s-jolene", "s-dakota", "s-valerie"), loaded().order)
+        assertEquals(listOf("s-vienna", "s-valerie", "s-vertigo"), loaded().order)
         assertFalse(loaded().loading)
     }
 
@@ -48,7 +49,7 @@ class RepertoireStateTest {
     @Test
     fun aSearchChangeReFixesTheOrder() {
         val toggled = loaded().toggling("s-valerie", held = true).landed("s-valerie", rollBackTo = null)
-        assertEquals(listOf("s-jolene", "s-valerie", "s-dakota"), toggled.withQuery("").order)
+        assertEquals(listOf("s-valerie", "s-vienna", "s-vertigo"), toggled.withQuery("").order)
         assertEquals(listOf("s-valerie"), toggled.withQuery("zutons").order)
     }
 
@@ -71,7 +72,7 @@ class RepertoireStateTest {
         val list = loaded().toggling("s-valerie", held = true)
         val reread = list.reread(rows)
         assertTrue(reread.rows.single { it.songId == "s-valerie" }.held)
-        assertFalse(reread.rows.single { it.songId == "s-dakota" }.held)
+        assertFalse(reread.rows.single { it.songId == "s-vertigo" }.held)
     }
 
     /** A result for a list that has since been closed or reopened never lands. */
@@ -99,7 +100,7 @@ class RepertoireStateTest {
         val fresh = rows.filterNot { it.songId == "s-valerie" }
         val gone = state.withToggle(1L, valerie, wanted = true, Result.success(JunctionWrite.SongGone("x") to fresh))
         assertEquals(Messages.toggleSongGone("Valerie — The Zutons"), gone.error)
-        assertEquals(listOf("s-jolene", "s-dakota"), gone.list!!.order, "the re-read landed")
+        assertEquals(listOf("s-vienna", "s-vertigo"), gone.list!!.order, "the re-read landed")
 
         val failed = state.withToggle(1L, valerie, wanted = true, Result.failure(InsertIgnored())) { label, _ -> "no: $label" }
         assertFalse(failed.list!!.rows.single { it.songId == "s-valerie" }.held, "rolled back")

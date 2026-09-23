@@ -255,13 +255,13 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | blocked on P13b |
 | P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); impl blocked on P3 |
 | P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
-| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | blocked |
+| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **in flight** (it also adds T10's owner preference) |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); impl ready once P3 is committed |
-| P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **frontier**: spec [visual-identity.md](../decisions/visual-identity.md); dispatch after the commit |
+| P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |
 | P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |
 | P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard | blocked |
 

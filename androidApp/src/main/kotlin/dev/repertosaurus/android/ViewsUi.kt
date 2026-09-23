@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,7 +40,12 @@ import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.PerformerSuggestions
+import dev.repertosaurus.session.RatingsPerformer
+import dev.repertosaurus.session.RatingsSong
+import dev.repertosaurus.session.RatingsSource
+import dev.repertosaurus.session.RatingsTarget
 import dev.repertosaurus.session.SessionOrder
+import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.ViewSummary
@@ -101,6 +107,47 @@ internal fun filterNamesRemovedRow(
 internal fun instrumentLabel(instrumentId: String?, instruments: List<InstrumentChip>): String =
     instruments.firstOrNull { it.id == instrumentId }?.label ?: "No instrument"
 
+/** Stable handles for the instrumented tests. */
+internal object ViewsTags {
+    /** Triage T1: the View menu's "Rate these songs". */
+    const val RATE_THESE: String = "views-rate-these"
+}
+
+/** Triage T1, T9: the View menu's "Rate these songs", resolved — the part and its pool, or why not. */
+internal sealed interface RateThese {
+    data class Ready(val target: RatingsTarget) : RateThese
+    data class Unavailable(val reason: String) : RateThese
+}
+
+/**
+ * Triage T1, T9: the active View's pool, rated on `(the resolved performer, the View's practice
+ * instrument)`. The rule is [RatingsPerformer.resolve]; what is here is the lookup against the lists
+ * this screen holds. Null when there is no View at all.
+ */
+internal fun rateThese(
+    view: SessionView?,
+    pool: List<SessionRow>,
+    ownerPerformerId: String?,
+    instruments: List<InstrumentChip>,
+    performers: List<RepertosaurusRepository.Performer>,
+): RateThese? {
+    if (view == null) return null
+    val performerId = RatingsPerformer.resolve(
+        filterPerformerId = view.filter.performerId,
+        ownerPerformerId = ownerPerformerId,
+        livePerformerIds = performers.mapTo(HashSet()) { it.id },
+    ) ?: return RateThese.Unavailable(RatingsPerformer.NONE_REASON)
+    return RateThese.Ready(
+        RatingsTarget(
+            performerId = performerId,
+            instrumentId = view.practiceInstrumentId,
+            performerName = performers.first { it.id == performerId }.name,
+            instrumentLabel = instrumentLabel(view.practiceInstrumentId, instruments),
+            source = RatingsSource.ViewPool(pool.map { RatingsSong(it.songId, it.title, it.artistName) }),
+        ),
+    )
+}
+
 /** What the switcher shows under a View's name: the two halves it pairs, in that order. */
 internal fun viewSummary(
     view: SessionView,
@@ -130,6 +177,8 @@ internal fun ViewSwitcherSheet(
     onEdit: (SessionView) -> Unit,
     onCreate: () -> Unit,
     onDismiss: () -> Unit,
+    rateThese: RateThese? = null,
+    onRate: (RatingsTarget) -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState()
 
@@ -173,6 +222,11 @@ internal fun ViewSwitcherSheet(
                         HorizontalDivider()
                     }
                 }
+            }
+
+            if (rateThese != null) {
+                RateTheseRow(entry = rateThese, onRate = onRate)
+                HorizontalDivider()
             }
 
             Button(
@@ -235,6 +289,38 @@ private fun ViewSwitcherRow(
             TextButton(onClick = onSetHome) { Text("Home") }
         }
         TextButton(onClick = onEdit) { Text("Edit") }
+    }
+}
+
+/**
+ * Triage T1: "Rate these songs", the ratings editor on the active View's pool. **Disabled, with T9's
+ * one-line reason, when no performer resolves**: nothing is guessed.
+ */
+@Composable
+private fun RateTheseRow(entry: RateThese, onRate: (RatingsTarget) -> Unit, modifier: Modifier = Modifier) {
+    val ready = entry as? RateThese.Ready
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clickable(enabled = ready != null) { ready?.let { onRate(it.target) } }
+            .testTag(ViewsTags.RATE_THESE)
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            "Rate these songs",
+            style = MaterialTheme.typography.titleMedium,
+            color = if (ready != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = when (entry) {
+                is RateThese.Ready -> "Priority and confidence for ${entry.target.title}"
+                is RateThese.Unavailable -> entry.reason
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

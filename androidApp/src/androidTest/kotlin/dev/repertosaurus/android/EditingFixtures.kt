@@ -1,13 +1,9 @@
 package dev.repertosaurus.android
 
 import android.content.Context
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Surface
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.repertosaurus.android.theme.RepertosaurusTheme
-import dev.repertosaurus.android.theme.paperGrain
+import dev.repertosaurus.android.theme.RepertosaurusWindow
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.data.SampleData
@@ -106,6 +102,7 @@ internal object EditingFixtures {
                 songs = SongsViewModel(holder),
                 artists = ArtistsViewModel(holder),
                 settings = DeviceSettings(device),
+                ratings = RatingsEditorViewModel(holder),
             )
         }
         return app
@@ -119,6 +116,7 @@ internal class AppModels(
     val songs: SongsViewModel,
     val artists: ArtistsViewModel,
     val settings: DeviceSettings,
+    val ratings: RatingsEditorViewModel,
 )
 
 /**
@@ -127,10 +125,8 @@ internal class AppModels(
  */
 internal fun ComposeContentTestRule.setApp(app: AppModels) {
     setContent {
-        RepertosaurusTheme {
-            Surface(modifier = Modifier.fillMaxSize().paperGrain()) {
-                RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings)
-            }
+        RepertosaurusWindow {
+            RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings, app.ratings)
         }
     }
 }

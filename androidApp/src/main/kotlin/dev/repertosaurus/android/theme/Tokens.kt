@@ -5,15 +5,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * visual-identity VI1-VI5: the palette, the strokes and the shadow offsets. **Stone, not ivory**
- * (journal session 11, D41): nothing here may drift towards a warm cream ground or a clay accent.
- *
- * The rating ramps are not here. They are the user's choice and live in the shared core
- * (rating-scale RS4), read only through `LocalColourRamp` (RS8).
+ * visual-identity VI1-VI5. **Stone, not ivory** (journal session 11, D41). The contrast VI2 asks
+ * for is asserted by `TokenContrastTest`, not quoted here. The rating ramps live in the shared core
+ * and are read only through `LocalColourRamp` (rating-scale RS8).
  */
 internal object Tokens {
-    // VI1. Contrast (VI2), WCAG 2 relative luminance: Ink on Ground 13.6, on Ochre 8.3, on the
-    // palest-to-darkest ramp steps 13.6-8.0; Paper on Indigo 9.5 (8.1 at the gradient's light end).
     val Ground: Color = Color(0xFFE6E3DA)
     val Ink: Color = Color(0xFF1B1A17)
     val InkMuted: Color = Color(0xFF45423B)
@@ -37,9 +33,12 @@ internal object Tokens {
     /** VI5: the primary button. */
     val ShadowLarge: Dp = 5.dp
 
-    /** VI9: the Madder misregistration under display type on the header. */
+    /** VI9. */
     val Misregistration: Dp = 3.dp
 
-    /** VI12. */
-    val IconButtonSize: Dp = 44.dp
+    /** The smallest anything tappable may be, in either direction. */
+    val TouchMin: Dp = 48.dp
+
+    /** VI12, amended to the touch minimum (journal session 11, D56 #12). */
+    val IconButtonSize: Dp = TouchMin
 }

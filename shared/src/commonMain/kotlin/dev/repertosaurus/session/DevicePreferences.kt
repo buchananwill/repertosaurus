@@ -9,19 +9,27 @@ import dev.repertosaurus.core.NoteSpelling
  * setting is one getter and one setter here.
  *
  * - note spelling: repertoire-editing R40-R42;
- * - colour ramp: rating-scale RS5, RS7.
+ * - colour ramp: rating-scale RS5, RS7;
+ * - owner performer: triage T10.
  */
 public interface DevicePreferences {
     public fun noteSpelling(): NoteSpelling
     public fun rememberNoteSpelling(spelling: NoteSpelling)
     public fun colourRamp(): ColourRamp
     public fun rememberColourRamp(ramp: ColourRamp)
+
+    /** triage T10: who "me" is on this device, a performer id. Unset is null, and no default is guessed. */
+    public fun ownerPerformerId(): String?
+
+    /** T10: null clears it. */
+    public fun rememberOwnerPerformer(performerId: String?)
 }
 
 /** For tests and previews. */
 public class InMemoryDevicePreferences(
     private var noteSpelling: NoteSpelling = NoteSpelling.DEFAULT,
     private var colourRamp: ColourRamp = ColourRamp.DEFAULT,
+    private var ownerPerformerId: String? = null,
 ) : DevicePreferences {
     override fun noteSpelling(): NoteSpelling = noteSpelling
 
@@ -33,5 +41,11 @@ public class InMemoryDevicePreferences(
 
     override fun rememberColourRamp(ramp: ColourRamp) {
         this.colourRamp = ramp
+    }
+
+    override fun ownerPerformerId(): String? = ownerPerformerId
+
+    override fun rememberOwnerPerformer(performerId: String?) {
+        this.ownerPerformerId = performerId
     }
 }

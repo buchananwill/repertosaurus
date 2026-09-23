@@ -1,8 +1,15 @@
 package dev.repertosaurus.android.theme
 
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -48,30 +55,53 @@ private fun body(size: Int, weight: FontWeight, lineHeight: TextUnit = (size * 1
     TextStyle(fontFamily = BodyFamily, fontWeight = weight, fontSize = size.sp, lineHeight = lineHeight)
 
 /**
- * VI6, VI8: the display sizes, for the primitives and the screens restyled explicitly. **Display type
- * is set in upper case by the caller** — Compose has no text transform — and in sentence case nowhere.
+ * VI6, VI8: **the one display scale.** Set it through [DisplayText], which upper-cases: Compose has no
+ * text transform, and display type is in sentence case nowhere.
  */
 internal object DisplayType {
     val ScreenTitle: TextStyle = display(46)
-    val Subline: TextStyle = display(21, FontWeight.ExtraBold)
-    val Button: TextStyle = display(22)
-    val Badge: TextStyle = display(20)
     val Heading: TextStyle = display(28)
-
-    /** A rating segment's number (rating-scale RS6). */
     val Number: TextStyle = display(24)
+    val Button: TextStyle = display(22)
+    val Subline: TextStyle = display(21, FontWeight.ExtraBold)
+    val Badge: TextStyle = display(20)
 }
 
 /**
- * VI16: what every other screen inherits. **The Material roles are all body face.** Those screens
- * pass their own strings in their own case, and a stock heading in Big Shoulders would put the
- * display face in sentence case, which VI6 forbids. Only `display*`, which no stock component uses,
- * carries the display face.
+ * VI6: display type, in upper case. The only way a screen should set the display face.
+ *
+ * Its shadow, when it has none of its own, is the surrounding [LocalTextStyle]'s: that is how
+ * [InkHeader] gives the title and subline its misregistration without each caller knowing about it.
+ */
+@Composable
+internal fun DisplayText(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    textAlign: TextAlign? = null,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    Text(
+        text = text.uppercase(),
+        style = if (style.shadow == null) style.copy(shadow = LocalTextStyle.current.shadow) else style,
+        color = color,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier,
+    )
+}
+
+/**
+ * VI16: what every other screen inherits. **The Material roles are all body face**, because those
+ * screens pass their own strings in their own case (VI6). The `display*` roles, which no stock
+ * component uses, are the display scale.
  */
 internal val RepertosaurusTypography: Typography = Typography(
-    displayLarge = display(48),
-    displayMedium = display(44),
-    displaySmall = display(36),
+    displayLarge = DisplayType.ScreenTitle,
+    displayMedium = DisplayType.Heading,
+    displaySmall = DisplayType.Button,
     headlineLarge = body(32, FontWeight.Bold),
     headlineMedium = body(28, FontWeight.Bold),
     headlineSmall = body(24, FontWeight.Bold),

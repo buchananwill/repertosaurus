@@ -33,6 +33,11 @@ Numbers are `VI<n>`, grouped by topic. They are **not** an execution order.
 - `RepertosaurusTheme.kt`: a `MaterialTheme` wrapper with a `lightColorScheme` mapped from the
   tokens, **every shape set to `RectangleShape`**, and the typography. It replaces the bare
   `MaterialTheme { }` in `MainActivity.kt`.
+- **AMENDED 2026-09-23 (journal session 11, F17 N1):** the primitives are split across
+  `Primitives.kt` (surface modifiers and buttons), `InkHeader.kt` (the header with its
+  navigation, actions, title and subline slots, plus `InkFooter`) and `SegmentStrip.kt` (with a
+  `SegmentLayout` of `Equal`, `ContentWidth` or `Grid`). What follows was the original single-file
+  list:
 - `Primitives.kt`:
   - `Modifier.hardShadow(offset)`;
   - `Modifier.inkBorder(width)`;
@@ -160,7 +165,8 @@ about it.**
 - **Primary** (at most one a screen): `Ochre` fill, a 3 dp `Ink` border, a 5 dp hard shadow,
   display type in upper case.
 - **Secondary:** `Ground` fill with the same border and no shadow.
-- **Icon buttons:** 44 dp square, `Ground`, a 3 dp border and a 3 dp shadow.
+- **Icon buttons:** ~~44 dp~~ **48 dp** square (**AMENDED 2026-09-23**: 44 dp was below the
+  touch minimum, the lead's error, journal session 11, D56 #12), `Ground`, a 3 dp border and a 3 dp shadow.
 
 When pressed, a button **moves down and right onto its shadow**, like a printed button pushed
 flat, instead of showing a Material ripple. It stays square.

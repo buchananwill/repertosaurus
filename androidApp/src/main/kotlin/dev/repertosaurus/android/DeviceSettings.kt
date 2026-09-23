@@ -36,6 +36,11 @@ public class DeviceSettings(
     public val colourRamp: StateFlow<ColourRamp> = ramp.flow
     public fun setColourRamp(value: ColourRamp): Unit = ramp.set(value)
 
+    // Triage T10. Nothing sets it yet but tests; onboarding (P14) is its first writer.
+    private val owner = Remembered(preferences.ownerPerformerId(), preferences::rememberOwnerPerformer)
+    public val ownerPerformerId: StateFlow<String?> = owner.flow
+    public fun setOwnerPerformerId(value: String?): Unit = owner.set(value)
+
     /**
      * One preference: read once at construction, shown at once on a set, and written on [io] behind
      * it. **Writes are serialised and each writes the latest value** (safety review P3 N5), so two

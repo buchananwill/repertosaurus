@@ -15,12 +15,15 @@ import kotlin.random.Random
 /**
  * visual-identity VI10: a fine paper grain over everything the modifier's node draws, **multiplied**.
  *
- * **It cannot intercept a touch:** it is a draw modifier and nothing else, with no pointer input and
- * no node of its own in the layout. **It costs no frame:** the tile is built once per process and the
- * brush once per size (in `drawWithCache`). The content below it is drawn in a layer of its own, so a
- * scroll or a recomposition re-records that layer and never this one; the grain's single `drawRect`
- * is replayed by the render thread. It sits above content and below dialogs, because a dialog or a
- * modal sheet is a window of its own.
+ * **It cannot intercept a touch:** it is a draw modifier, with no pointer input and no node of its own
+ * in the layout. It sits above content and below dialogs, because a dialog or a modal sheet is a window
+ * of its own.
+ *
+ * **No per-frame work on the UI thread:** the tile is built once per process and the brush once per size.
+ * The trailing `graphicsLayer` gives the content a display list of its own, so the grain's `drawRect`
+ * should not be re-recorded when the content changes. The blend itself still runs on the GPU over the
+ * whole window every frame the window redraws; whether the extra layer is cheaper than none has not
+ * been measured (journal session 11, F18 N4).
  */
 public fun Modifier.paperGrain(): Modifier = drawWithCache {
     val brush = ShaderBrush(ImageShader(GrainTile.bitmap, TileMode.Repeated, TileMode.Repeated))

@@ -22,29 +22,25 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * visual-identity VI11: the stencilled hand, the "handing on" motif, at the session header's size.
- * **Upright**: the rotation carve-out is the onboarding cluster's alone. Decorative, so it has no
- * semantics.
+ * visual-identity VI11: the stencilled hand in `Madder`, at the session header's size, upright (the
+ * rotation carve-out is the onboarding cluster's alone). Decorative, so it has no semantics.
  */
 @Composable
-internal fun HandMark(modifier: Modifier = Modifier, colour: Color = Tokens.Madder) {
+internal fun HandMark(modifier: Modifier = Modifier) {
     Spacer(
         modifier = modifier.size(30.dp, 38.dp).drawWithCache {
-            val bitmap = HandStencil.render(size.width.toInt(), size.height.toInt(), colour)
+            val bitmap = HandStencil.render(size.width.toInt(), size.height.toInt(), Tokens.Madder)
             onDrawBehind { drawImage(bitmap) }
         },
     )
 }
 
 /**
- * The stencil, made the way a real one is: the hand masks the wall, pigment is sprayed around it as
- * seeded-random dots — dense at the edge, thinning outward — and the edge wanders a little, because a
- * real hand never sits flat. **Rendered once per size and colour** and cached for the process; the
- * mark is never redrawn per frame.
+ * VI11's stencil: seeded-random dots sprayed around a masked hand, dense at its slightly wobbling edge
+ * and thinning outward. Rendered once per size and colour and cached for the process.
  *
- * The silhouette is a union of capsules (fingers, thumb, wrist) and a rounded palm, in a 100-wide
- * design space, so the distance from any point to its edge is exact and cheap. A left hand, palm
- * towards the wall, thumb to the left.
+ * The silhouette is a union of capsules and a rounded palm in a 100-wide design space, so the distance
+ * from any point to its edge is exact and cheap.
  */
 internal object HandStencil {
     private const val DESIGN_WIDTH = 100f

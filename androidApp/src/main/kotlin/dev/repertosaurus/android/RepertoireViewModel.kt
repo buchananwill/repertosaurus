@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.JunctionWrite
 import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.PageFilter
 import dev.repertosaurus.session.RepertoireCoordinator
 import dev.repertosaurus.session.RepertoireState
 import dev.repertosaurus.session.ToggleList
@@ -143,9 +144,23 @@ public class RepertoireViewModel(
 
     /** R3: the search, in memory, and R7's second moment the order is fixed. */
     public fun setQuery(query: String) {
+        changeList { it.withQuery(query) }
+    }
+
+    /** triage T3, T5a: another letter's page. */
+    public fun setLetter(letter: Char) {
+        changeList { it.withLetter(letter) }
+    }
+
+    /** triage T5, T5a: All / On / Off. */
+    public fun setFilter(filter: PageFilter) {
+        changeList { it.withFilter(filter) }
+    }
+
+    private fun changeList(change: (ToggleList) -> ToggleList) {
         _state.update { state ->
             val list = state.list ?: return@update state
-            state.copy(list = list.withQuery(query))
+            state.copy(list = change(list))
         }
     }
 

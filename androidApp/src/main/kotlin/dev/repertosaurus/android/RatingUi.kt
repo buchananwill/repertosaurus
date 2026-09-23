@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.Segment
 import dev.repertosaurus.android.theme.SegmentStrip
@@ -126,7 +127,7 @@ private fun RatingSegment(level: RatingLevel, selected: Boolean, onClick: () -> 
 private fun LevelText(level: RatingLevel, modifier: Modifier = Modifier) {
     var labelFits by remember(level) { mutableStateOf(true) }
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
+        DisplayText(
             level.value.toString(),
             style = DisplayType.Number,
             modifier = if (labelFits) Modifier else Modifier.semantics { contentDescription = level.label },
@@ -159,8 +160,7 @@ internal fun ColourRampPicker(onSelect: (ColourRamp) -> Unit, onDismiss: () -> U
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // visual-identity VI6: a heading, so display type in upper case.
-            Text("COLOUR RAMP", style = DisplayType.Heading)
+            DisplayText("Colour ramp", style = DisplayType.Heading)
             for (ramp in ColourRamp.entries) {
                 RampRow(ramp = ramp, current = ramp == current, onClick = { onSelect(ramp) })
             }

@@ -101,7 +101,10 @@ class RepertoireCoordinatorTest {
         assertEquals("The Zutons", rows.single { it.songId == banana }.artistName)
     }
 
-    /** R3/R7: the search filters over title and artist and re-fixes the order. */
+    /**
+     * R3/R7, triage T4/T5a: the search filters over title and artist across every letter, and
+     * re-fixes the order, held first.
+     */
     @Test
     fun searchMatchesTitleOrArtistAndReappliesTheOrder() {
         song("Valerie", "The Zutons")
@@ -110,22 +113,17 @@ class RepertoireCoordinatorTest {
         capabilities.addById(jolene, charlotte, vocal)
 
         val rows = repertoire.songs(charlotte, vocal)
+        val list = ToggleList(charlotte, vocal, ticket = 1L, loading = true).reread(rows)
+        fun titles(of: ToggleList) = of.visible().map { it.title }
 
-        assertEquals(listOf("Valerie"), RepertoireCoordinator.search(rows, "zutons").map { it.title })
-        assertEquals(listOf("Jolene"), RepertoireCoordinator.search(rows, "jol").map { it.title })
-        assertEquals(
-            listOf("Jolene", "9 to 5"),
-            RepertoireCoordinator.search(rows, "dolly").map { it.title },
-            "held first",
-        )
-        assertEquals(3, RepertoireCoordinator.search(rows, "  ").size, "blank matches everything")
+        assertEquals(listOf("Valerie"), titles(list.withQuery("zutons")))
+        assertEquals(listOf("Jolene"), titles(list.withQuery("jol")))
+        assertEquals(listOf("Jolene", "9 to 5"), titles(list.withQuery("dolly")), "held first")
+        assertEquals(listOf("9 to 5"), titles(list.withQuery("  ")), "blank is no search: T3's first page, #")
 
         // A toggle flips a flag in place; a new search re-fixes the order with it.
-        val toggled = rows.map { if (it.title == "Valerie") it.copy(held = true) else it }
-        assertEquals(
-            listOf("Jolene", "Valerie", "9 to 5"),
-            RepertoireCoordinator.search(toggled, "").map { it.title },
-        )
+        val toggled = list.withHeld(rows.single { it.title == "Valerie" }.songId, held = true)
+        assertEquals(listOf("Jolene", "Valerie", "9 to 5"), titles(toggled.withQuery("o")))
     }
 
     // ---- R4, R6 -------------------------------------------------------------------------

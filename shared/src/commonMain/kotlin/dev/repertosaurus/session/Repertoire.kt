@@ -50,8 +50,8 @@ public class RepertoireCoordinator(
      * with whether this `(performer, instrument)` holds it, in R7's [ORDER].
      *
      * R7 fixes the order *when the list loads and when the search changes*; a toggle must not
-     * re-sort. So this and [search] apply [ORDER] and nothing else does — the screen updates a
-     * toggled row's flag in place.
+     * re-sort. So this and [ToggleList.reordered] apply [ORDER] and nothing else does — the screen
+     * updates a toggled row's flag in place.
      */
     public fun songs(performerId: String, instrumentId: String): List<HeldSong> =
         repository.songsWithHeldFlag(performerId, instrumentId).sortedWith(ORDER)
@@ -91,19 +91,12 @@ public class RepertoireCoordinator(
         /**
          * **R7's one comparator: held first**, then N2's base order —
          * [SongSearch.byTitle]: title case-insensitively, then artist, then id. Applied once,
-         * in [songs] and [search] (E35's precedent); the SQL deliberately has no `ORDER BY`.
+         * in [songs] and [ToggleList.reordered] (E35's precedent); the SQL deliberately has no
+         * `ORDER BY`. R3's search is triage T4's, in [RatingsEditorState].
          */
         public val ORDER: Comparator<HeldSong> =
             compareBy<HeldSong> { if (it.held) 0 else 1 }
                 .then(SongSearch.byTitle({ it.title }, { it.artistName }, { it.songId }))
-
-        /**
-         * R3: the toggle list's search, over title and artist, in memory (E36) — and the one
-         * other place [ORDER] is applied, because R7 re-fixes the order when the search
-         * changes. Takes the rows *as they now are*, flags included.
-         */
-        public fun search(rows: List<HeldSong>, query: String): List<HeldSong> =
-            rows.filter { SongSearch.matches(query, it.title, it.artistName) }.sortedWith(ORDER)
 
         /** R3's count of songs held, over whatever rows the screen holds. */
         public fun heldCount(rows: List<HeldSong>): Int = rows.count { it.held }
@@ -199,7 +192,9 @@ public data class RepertoireState(
  * One `(performer, instrument)`'s toggle list (R3).
  *
  * [rows] is every live song with its current flag, optimistic ones included; [order] is the
- * displayed order as song ids — fixed at load and at search change (R7), never by a toggle.
+ * displayed page as song ids — fixed at load and at a search, letter or filter change (R7, triage
+ * T5a), never by a toggle. [paging] is T5a's letter, search and filter, shared with the ratings
+ * editor.
  */
 public data class ToggleList(
     val performerId: String,
@@ -208,13 +203,20 @@ public data class ToggleList(
     val ticket: Long,
     val rows: List<HeldSong> = emptyList(),
     val order: List<String> = emptyList(),
-    val query: String = "",
+    val paging: RatingsEditorState = RatingsEditorState(),
     val loading: Boolean = false,
     /** R8: rows whose write has not landed. Each is disabled until it does. */
     val inFlight: Set<String> = emptySet(),
 ) {
+    /** R3's search. */
+    val query: String get() = paging.query
+
     /** R3's held count, over every song — not only the ones the search is showing. */
     val heldCount: Int get() = RepertoireCoordinator.heldCount(rows)
+
+    /** T5a: every row as the paging sees it, in R7's order; `set` is held. */
+    public fun paged(): List<PagedSong> =
+        rows.sortedWith(RepertoireCoordinator.ORDER).map { PagedSong(it.songId, it.title, it.artistName, set = it.held) }
 
     /** The rows as displayed: [order], with each row's current flag. */
     public fun visible(): List<HeldSong> {
@@ -254,9 +256,21 @@ public data class ToggleList(
     }
 
     /** R3's search and R7's second moment: the query changed, so the order is fixed again. */
-    public fun withQuery(query: String): ToggleList = copy(query = query).reordered()
+    public fun withQuery(query: String): ToggleList = copy(paging = paging.withQuery(query)).reordered()
 
-    /** R7: the only place the order is computed — on load and on search change. */
-    public fun reordered(): ToggleList =
-        copy(order = RepertoireCoordinator.search(rows, query).map { it.songId })
+    /** triage T3, T5a: another letter's page, fixed as a search change fixes it. */
+    public fun withLetter(letter: Char): ToggleList = copy(paging = paging.withLetter(letter)).reordered()
+
+    /** triage T5, T5a: All / On / Off, fixed as a search change fixes it. */
+    public fun withFilter(filter: PageFilter): ToggleList = copy(paging = paging.withFilter(filter)).reordered()
+
+    /**
+     * R7: the only place the order is computed — on load and on a search, letter or filter change.
+     * The page is T5a's, over R7's held-first order; the letter is pinned (T3).
+     */
+    public fun reordered(): ToggleList {
+        val all = paged()
+        val pinned = paging.pinned(all)
+        return copy(paging = pinned, order = pinned.visible(all).map { it.songId })
+    }
 }

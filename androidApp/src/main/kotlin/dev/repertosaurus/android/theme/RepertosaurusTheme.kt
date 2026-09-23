@@ -1,13 +1,16 @@
 package dev.repertosaurus.android.theme
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Surface
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -69,8 +72,8 @@ private val RepertosaurusShapes: Shapes = Shapes(
 )
 
 /**
- * visual-identity §1: the app's `MaterialTheme`. The grain is not part of it — see [paperGrain] — so
- * a test can compose one component in the theme without a full-screen overlay around it.
+ * visual-identity §1: the app's `MaterialTheme`. The grain is not part of it, so a test can compose one
+ * component in the theme without a full-screen overlay around it; [RepertosaurusWindow] adds it.
  */
 @Composable
 public fun RepertosaurusTheme(content: @Composable () -> Unit) {
@@ -80,4 +83,12 @@ public fun RepertosaurusTheme(content: @Composable () -> Unit) {
         typography = RepertosaurusTypography,
         content = content,
     )
+}
+
+/** The whole window as the app draws it: the theme, the `Ground` surface and the grain over all of it (VI10). */
+@Composable
+public fun RepertosaurusWindow(content: @Composable () -> Unit) {
+    RepertosaurusTheme {
+        Surface(modifier = Modifier.fillMaxSize().paperGrain(), content = content)
+    }
 }

@@ -39,6 +39,13 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // journal session 11, F18 B1: the shared core's immutable types, declared stable to the
+        // Compose compiler, which never compiles `shared` and so cannot infer it.
+        freeCompilerArgs += listOf(
+            "-P",
+            "plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=" +
+                project.file("compose-stability.conf").absolutePath,
+        )
     }
 
     buildTypes {
@@ -69,6 +76,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Pure JVM checks of the theme's values, such as VI2's contrast, with no device.
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
 
     // S10, S12, S13. `ui-test-manifest` is what supplies the bare ComponentActivity the
     // Compose rule hosts, so the recovery screen can be booted without MainActivity.

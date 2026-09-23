@@ -88,6 +88,8 @@ class RouteNavigationTest {
         compose.waitForIdle()
         compose.onNodeWithTag(RepertoireTags.TOGGLE_LIST).assertIsDisplayed()
 
+        // Triage T5a: Shake It Off is on the S page.
+        compose.onNodeWithTag(PagingTags.letter(RepertoireTags.PAGING, 'S')).performClick()
         compose.onNodeWithTag(RepertoireTags.row(shake.id)).performClick()
         await("the toggle") { fixture.repertoire.state.value.list?.inFlight?.isEmpty() == true }
 

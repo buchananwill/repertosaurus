@@ -101,11 +101,21 @@ internal class AndroidSessionPreferences(
         preferences.edit().putString(KEY_COLOUR_RAMP, ramp.name).apply()
     }
 
+    // Triage T10: an id, as the home View's is (V19); null removes the key.
+    override fun ownerPerformerId(): String? = preferences.getString(KEY_OWNER_PERFORMER, null)
+
+    override fun rememberOwnerPerformer(performerId: String?) {
+        val edit = preferences.edit()
+        if (performerId == null) edit.remove(KEY_OWNER_PERFORMER) else edit.putString(KEY_OWNER_PERFORMER, performerId)
+        edit.apply()
+    }
+
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
         const val KEY_ORDER = "last_order"
         const val KEY_HOME_VIEW = "home_view_id"
         const val KEY_NOTE_SPELLING = "note_spelling"
         const val KEY_COLOUR_RAMP = "colour_ramp"
+        const val KEY_OWNER_PERFORMER = "owner_performer_id"
     }
 }

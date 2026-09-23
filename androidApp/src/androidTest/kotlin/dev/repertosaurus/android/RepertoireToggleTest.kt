@@ -101,16 +101,17 @@ class RepertoireToggleTest {
 
     /**
      * **R7: a row does not move on the tap that toggles it.** Held songs sort first, so a
-     * re-sort after the toggle would lift *Shake It Off* from fifth to first — out from under the
-     * user's thumb. The order is fixed at load and at search change, and the test proves the
-     * toggle is one the comparator *would* move by changing the search afterwards.
+     * re-sort after the toggle would lift *Dog Days Are Over* above *Dakota* on the D page (triage
+     * T5a) — out from under the user's thumb. The order is fixed at load and at search change, and
+     * the test proves the toggle is one the comparator *would* move by changing the search afterwards.
      */
     @Test
     fun aToggledRowDoesNotMove() {
         val fixture = fixture("no-move")
-        val song = EditingFixtures.song(fixture.holder, "Shake It Off")
+        val song = EditingFixtures.song(fixture.holder, "Dog Days Are Over")
 
         open(fixture)
+        onMain { fixture.model.setLetter('D') }
         val before = visibleIds(fixture.model)
         val index = before.indexOf(song.id)
         assertTrue(index > 0, "the test needs a song that is not already first: $index")

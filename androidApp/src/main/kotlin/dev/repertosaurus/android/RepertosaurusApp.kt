@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
  * are each screen's own state holding ids only. No route takes arguments from outside itself and
  * none is a third level.
  *
- * [lookup] is set for the seven lookup routes and null for the four that are screens of their
+ * [lookup] is set for the seven lookup routes and null for the five that are screens of their
  * own; the dispatch below is an exhaustive `when` over the enum, so a new route that nobody
  * dispatches is a compile error.
  *
@@ -69,6 +69,12 @@ internal enum class Route(private val title: String? = null, val lookup: LookupK
     REPERTOIRE("Repertoire"),
     SONGS("Songs"),
     ARTISTS("Artists"),
+
+    /**
+     * Triage T1: the ratings editor, from the View menu. No label, so not in the drawer; what it
+     * opens on is its ViewModel's state, set before the route is entered, never a route argument.
+     */
+    RATINGS,
 
     // Declared in `LookupKind`'s own order, which is the drawer's order (E26).
     INSTRUMENTS(lookup = LookupKind.INSTRUMENT),
@@ -151,6 +157,7 @@ public fun RepertosaurusApp(
     songs: SongsViewModel,
     artists: ArtistsViewModel,
     settings: DeviceSettings,
+    ratings: RatingsEditorViewModel,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -159,6 +166,7 @@ public fun RepertosaurusApp(
     val databaseState by viewModel.databaseState.collectAsState()
     val noteSpelling by settings.noteSpelling.collectAsState()
     val colourRamp by settings.colourRamp.collectAsState()
+    val ownerPerformerId by settings.ownerPerformerId.collectAsState()
     var pickingRamp by remember { mutableStateOf(false) }
 
     val close = { scope.launch { drawerState.close() } }
@@ -179,6 +187,10 @@ public fun RepertosaurusApp(
                 Route.REPERTOIRE -> viewModel.reloadAfter(repertoire::awaitIdle)
                 Route.SONGS -> viewModel.reloadAfter(songs::awaitIdle)
                 Route.ARTISTS -> viewModel.reloadAfter(artists::awaitIdle)
+                Route.RATINGS -> {
+                    ratings.close()
+                    viewModel.reloadAfter(ratings::awaitIdle)
+                }
                 else -> viewModel.reload()
             }
         }
@@ -252,8 +264,14 @@ public fun RepertosaurusApp(
                     viewModel = viewModel,
                     onOpenDrawer = { scope.launch { drawerState.open() } },
                     onExport = { export() },
+                    ownerPerformerId = ownerPerformerId,
+                    onRateSongs = { target ->
+                        ratings.open(target)
+                        route = Route.RATINGS
+                    },
                 )
-                Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, onBack = toLogger)
+                Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, ratings = ratings, onBack = toLogger)
+                Route.RATINGS -> RatingsEditorScreen(viewModel = ratings, onDone = toLogger)
                 Route.SONGS -> SongsScreen(
                     viewModel = songs,
                     session = viewModel,

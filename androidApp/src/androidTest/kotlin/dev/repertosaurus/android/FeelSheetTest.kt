@@ -9,9 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.DatabaseFixtures.count
-import dev.repertosaurus.android.theme.RepertosaurusTheme
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.DatabaseHolder
 import org.junit.After
@@ -31,13 +29,10 @@ class FeelSheetTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val names = mutableListOf<String>()
+    private val fixture = SessionScreenFixture(compose, "feel-sheet-test")
 
     @After
-    fun cleanUp() {
-        for (name in names) DatabaseFixtures.delete(context, name)
-    }
+    fun cleanUp() = fixture.cleanUp()
 
     @Test
     fun longPressCertainlyAndLogWritesFeelTwo() {
@@ -105,19 +100,10 @@ class FeelSheetTest {
         assertEquals(unratedBefore + 1, count(holder, "practice_event WHERE feel IS NULL"))
     }
 
-    /** A fresh database with the sample songs, the Session screen composed over it, and a title to press. */
+    /** The Session screen over a fresh sample database, and a title to press. */
     private fun screen(suffix: String): Pair<DatabaseHolder, String> {
-        val name = "feel-sheet-test-$suffix.db".also { names += it }
-        val holder = EditingFixtures.holder(context, name)
-        val session = EditingFixtures.session(holder)
-        val title = session.state.value.pending.first().title
-        compose.setContent {
-            RepertosaurusTheme {
-                SessionScreen(viewModel = session, onOpenDrawer = {}, onExport = {})
-            }
-        }
-        compose.waitForIdle()
-        return holder to title
+        val screen = fixture.open(suffix)
+        return screen.holder to screen.title
     }
 
     private companion object {
