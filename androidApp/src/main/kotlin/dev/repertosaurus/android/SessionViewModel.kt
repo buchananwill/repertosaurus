@@ -3,7 +3,10 @@ package dev.repertosaurus.android
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
@@ -12,11 +15,14 @@ import dev.repertosaurus.data.ImportPreview
 import dev.repertosaurus.data.ImportRejected
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.CapabilityCoordinator
 import dev.repertosaurus.session.LookupItem
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupStore
 import dev.repertosaurus.session.LookupStores
+import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.Notice
 import dev.repertosaurus.session.PerformerLineUp
 import dev.repertosaurus.session.SessionCoordinator
 import dev.repertosaurus.session.SessionOrder
@@ -27,6 +33,7 @@ import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionTap
 import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.SongCapability
+import dev.repertosaurus.session.SongIdentity
 import dev.repertosaurus.session.ViewCoordinator
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
@@ -94,6 +101,21 @@ public class SessionViewModel(
     public val homeViewId: StateFlow<String?> = _homeViewId.asStateFlow()
 
     /**
+     * How every surface spells a double sharp or flat (repertoire-editing R40-R42): the drawer
+     * toggle sets it, and each note-naming call reads it. Read once at construction — the same
+     * `SharedPreferences` file [AppGraph] has already loaded for the device id — and held here,
+     * so a flip shows at once and the write goes to [io] behind it.
+     */
+    private val _noteSpelling = MutableStateFlow(preferences.noteSpelling())
+    public val noteSpelling: StateFlow<NoteSpelling> = _noteSpelling.asStateFlow()
+
+    public fun setNoteSpelling(spelling: NoteSpelling) {
+        if (_noteSpelling.value == spelling) return
+        _noteSpelling.value = spelling
+        viewModelScope.launch(io) { preferences.rememberNoteSpelling(spelling) }
+    }
+
+    /**
      * Whether the database opened at all (schema-compatibility S9).
      *
      * `Ready` while it did, and while nothing has yet said otherwise; the moment the boot path
@@ -113,6 +135,37 @@ public class SessionViewModel(
     /** What one successful load produced. Null when the database could not be opened. */
     private class Loaded(val start: SessionStart, val rows: List<SessionRow>)
 
+    /**
+     * R26, **after the route's writes have landed** (safety review F18 B1). Returning to the
+     * logger reloads it, but a toggle tapped on the way out may still be queued behind the
+     * route's lock; a reload that ran first would read the database without it and keep the old
+     * list until the next restart. [idle] is the route's `awaitIdle`, and the reload waits on it.
+     *
+     * Launched in this ViewModel's scope, not the composition's, so a rotation mid-wait does not
+     * lose the reload.
+     *
+     * **This is the one place the pending undo offer is cleared by a reload** (F28 N7, amended by
+     * F30 #4). A route is the only place a merge can happen, and a merge may have voided the very
+     * event the offer would void and moved its copy to another song — so an undo tapped afterwards
+     * could void nothing visible and still look as if it worked. It is cleared twice: on the way
+     * back, and again once [idle] has returned, because the stale list stays tappable while the
+     * route's queue drains and a tap on the merge's loser in that window is voided by the merge
+     * too. The taps themselves are kept, as a View switch keeps them.
+     */
+    public fun reloadAfter(idle: suspend () -> Unit) {
+        _state.update { it.copy(loading = true).withoutUndo() }
+        viewModelScope.launch {
+            idle()
+            _state.update { it.withoutUndo() }
+            reload()
+        }
+    }
+
+    /**
+     * Read the logger again. **It keeps the pending undo offer** (F30 #4): undo is on the
+     * highest-frequency path, and the reloads that come through here — after a capability edit or
+     * a lookup edit — cannot merge a song away. Only [reloadAfter] clears it.
+     */
     public fun reload() {
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
@@ -262,7 +315,7 @@ public class SessionViewModel(
                 },
                 onFailure = { failure ->
                     _state.update {
-                        it.withMessage("Could not remember that order: ${failure.message}")
+                        it.withMessage(Messages.couldNot("remember that order", failure))
                     }
                 },
             )
@@ -316,7 +369,7 @@ public class SessionViewModel(
                         onSuccess = { rows -> state.withRows(rows) },
                         onFailure = { failure ->
                             state.withRows(emptyList())
-                                .withMessage("Could not open that view: ${failure.message}")
+                                .withMessage(Messages.couldNot("open that view", failure))
                         },
                     )
                 }
@@ -357,7 +410,7 @@ public class SessionViewModel(
             write.await().onFailure { failure ->
                 writes.remove(tap.tapId)
                 _state.update {
-                    it.minusTap(tap.tapId).withMessage("Could not save that log: ${failure.message}")
+                    it.minusTap(tap.tapId).withMessage(Messages.couldNot("save that log", failure))
                 }
             }
         }
@@ -377,7 +430,7 @@ public class SessionViewModel(
                 runCatching { coordinator().voidEvent(eventId) }.exceptionOrNull()
             }
             if (failure != null) {
-                _state.update { it.withMessage("Could not undo that log: ${failure.message}") }
+                _state.update { it.withMessage(Messages.couldNot("undo that log", failure)) }
             }
         }
     }
@@ -416,7 +469,7 @@ public class SessionViewModel(
                 onSuccess = { artists -> _artists.value = artists },
                 onFailure = { failure ->
                     _state.update {
-                        it.withMessage("Could not load artists: ${failure.message}")
+                        it.withMessage(Messages.couldNot("load artists", failure))
                     }
                 },
             )
@@ -438,30 +491,21 @@ public class SessionViewModel(
             val outcome = withContext(io) {
                 runCatching {
                     val coordinator = coordinator()
-                    val songId = if (artistId != null) {
-                        coordinator.addSongWithArtistId(trimmed, artistId)
-                    } else {
-                        coordinator.addSong(trimmed, artistName)
-                    }
-                    songId to (_state.value.view?.let { coordinator.rows(it) } ?: emptyList())
+                    val added = coordinator.addSong(trimmed, SongCatalog.LookupChoice.of(artistId, artistName))
+                    added to (_state.value.view?.let { coordinator.rows(it) } ?: emptyList())
                 }
             }
             _state.update { state ->
                 outcome.fold(
-                    onSuccess = { (songId, rows) ->
-                        // V9: a song with no `song_performer` row asserts nothing and is
-                        // excluded by any filter, so a song added inside a filtered View is
-                        // saved and then invisible. Saying so beats looking broken.
-                        state.withRows(rows).withMessage(
-                            if (rows.any { it.songId == songId }) {
-                                "Added $trimmed"
-                            } else {
-                                "Added $trimmed — this view's filter hides it."
-                            },
-                        )
+                    onSuccess = { (added, rows) ->
+                        // R23 in the logger (session 09 ruling): the message only. The logger
+                        // has no detail to open, and the song may be outside the active View —
+                        // which V9 makes worth saying, and the core's wording says it.
+                        val visible = rows.any { it.songId == added.song.songId }
+                        state.withRows(rows).withMessage(Messages.songAddInView(added, visible))
                     },
                     onFailure = { failure ->
-                        state.withMessage("Could not add that song: ${failure.message}")
+                        state.withMessage(Messages.couldNot("add that song", failure))
                     },
                 )
             }
@@ -496,7 +540,7 @@ public class SessionViewModel(
                 onSuccess = { performers -> _performers.value = performers },
                 onFailure = { failure ->
                     _state.update {
-                        it.withMessage("Could not load performers: ${failure.message}")
+                        it.withMessage(Messages.couldNot("load performers", failure))
                     }
                 },
             )
@@ -537,7 +581,7 @@ public class SessionViewModel(
                     switchView(saved)
                 },
                 onFailure = { failure ->
-                    _state.update { it.withMessage("Could not save that view: ${failure.message}") }
+                    _state.update { it.withMessage(Messages.couldNot("save that view", failure)) }
                 },
             )
         }
@@ -557,19 +601,24 @@ public class SessionViewModel(
             val outcome = withContext(io) {
                 runCatching {
                     val views = viewCoordinator()
-                    views.deleteView(viewId)
-                    views.start()
+                    val deleted = views.deleteView(viewId)
+                    deleted to views.start()
                 }
             }
             outcome.fold(
-                onSuccess = { start ->
+                onSuccess = { (deleted, start) ->
                     _homeViewId.value = start.homeViewId
-                    _state.update { it.withViews(start.views) }
+                    // R23d (F15 B2): a View that was already removed is not re-stamped, and the
+                    // screen says so rather than going quiet over a delete that did nothing.
+                    _state.update { state ->
+                        val refreshed = state.withViews(start.views)
+                        if (deleted) refreshed else refreshed.withMessage(Messages.viewAlreadyRemoved().text)
+                    }
                     start.view?.let { next -> if (wasActive) switchView(next) }
                 },
                 onFailure = { failure ->
                     _state.update {
-                        it.withMessage("Could not delete that view: ${failure.message}")
+                        it.withMessage(Messages.couldNot("delete that view", failure))
                     }
                 },
             )
@@ -589,7 +638,7 @@ public class SessionViewModel(
             }
             outcome.onFailure { failure ->
                 _state.update {
-                    it.withMessage("Could not set that as home: ${failure.message}")
+                    it.withMessage(Messages.couldNot("set that as home", failure))
                 }
             }
         }
@@ -628,7 +677,7 @@ public class SessionViewModel(
                     outcome.fold(
                         onSuccess = { state.copy(items = it, busy = false) },
                         onFailure = { failure ->
-                            state.copy(busy = false, message = "Could not load: ${failure.message}")
+                            state.copy(busy = false, message = Messages.couldNot("load", failure))
                         },
                     )
                 }
@@ -643,28 +692,39 @@ public class SessionViewModel(
     public fun addLookup(kind: LookupKind, name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
-        mutate(kind, "Added $trimmed") { it.add(trimmed) }
+        mutate(kind) {
+            it.add(trimmed)
+            "Added $trimmed"
+        }
     }
 
     public fun renameLookup(kind: LookupKind, id: String, name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
-        mutate(kind, "Renamed to $trimmed") { it.rename(id, trimmed) }
+        mutate(kind) {
+            it.rename(id, trimmed)
+            "Renamed to $trimmed"
+        }
     }
 
+    /**
+     * R23d (F15 B2): a row that was already removed is not re-stamped, and the screen says it was
+     * already removed rather than claiming a removal that wrote nothing.
+     */
     public fun removeLookup(kind: LookupKind, id: String, name: String) {
-        mutate(kind, "Removed $name") { it.remove(id) }
+        mutate(kind) { Messages.lookupRemoval(name, it.remove(id)).text }
     }
 
-    private fun mutate(kind: LookupKind, done: String, block: (LookupStore) -> Unit) {
+    /** One lookup write; [block] writes and returns what to say about it. */
+    private fun mutate(kind: LookupKind, block: (LookupStore) -> String) {
         val ticket = ++lookupTicket
         _lookups.update { it.copy(busy = true, sequence = ticket) }
         viewModelScope.launch {
             val outcome = withContext(io) {
                 runCatching {
                     val store = store(kind)
-                    block(store)
-                    store.items()
+                    val said = block(store)
+                    said to store.items()
                 }
             }
             _lookups.update { state ->
@@ -675,11 +735,11 @@ public class SessionViewModel(
                     state
                 } else {
                     outcome.fold(
-                        onSuccess = { state.copy(items = it, busy = false, message = done) },
+                        onSuccess = { (said, items) -> state.copy(items = items, busy = false, message = said) },
                         onFailure = { failure ->
                             state.copy(
                                 busy = false,
-                                message = "That did not work: ${failure.message}",
+                                message = Messages.failed(failure),
                             )
                         },
                     )
@@ -697,8 +757,9 @@ public class SessionViewModel(
      */
     public fun setLookupNotes(kind: LookupKind, id: String, notes: String?) {
         val trimmed = notes?.trim()?.takeIf { it.isNotEmpty() }
-        mutate(kind, if (trimmed == null) "Notes cleared" else "Notes saved") {
+        mutate(kind) {
             it.setNotes(id, trimmed)
+            if (trimmed == null) "Notes cleared" else "Notes saved"
         }
     }
 
@@ -747,10 +808,20 @@ public class SessionViewModel(
     private fun capabilityCoordinator(): CapabilityCoordinator =
         CapabilityCoordinator(holder.repository)
 
-    /** Open the editor on one song and read its line-up (E10). A read, and only a read. */
-    public fun openCapabilities(song: SessionRow) {
+    /**
+     * Open the editor on one song and read its line-up (E10). A read, and only a read.
+     *
+     * R18: the logger's feel sheet and the Songs detail both open it here, so there is one
+     * capability editor and one E45 ticket — the Songs route does not grow a second.
+     */
+    public fun openCapabilities(song: SongIdentity) {
         val ticket = ++capabilityTicket
-        _capabilities.value = CapabilityState(song = song, busy = true, sequence = ticket)
+        _capabilities.value = CapabilityState(
+            song = song,
+            busy = true,
+            sequence = ticket,
+            revision = _capabilities.value.revision,
+        )
         viewModelScope.launch {
             val outcome = withContext(io) {
                 runCatching { capabilityCoordinator().lineUp(song.songId) }
@@ -767,7 +838,7 @@ public class SessionViewModel(
                         onFailure = { failure ->
                             state.copy(
                                 busy = false,
-                                error = "Could not read the line-up: ${failure.message}",
+                                error = Messages.couldNot("read the line-up", failure),
                             )
                         },
                     )
@@ -779,9 +850,10 @@ public class SessionViewModel(
     /**
      * Closing resets the state, and the fresh [CapabilityState] carries sequence `0` — which no
      * in-flight request can hold, so nothing that was already running can paint a closed sheet.
+     * The revision (F18 N6) carries over: it counts writes, not sheets.
      */
     public fun closeCapabilities() {
-        _capabilities.value = CapabilityState()
+        _capabilities.value = CapabilityState(revision = _capabilities.value.revision)
     }
 
     /**
@@ -797,26 +869,48 @@ public class SessionViewModel(
         // E44: `isAdd` is what lets the form clear on **confirmed success** rather than on
         // dispatch. It used to blank both typed names the instant the button was pressed, so a
         // failed write left two empty boxes and no record of what the user had entered.
-        mutateCapabilities("Added $performer on $instrument", isAdd = true) {
-            it.add(songId, performer, instrument)
+        mutateCapabilities(isAdd = true) {
+            Messages.junctionWrite(
+                it.add(songId, performer, instrument),
+                done = Messages.capabilityAdded(performer, instrument),
+                unchanged = Messages.capabilityPresent(performer, instrument),
+            )
         }
     }
 
     /**
      * E4, E8: the three editable facts. The range is rejected by the core on any row that is
      * not a voice, which is why the editor never offers the control there.
+     *
+     * R23c: `false` means nothing was saved — the row or its song was removed — and says so on
+     * the error channel rather than as "Saved".
      */
     public fun updateCapability(capability: SongCapability) {
-        mutateCapabilities("Saved ${capability.performerName}") { it.update(capability) }
-    }
-
-    /** E7: a soft delete. The tombstone is what makes E6's revive possible at all. */
-    public fun removeCapability(capability: SongCapability) {
-        mutateCapabilities("Removed ${capability.performerName}") { it.remove(capability.id) }
+        mutateCapabilities {
+            Messages.junctionUpdate(it.update(capability), done = Messages.capabilitySaved(capability.performerName))
+        }
     }
 
     /**
-     * One write, then the line-up again.
+     * E7: a soft delete. The tombstone is what makes E6's revive possible at all.
+     *
+     * R23d: a row that was already removed is not re-stamped, and the sheet says it was already
+     * gone rather than claiming to have removed it.
+     */
+    public fun removeCapability(capability: SongCapability) {
+        mutateCapabilities {
+            Messages.junctionWrite(
+                it.remove(capability.id),
+                done = Messages.capabilityRemoved(capability.performerName),
+                alreadyRemoved = Messages.capabilityAlreadyRemoved(capability.performerName),
+            )
+        }
+    }
+
+    /**
+     * One write, then the line-up again. [block] says what the write did on its channel, through
+     * the core's [Messages] (R23c, E43): every write on this path can be a no-op, and "Saved"
+     * over a write that did nothing is the exact confusion E43 exists to end.
      *
      * The session list is reloaded afterwards because a capability row is what the View's
      * eligibility filter reads (views V11): adding or removing one genuinely changes which
@@ -824,9 +918,9 @@ public class SessionViewModel(
      * thing this path does beyond `song_performer`, and it writes nothing at all.
      */
     private fun mutateCapabilities(
-        done: String,
         isAdd: Boolean = false,
-        block: (CapabilityCoordinator) -> Unit,
+        /** The write, and what to say about it (R23c). */
+        block: (CapabilityCoordinator) -> Notice?,
     ) {
         val songId = _capabilities.value.song?.songId ?: return
         val ticket = ++capabilityTicket
@@ -839,32 +933,35 @@ public class SessionViewModel(
             val outcome = withContext(io) {
                 runCatching {
                     val coordinator = capabilityCoordinator()
-                    block(coordinator)
-                    coordinator.lineUp(songId)
+                    val said = WriteOutcome.of(block(coordinator))
+                    said to coordinator.lineUp(songId)
                 }
             }
             _capabilities.update { state ->
-                if (state.sequence != ticket) {
-                    state
+                // F18 N6: every landed write moves the revision — even one dropped below as
+                // stale, and even a refusal — because the line-up on disk may have changed and
+                // the Songs detail reads its own copy when this moves.
+                val revised = if (outcome.isSuccess) state.copy(revision = state.revision + 1) else state
+                if (revised.sequence != ticket) {
+                    revised
                 } else {
                     outcome.fold(
-                        onSuccess = {
-                            state.copy(
-                                lineUp = it,
+                        onSuccess = { (said, lineUp) ->
+                            revised.copy(
+                                lineUp = lineUp,
                                 busy = false,
-                                message = done,
-                                // E44: only here, on the confirmed-success path.
-                                addsCommitted = state.addsCommitted + if (isAdd) 1L else 0L,
+                                message = said.message,
+                                error = said.error,
+                                // E44: only on the confirmed-success path. R23c: a refusal read
+                                // the line-up back all the same, but does not move the counter.
+                                addsCommitted = revised.addsCommitted + if (isAdd && !said.refused) 1L else 0L,
                             )
                         },
                         // E43: the error channel, rendered in the error colour. This used to be
                         // the same field as the confirmation above and painted the same accent
                         // colour, so a refused write read as a success.
                         onFailure = { failure ->
-                            state.copy(
-                                busy = false,
-                                error = "That did not work: ${failure.message}",
-                            )
+                            revised.copy(busy = false, error = Messages.failed(failure))
                         },
                     )
                 }
@@ -884,7 +981,7 @@ public class SessionViewModel(
      * shape the rest of this class uses for "no sheet".
      */
     public data class CapabilityState(
-        val song: SessionRow? = null,
+        val song: SongIdentity? = null,
         val lineUp: List<PerformerLineUp> = emptyList(),
         val busy: Boolean = false,
         /** E43: a confirmation, and only ever a confirmation. */
@@ -899,6 +996,12 @@ public class SessionViewModel(
         val addsCommitted: Long = 0L,
         /** E45: which request this state belongs to. A stale result never lands. */
         val sequence: Long = 0L,
+        /**
+         * F18 N6: capability writes that have **landed**, whether or not their result was shown.
+         * The Songs detail re-reads its line-up when this moves — on the write's completion,
+         * not on the sheet's dismissal, which can come before the write has run.
+         */
+        val revision: Long = 0L,
     )
 
     // ---- Import and export ------------------------------------------------------------
@@ -1001,7 +1104,7 @@ public class SessionViewModel(
             val outcome = withContext(io) { runCatching { holder.discardStagedImport() } }
             outcome.onFailure { failure ->
                 _transfer.update {
-                    it.copy(message = "Could not clear the staged file: ${failure.message}")
+                    it.copy(message = Messages.couldNot("clear the staged file", failure))
                 }
             }
         }
@@ -1048,11 +1151,8 @@ public class SessionViewModel(
     public companion object {
         private fun kilobytes(bytes: Long): String = "${(bytes + 1023) / 1024} kB"
 
-        public fun factory(graph: AppGraph): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    SessionViewModel(graph.holder, graph.preferences, graph.deviceId) as T
-            }
+        public fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {
+            initializer { SessionViewModel(graph.holder, graph.preferences, graph.deviceId) }
+        }
     }
 }

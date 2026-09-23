@@ -95,6 +95,25 @@ public class RepertosaurusRepository(
     internal val lookups: LookupTables = LookupTables(database, deviceId, clock)
 
     /**
+     * The song-child write envelope (style review F14 B1): the one copy of R23b/R23c/R23d around
+     * a write to `song_tag`, `song_instrument` or `song_performer`. The catalog's tag and
+     * `song_instrument` writes and the capability writes below all go through it. Declared
+     * before [catalog], which takes it.
+     */
+    internal val children: SongChildren = SongChildren(database, deviceId, clock, lookups)
+
+    /**
+     * The song aggregate (repertoire-editing R30, the first E32 cut): songs, artists, song
+     * tags, groove assignment and `song_instrument` rows. The add-song path, the artist
+     * create-on-enter, `artists()` and `UNKNOWN_ARTIST_ID` moved there from here; the rest of
+     * E32 remains its own piece of work.
+     */
+    public val catalog: SongCatalog = SongCatalog(database, deviceId, clock, lookups, children)
+
+    /** Merging two songs (repertoire-editing R31-R39): composes [catalog] and [children]. */
+    public val merge: SongMerge = SongMerge(database, deviceId, clock, newId, catalog, children)
+
+    /**
      * E38: run several statements as one unit, so a caller that reads and then writes cannot
      * be interleaved with another writer, and a failure part-way leaves nothing behind.
      *
@@ -104,11 +123,6 @@ public class RepertosaurusRepository(
      */
     public fun <T> inTransaction(body: () -> T): T =
         database.transactionWithResult { body() }
-
-    /** Live artists, ordered by `sort_name` — the article at the end, per decision 21. */
-    public fun artists(): List<Artist> =
-        database.artistQueries.selectAllLive().executeAsList()
-            .map { Artist(id = it.id, name = it.name, sortName = it.sort_name) }
 
     /**
      * Live performers, ordered by name. Two columns of a lookup table with no derivation in
@@ -157,16 +171,43 @@ public class RepertosaurusRepository(
             )
         }
 
+    /** repertoire-editing R9: one live song, and whether one `(performer, instrument)` holds it. */
+    public data class HeldSong(
+        val songId: String,
+        val title: String,
+        val artistName: String,
+        val held: Boolean,
+    )
+
+    /**
+     * R9: every live song, each with whether this `(performer, instrument)` holds it — one
+     * query, `song_performer.sq :: selectSongsWithHeldFlag`. **Unordered**: R7's order is
+     * applied once, by `RepertoireCoordinator.ORDER`.
+     */
+    public fun songsWithHeldFlag(performerId: String, instrumentId: String): List<HeldSong> =
+        database.song_performerQueries.selectSongsWithHeldFlag(
+            performerId = performerId,
+            instrumentId = instrumentId,
+        ).executeAsList().map { row ->
+            HeldSong(
+                songId = row.song_id,
+                title = row.title,
+                artistName = row.artist_name,
+                held = row.held == 1L,
+            )
+        }
+
     /**
      * Add a capability, **or revive the tombstone that already holds this triple** (E6).
      *
-     * The id is `Ids.songPerformer(songId, performerId, instrumentId)` (decision 4f, V3, V5)
-     * and is never assembled by hand — this project has forked its id derivation twice, and
+     * A new row's id is `Ids.songPerformer(songId, performerId, instrumentId)` (decision 4f, V3,
+     * V5) and is never assembled by hand — this project has forked its id derivation twice, and
      * `Ids.junction` now refuses the superseded two-key form for this table (V31).
      *
-     * Because the id is derived from the three keys, re-adding a pair that was removed
-     * computes the **same primary key**. There are three outcomes and only one of them is an
-     * insert:
+     * **R4a: an existing row is found by its triple, through the unique key**, never by
+     * assuming its id is the derived one — a database upgraded 1 → 2 keeps two-key ids (S3), and
+     * there the derived id names no row. A new row is inserted under the derived id. There are
+     * three outcomes and only one of them is an insert:
      *
      * - no row → insert, `is_lead = 0` (E4), no range, no notes;
      * - a tombstoned row → **restore**: clear `deleted_at`, bump `updated_at`, and touch
@@ -179,47 +220,33 @@ public class RepertosaurusRepository(
      * [updateSongPerformer] afterwards, so that a revive can never be the thing that quietly
      * resets them.
      *
-     * **E38: the read and the branch are one transaction**, and the insert is
-     * `INSERT OR IGNORE`. Read-then-write across separate statements with nothing atomic
-     * between them means two rapid taps both observe "absent" and the second violates the
-     * primary key; the transaction closes that, and the conflict clause makes the losing
-     * writer a no-op rather than an exception even where the driver offers no isolation. It
-     * is `OR IGNORE` and never `OR REPLACE`, because replace would discard the winner's
-     * `notes` and `vocal_range` — the two columns E6 exists to protect.
+     * **E38: the read and the branch are one transaction** ([insertOrRevive]), and the insert
+     * is [Insert.OrIgnore] — the one derived-id insert on a double-tap path; that type states
+     * why, and why never `OR REPLACE`. An insert the clause ignored throws [InsertIgnored] and is
+     * never reported as `CREATED` (R4a).
      *
-     * @return the row's id, whichever of the three outcomes happened.
+     * R23c: on a removed song nothing is written and the result is [JunctionWrite.SongGone].
+     * R23b: a removed performer or instrument is revived, in the same transaction — asking for
+     * the row again says the tombstone was wrong, and a live capability on a hidden parent is
+     * a row no View can match (E40). Both envelopes are [SongChildren]'s, shared with the tag and
+     * `song_instrument` writes.
      */
     public fun addSongPerformer(
         songId: String,
         performerId: String,
         instrumentId: String,
-    ): String {
-        val id = Ids.songPerformer(songId, performerId, instrumentId)
-        database.transaction {
-            val existing = database.song_performerQueries.selectById(id).executeAsOneOrNull()
-            val now = Timestamps.now(clock)
-            when {
-                existing == null -> database.song_performerQueries.insertIfAbsent(
-                    id = id,
-                    song_id = songId,
-                    performer_id = performerId,
-                    instrument_id = instrumentId,
-                    is_lead = 0L,
-                    vocal_range = null,
-                    notes = null,
-                    updated_at = now,
-                    deleted_at = null,
-                    device_id = deviceId,
-                )
-                existing.deleted_at != null -> database.song_performerQueries.restore(
-                    updated_at = now,
-                    device_id = deviceId,
-                    id = id,
-                )
-            }
-        }
-        return id
-    }
+    ): JunctionWrite = children.add(SongChildKey.PERFORMER, songId, listOf(performerId, instrumentId))
+
+    /**
+     * The same from a typed performer and instrument name, each created on enter or resolved to
+     * the row its name derives (E5, E13) — [SongChildren.addNamed], the one by-name add (F22 B1).
+     * R23c: on a removed song, [JunctionWrite.SongGone] and not even the two lookups are written.
+     */
+    public fun addSongPerformerNamed(
+        songId: String,
+        performerName: String,
+        instrumentName: String,
+    ): JunctionWrite = children.addNamed(SongChildKey.PERFORMER, songId, listOf(performerName, instrumentName))
 
     /**
      * The three editable facts on a capability row (E4, E8). The three keys are not among
@@ -233,41 +260,53 @@ public class RepertosaurusRepository(
      * coroutine, so a remove and an in-flight edit complete in either order, and under
      * last-write-wins the resurrected row would carry the newer timestamp and win on every
      * device permanently.
+     *
+     * @return false when nothing was written: the row is not live (E37), or its song is removed
+     *   (R23c).
      */
     public fun updateSongPerformer(
         id: String,
         isLead: Long,
         vocalRange: Long?,
         notes: String?,
-    ) {
+    ): Boolean {
         require(isLead == 0L || isLead == 1L) { "is_lead is 0 or 1, got $isLead" }
         require(vocalRange == null || vocalRange == 0L || vocalRange == 1L) {
             "vocal_range is 0, 1 or null, got $vocalRange"
         }
-        database.song_performerQueries.update(
-            is_lead = isLead,
-            vocal_range = vocalRange,
-            notes = notes,
-            updated_at = Timestamps.now(clock),
-            device_id = deviceId,
-            id = id,
-        )
+        return children.update(SongChildKey.PERFORMER, id) { now ->
+            database.song_performerQueries.update(
+                is_lead = isLead,
+                vocal_range = vocalRange,
+                notes = notes,
+                updated_at = now,
+                device_id = deviceId,
+                id = id,
+            )
+        }
     }
 
     /**
      * E7: removing a capability is a **soft delete**, like every other mutable row in this
      * schema. A stale device reinserts a hard-deleted row on the next merge — and E6's revive
      * path depends on the tombstone still being there.
+     *
+     * R23c: on a removed song, [JunctionWrite.SongGone]. R23d: [JunctionWrite.Removed.wrote] is
+     * false when the row was not live — absent, or already removed and so not re-stamped.
      */
-    public fun removeSongPerformer(id: String) {
-        val now = Timestamps.now(clock)
-        database.song_performerQueries.softDelete(
-            deleted_at = now,
-            updated_at = now,
-            device_id = deviceId,
-            id = id,
-        )
-    }
+    public fun removeSongPerformer(id: String): JunctionWrite = children.remove(SongChildKey.PERFORMER, id)
+
+    /**
+     * **R4a: remove the capability row that holds `(song, performer, instrument)`**, found by
+     * the triple through the unique key — never by assuming its id is
+     * `Ids.songPerformer(...)`, which on a database upgraded 1 → 2 names no row (S3). Otherwise
+     * exactly [removeSongPerformer]'s rules and results.
+     */
+    public fun removeSongPerformerByKey(
+        songId: String,
+        performerId: String,
+        instrumentId: String,
+    ): JunctionWrite = children.removeByKey(SongChildKey.PERFORMER, songId, listOf(performerId, instrumentId))
 
     /**
      * E14, E15: the instruments each performer is recorded on, keyed by performer id.
@@ -285,75 +324,6 @@ public class RepertosaurusRepository(
     public fun performerInstruments(): Map<String, List<Instrument>> =
         database.song_performerQueries.selectPerformerInstruments().executeAsList()
             .groupBy({ it.performer_id }, { Instrument(it.instrument_id, it.instrument_name) })
-
-    /**
-     * The type-ahead's create-on-enter (decision 16), and the reason decision 17 exists.
-     *
-     * The id is `UUIDv5(namespace(artist), normalise(name))` (decisions 2, 4), so a name
-     * that normalises to one already stored — `Fratellis` against `The Fratellis`, `AC DC`
-     * against `AC/DC` — resolves to the *existing row* rather than creating a near
-     * duplicate no merge rule could reconcile. The stored display name is left alone: an
-     * id is immutable and the canonical spelling is the one already there (decision 5).
-     */
-    public fun findOrCreateArtist(name: String): String {
-        val display = name.trim()
-        require(display.isNotEmpty()) { "an artist needs a name" }
-        val id = Ids.derived("artist", display)
-        if (database.artistQueries.selectById(id).executeAsOneOrNull() == null) {
-            database.artistQueries.insert(
-                id = id,
-                name = display,
-                sort_name = sortName(display),
-                updated_at = Timestamps.now(clock),
-                deleted_at = null,
-                device_id = deviceId,
-            )
-        }
-        return id
-    }
-
-    /**
-     * Add a song: title and artist, nothing else. Every other column is left null, which
-     * decisions 27 and 37 require — no key may be mandatory, in phase 1 or later.
-     *
-     * The id is `UUIDv5(namespace(song), artist_id + "/" + normalise(title))` (decision
-     * 4d), so adding a song the repertoire already holds resolves to that row instead of
-     * forking it. An existing row is returned untouched rather than overwritten.
-     */
-    public fun createSong(title: String, artistId: String): String {
-        val display = title.trim()
-        require(display.isNotEmpty()) { "a song needs a title" }
-        val id = Ids.song(artistId, display)
-        if (database.songQueries.selectById(id).executeAsOneOrNull() == null) {
-            database.songQueries.insert(
-                id = id,
-                title = display,
-                artist_id = artistId,
-                reference_recording = null,
-                key_signature = null,
-                tonal_centre = null,
-                tonality_note = null,
-                tempo_bpm = null,
-                duration_seconds = null,
-                decade = null,
-                loop_length = null,
-                chord_count = null,
-                chord_pattern = null,
-                groove_id = null,
-                mashup_note = null,
-                notes = null,
-                chart_url = null,
-                updated_at = Timestamps.now(clock),
-                deleted_at = null,
-                device_id = deviceId,
-            )
-        }
-        return id
-    }
-
-    /** Article moved to the end, per decision 21. */
-    private fun sortName(name: String): String =
-        if (name.startsWith("The ")) name.substring(4) + ", The" else name
 
     /**
      * Staleness-ordered eligible songs: never-practised first, then coldest first. Voided
@@ -532,16 +502,19 @@ public class RepertosaurusRepository(
     /**
      * V23: a soft delete carrying `deleted_at`, like every other mutable row. A hard delete
      * gets reinserted by any stale device on the next merge.
+     *
+     * @return false when there was no live View to delete (R23d): an already-removed View is
+     *   not re-stamped, and nothing was written.
      */
-    public fun deleteSavedView(id: String) {
-        val now = Timestamps.now(clock)
-        database.saved_viewQueries.softDelete(
-            deleted_at = now,
-            updated_at = now,
-            device_id = deviceId,
-            id = id,
-        )
-    }
+    public fun deleteSavedView(id: String): Boolean =
+        database.softDelete(clock) { now ->
+            database.saved_viewQueries.softDelete(
+                deleted_at = now,
+                updated_at = now,
+                device_id = deviceId,
+                id = id,
+            )
+        }
 
     /**
      * The primary tap path. One insert, no read first. The id is random (decision 6):
@@ -623,17 +596,37 @@ public class RepertosaurusRepository(
         val note: String?,
     )
 
+    /**
+     * repertoire-editing R20: a song's practice history on one instrument — times practised and
+     * last practised, voided events excluded (decision 8). Derived, never stored (decision 48).
+     */
+    public data class PracticeSummary(
+        val instrumentId: String,
+        val instrumentName: String?,
+        val timesPractised: Long,
+        val lastPractised: String,
+    )
+
+    /**
+     * R20: times practised and last practised, per instrument the song has live history on — a
+     * pure summary over [practiceHistory], so the two can never disagree. Ordered by instrument
+     * name as a deterministic base; decision 18's chip order is `SessionInstruments.displayOrder`,
+     * which the screen applies.
+     */
+    public fun practiceSummary(songId: String): List<PracticeSummary> =
+        practiceHistory(songId)
+            .groupBy { it.instrumentId }
+            .map { (instrumentId, events) ->
+                PracticeSummary(
+                    instrumentId = instrumentId,
+                    instrumentName = events.first().instrumentName,
+                    timesPractised = events.size.toLong(),
+                    lastPractised = events.maxOf { it.loggedOn },
+                )
+            }
+            .sortedWith(compareBy({ it.instrumentName.orEmpty() }, { it.instrumentId }))
+
     /** Live count for a song, derived and never stored (decision 48). */
     public fun timesPractised(songId: String): Long =
         database.practice_eventQueries.countLiveBySong(songId).executeAsOne()
-
-    public companion object {
-        /**
-         * The seeded placeholder of decision 28a — `UUIDv5(namespace(artist), 'unknown
-         * artist')`, and the escape hatch when the user does not want to settle an
-         * attribution to log a song. A placeholder is honest; a null FK is not an option
-         * because `song.artist_id` is NOT NULL.
-         */
-        public const val UNKNOWN_ARTIST_ID: String = "cf06771d-4e8d-53fc-83fb-359be7dfaefc"
-    }
 }

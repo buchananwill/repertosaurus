@@ -71,7 +71,9 @@ UPDATE practice_context
 SET name = ?, updated_at = ?, device_id = ?
 WHERE id = ?;
 
+-- R23d: a row already removed is not re-stamped, and the caller reads `changes()` to tell.
 softDelete:
 UPDATE practice_context
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;

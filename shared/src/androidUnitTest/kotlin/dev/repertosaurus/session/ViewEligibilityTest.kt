@@ -4,8 +4,9 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -31,9 +32,7 @@ import kotlin.test.assertTrue
  */
 class ViewEligibilityTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-17T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-17T10:30:00.250Z")
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: RepertosaurusDatabase
@@ -177,10 +176,10 @@ class ViewEligibilityTest {
     ).map { it.title }
 
     private fun song(title: String, artist: String): String =
-        repository.createSong(title, repository.findOrCreateArtist(artist))
+        repository.catalog.addSong(title, SongCatalog.LookupChoice.Typed(artist)).song.songId
 
     private fun lead(songId: String, performer: String, instrument: String) {
-        val id = capabilities.add(songId, performer, instrument)
+        val id = capabilities.add(songId, performer, instrument).id
         capabilities.update(
             capabilities.capabilities(songId).single { it.id == id }.copy(isLead = true),
         )

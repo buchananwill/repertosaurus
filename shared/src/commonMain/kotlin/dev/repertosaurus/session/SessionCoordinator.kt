@@ -1,9 +1,10 @@
 package dev.repertosaurus.session
 
 import dev.repertosaurus.core.Ids
-import dev.repertosaurus.core.NearMatches
+import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.core.normalise
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 
 /**
  * Where the Session screen touches the database. Every method here is **blocking** and is
@@ -106,7 +107,7 @@ public class SessionCoordinator(
     // ---- Adding a song ----------------------------------------------------------------
 
     /** Every live artist, for the type-ahead's near-match pass. */
-    public fun artists(): List<RepertosaurusRepository.Artist> = repository.artists()
+    public fun artists(): List<RepertosaurusRepository.Artist> = repository.catalog.artists()
 
     /**
      * Every live performer, for the View editor's filter type-ahead. A few rows, so the table
@@ -115,44 +116,14 @@ public class SessionCoordinator(
     public fun performers(): List<RepertosaurusRepository.Performer> = repository.performers()
 
     /**
-     * The type-ahead of decisions 16 and 17: near-matches surfaced *while typing*, so the
-     * user sees `The Fratellis` before they can commit a second one.
+     * The logger's add-song sheet: a thin delegate to [SongCatalog.addSong], which holds the
+     * whole path — the one artist rule (null or blank typed is `Unknown Artist`, decision
+     * 28a), the derived ids, R21's revive and R23a's [SongCatalog.SongAdd.differs]. Kept here
+     * only so the logger's ViewModel reaches it through the coordinator it already holds; the
+     * Songs route calls the catalog directly and needs no `SessionPreferences`.
      */
-    public fun suggestArtists(
-        query: String,
-        limit: Int = 6,
-    ): List<RepertosaurusRepository.Artist> = ArtistSuggestions.search(query, artists(), limit)
-
-    /**
-     * Create a song from a title and a typed artist name. Both ids are derived (decisions
-     * 2, 4, 4d), so an artist that normalises to one already stored resolves to that same
-     * row rather than a second one, and two devices adding the same song converge.
-     *
-     * A blank artist resolves to the seeded `Unknown Artist` (decision 28a) rather than
-     * blocking the save: `song.artist_id` is NOT NULL and a musician mid-practice should
-     * not have to settle an attribution to log a song.
-     *
-     * Nothing else is asked for. Decisions 27 and 37 are explicit that no key may be
-     * required, and this is not the song editor.
-     */
-    public fun addSong(title: String, artistName: String): String {
-        val artistId = resolveArtist(artistName)
-        return repository.createSong(title = title, artistId = artistId)
-    }
-
-    /** The same, when the user picked an existing artist out of the suggestions. */
-    public fun addSongWithArtistId(title: String, artistId: String): String =
-        repository.createSong(title = title, artistId = artistId)
-
-    /** The typed name, an existing row by normalisation, or the seeded placeholder. */
-    public fun resolveArtist(artistName: String): String {
-        val trimmed = artistName.trim()
-        return if (trimmed.isEmpty()) {
-            RepertosaurusRepository.UNKNOWN_ARTIST_ID
-        } else {
-            repository.findOrCreateArtist(trimmed)
-        }
-    }
+    public fun addSong(title: String, artist: SongCatalog.LookupChoice?): SongCatalog.SongAdd =
+        repository.catalog.addSong(title, artist)
 
     /** Undo: an append to `practice_event_void`, never a delete or an update (decision 8). */
     public fun voidEvent(practiceEventId: String) {
@@ -201,61 +172,14 @@ public object SessionInstruments {
 }
 
 /**
- * The artist type-ahead — decisions 16 and 17, and the mechanism the whole
- * artist-normalisation design rests on.
- *
- * The matching itself is [NearMatches], shared with the instrument type-ahead and with
- * every lookup wired later. Matching runs over [normalise], never the raw string: it strips
- * a leading `The `, folds `&` to `and` and turns punctuation into a space, so `Fratellis`
- * finds `The Fratellis` and `AC DC` finds `AC/DC`. A prefix match over raw text finds
- * neither, and the user creates a second artist that no merge rule can reconcile — which is
- * precisely the failure the source workbook demonstrates 288 times.
- *
- * Because a derived id is `UUIDv5(namespace, normalise(name))`, a match that normalises
- * equal is also a match on the id: typing a name that normalises to an existing one
- * resolves to that row whether or not the user notices the suggestion. A *typo* does not —
- * `Beyonce` and `Beyoncé` derive different ids — which is why [NearMatches] also surfaces
- * near misses by edit distance.
- */
-public object ArtistSuggestions {
-
-    public fun search(
-        query: String,
-        artists: List<RepertosaurusRepository.Artist>,
-        limit: Int = 6,
-    ): List<RepertosaurusRepository.Artist> =
-        NearMatches.search(query, artists, limit) { it.name }
-}
-
-/**
- * The performer type-ahead — **one matcher (E46)**, beside [ArtistSuggestions] and on the same
- * reasoning.
- *
- * Two composables reach for this picker: the capability sheet's "Add someone" field and the
- * View editor's filter field. Each had invented its own copy of the browse-when-blank rule and
- * its own limit constant, and the two constants **disagreed on the search cap for the same
- * picker** — the identical field offered eight names in one sheet and six in the other. That is
- * a display rule that is JVM-testable and that the desktop UI will need verbatim, so it is here
- * and not there.
- *
- * The browsing half is [NearMatches.browseOrSearch]: blank means "show me what exists", typed
- * means "find the near-matches", one limit for both.
- */
-public object PerformerSuggestions {
-
-    public fun search(
-        query: String,
-        performers: List<RepertosaurusRepository.Performer>,
-        limit: Int = NearMatches.BROWSE_LIMIT,
-    ): List<RepertosaurusRepository.Performer> =
-        NearMatches.browseOrSearch(query, performers, limit) { it.name }
-}
-
-/**
  * What the Session screen remembers between launches: the discipline chip (a phase 1
  * question in the delivery spec — *should the app remember it rather than asking each
  * session?* — this build says yes), the sort direction, and the home View. All three are
  * view preferences and none is data; nothing here is ever synced.
+ *
+ * The note spelling (repertoire-editing R40-R42) lives here too, though it is the whole app's
+ * and not the Session screen's: it is a display preference, never data, and never synced.
+ * Unset, it reads as [NoteSpelling.DEFAULT] (R41).
  *
  * The home View is here and **not** an `is_home` column on `saved_view` (V19). A flag on
  * many rows has no total order under last-write-wins: two devices each promoting a different
@@ -272,6 +196,8 @@ public interface SessionPreferences {
     public fun rememberOrder(order: String)
     public fun homeViewId(): String?
     public fun rememberHomeView(viewId: String)
+    public fun noteSpelling(): NoteSpelling
+    public fun rememberNoteSpelling(spelling: NoteSpelling)
 }
 
 /** For tests and previews. */
@@ -279,6 +205,7 @@ public class InMemorySessionPreferences(
     private var instrumentId: String? = null,
     private var order: String? = null,
     private var homeViewId: String? = null,
+    private var noteSpelling: NoteSpelling = NoteSpelling.DEFAULT,
 ) : SessionPreferences {
     override fun lastInstrumentId(): String? = instrumentId
 
@@ -296,5 +223,11 @@ public class InMemorySessionPreferences(
 
     override fun rememberHomeView(viewId: String) {
         this.homeViewId = viewId
+    }
+
+    override fun noteSpelling(): NoteSpelling = noteSpelling
+
+    override fun rememberNoteSpelling(spelling: NoteSpelling) {
+        this.noteSpelling = spelling
     }
 }

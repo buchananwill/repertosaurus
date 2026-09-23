@@ -1,6 +1,5 @@
 package dev.repertosaurus.session
 
-import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.LookupRow
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
@@ -146,16 +145,6 @@ public interface LookupStore {
     public fun items(): List<LookupItem>
 
     /**
-     * Near-matches while typing (decision 16), so a duplicate is seen before it is made.
-     *
-     * **E36: the matcher takes the list it matches against.** It used to call [items], which
-     * is 1 + N queries — plus, for `PERFORMER`, a full `song_performer` scan and group-by —
-     * **per keystroke**. Every screen in the app already holds the list it is matching over
-     * and every other type-ahead already matches in memory; [from] is that list.
-     */
-    public fun suggest(query: String, from: List<LookupItem>, limit: Int = 6): List<LookupItem>
-
-    /**
      * Create on enter. The id is derived from the normalised name (decisions 2, 4), so two
      * devices adding `mandolin` independently converge on one row.
      *
@@ -180,8 +169,11 @@ public interface LookupStore {
      * Remove. A **soft delete** (decision 9, E22) — a tombstone, never a `DELETE`. A stale
      * device would reinsert a hard-deleted row on the next merge, and the history
      * referencing it must survive regardless.
+     *
+     * @return false when there was no live row to remove (R23d) — it was already removed, and
+     *   is not re-stamped. Nothing was written, and the screen says so rather than "Removed".
      */
-    public fun remove(id: String)
+    public fun remove(id: String): Boolean
 }
 
 /**
@@ -216,9 +208,6 @@ public class TableLookupStore(
         }
     }
 
-    override fun suggest(query: String, from: List<LookupItem>, limit: Int): List<LookupItem> =
-        NearMatches.search(query, from, limit) { it.name }
-
     override fun add(name: String): String = repository.lookups.add(kind.table, name)
 
     override fun rename(id: String, name: String) {
@@ -230,9 +219,7 @@ public class TableLookupStore(
         repository.lookups.setNotes(kind.table, id, notes)
     }
 
-    override fun remove(id: String) {
-        repository.lookups.remove(kind.table, id)
-    }
+    override fun remove(id: String): Boolean = repository.lookups.remove(kind.table, id)
 }
 
 /** Where a [LookupKind] becomes a [LookupStore]. Adding a kind adds a branch here. */

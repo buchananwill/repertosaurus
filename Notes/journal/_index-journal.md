@@ -12,6 +12,22 @@ The chronological thread of leadership, newest first. Entries are append-only an
 edited to reflect later understanding — a decision that was later reversed stays written as it
 was made, and the reversal is recorded where it happened.
 
+- [2026-09-23 — Session 10: From Logger to Nudger, the Habit Arc Opens](2026-09-23-session-10.md)
+  — The user's five-point direction, recorded in their words: suggest a song, timed practice,
+  habit scorecards, UI beauty, and a triage sort driven by two 0–3 ratings (priority, confidence).
+  The handover to the new app is confirmed on the phone.
+
+- [2026-09-23 — Session 09: Repertoire Editing Arc Opens](2026-09-23-session-09.md)
+  — After a month of daily use: "core database content is still inaccessible". The arc delivered
+  Repertoire (performer → role → toggle every song), Songs (every editable field) and Artists
+  routes, song merge (voids plus appends, never re-pointing the immutable log), and a note-spelling
+  setting.
+  - The baseline was red at bootstrap from CRLF checkout, fixed with `.gitattributes`.
+  - A two-key-id defect (R4a) on upgraded databases was found in review before it reached the
+    user's phone.
+  - Measured at close: 386 shared + 75 instrumented tests, 0 failures. All uncommitted.
+  - Read its §4 first.
+
 - [2026-08-21 — Session 08: The Name Reverses Again: Repertosaurus](2026-08-21-session-08.md)
   — No feature work. `Repertaurus` became **Repertosaurus** — the bull/dinosaur etymology
   collision N4 accepted as a known tension kept bothering the user in daily use, and

@@ -127,8 +127,10 @@ SET name = ?,
 WHERE id = ?;
 
 -- V23: deleting a View is a soft delete carrying deleted_at, like every other mutable row
--- in this schema. There is no hard delete anywhere.
+-- in this schema. There is no hard delete anywhere. R23d: a View already removed is not
+-- re-stamped, and the caller reads `changes()` to tell.
 softDelete:
 UPDATE saved_view
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;

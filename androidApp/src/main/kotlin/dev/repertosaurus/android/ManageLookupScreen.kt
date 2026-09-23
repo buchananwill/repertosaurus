@@ -42,9 +42,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.core.NearMatches
-import dev.repertosaurus.core.normalise
 import dev.repertosaurus.session.LookupItem
 import dev.repertosaurus.session.LookupKind
+import dev.repertosaurus.session.LookupSuggestions
 
 /**
  * Manage one lookup table. **All seven kinds reach it** (E18), `performer` included — E13 is
@@ -97,16 +97,11 @@ public fun ManageLookupScreen(
     // kind's rows. Showing them would offer Remove on an instrument from the tag screen.
     val items = if (state.kind == kind) state.items else emptyList()
 
-    // Near-matches over the rows already on screen: no query per keystroke, and the same
-    // matcher the artist type-ahead uses, so "Ukelele" surfaces "Ukulele" before a second
-    // row can be committed.
-    val suggestions = remember(typed, items) {
-        NearMatches.search(typed, items, limit = 4) { it.name }
-    }
-    val exact = remember(typed, suggestions) {
-        val needle = normalise(typed)
-        suggestions.firstOrNull { needle.isNotEmpty() && normalise(it.name) == needle }
-    }
+    // Near-matches over the rows already on screen: no query per keystroke, and the one lookup
+    // matcher (F22 B2), so "Ukelele" surfaces "Ukulele" before a second row can be committed.
+    // This screen's cap of four is kept as it was.
+    val suggestions = remember(typed, items) { LookupSuggestions.search(typed, items, limit = 4) }
+    val exact = remember(typed, suggestions) { NearMatches.exact(typed, suggestions) { it.name } }
     val commit = {
         if (typed.isNotBlank()) {
             viewModel.addLookup(kind, typed)

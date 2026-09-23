@@ -2,10 +2,13 @@ package dev.repertosaurus.session
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.data.JunctionWrite
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.Resolution
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -28,11 +31,7 @@ import kotlin.test.assertTrue
 class CapabilityCoordinatorTest {
 
     /** Movable, so a revive's bumped `updated_at` is distinguishable from the original. */
-    private class MovableClock(var instant: Instant) : Clock {
-        override fun now(): Instant = instant
-    }
-
-    private val clock = MovableClock(Instant.parse("2026-08-17T10:00:00.000Z"))
+    private val clock = TestClock("2026-08-17T10:00:00.000Z")
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: RepertosaurusDatabase
@@ -79,7 +78,7 @@ class CapabilityCoordinatorTest {
     @Test
     fun addingBackARemovedCapabilityRevivesTheSameRowWithItsFactsIntact() {
         val charlotte = repository.lookups.add(LookupTableKey.PERFORMER, "Charlotte")
-        val id = capabilities.add(jolene, "Charlotte", "keys")
+        val id = capabilities.add(jolene, "Charlotte", "keys").id
         assertEquals(Ids.songPerformer(jolene, charlotte, keys), id, "E9: derived, not invented")
 
         // Facts the user typed, which a naive re-add would throw away.
@@ -101,7 +100,7 @@ class CapabilityCoordinatorTest {
         )
 
         clock.instant = Instant.parse("2026-08-17T12:00:00.000Z")
-        val again = capabilities.add(jolene, "Charlotte", "keys")
+        val again = capabilities.add(jolene, "Charlotte", "keys").id
 
         assertEquals(id, again, "the re-add derives X again, not a new id")
         val rows = database.song_performerQueries.selectChangedSince("").executeAsList()
@@ -121,14 +120,14 @@ class CapabilityCoordinatorTest {
      */
     @Test
     fun aRevivedVocalRowKeepsItsVocalRange() {
-        val id = capabilities.add(valerie, "Coralie", "vocal")
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
         capabilities.update(
             capabilities.capabilities(valerie).single().copy(vocalRange = VocalRange.HIGH),
         )
 
         capabilities.remove(id)
         clock.instant = Instant.parse("2026-08-17T13:00:00.000Z")
-        capabilities.add(valerie, "Coralie", "vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
 
         val revived = capabilities.capabilities(valerie).single()
         assertEquals(id, revived.id)
@@ -138,12 +137,12 @@ class CapabilityCoordinatorTest {
     /** Adding a capability that is already live changes nothing at all. */
     @Test
     fun addingALiveCapabilityAgainIsANoOp() {
-        val id = capabilities.add(valerie, "Coralie", "vocal")
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
         capabilities.update(capabilities.capabilities(valerie).single().copy(notes = "harmony"))
         val before = database.song_performerQueries.selectById(id).executeAsOne()
 
         clock.instant = Instant.parse("2026-08-17T14:00:00.000Z")
-        assertEquals(id, capabilities.add(valerie, "Coralie", "vocal"))
+        assertEquals(id, capabilities.add(valerie, "Coralie", "vocal").id)
 
         assertEquals(before, database.song_performerQueries.selectById(id).executeAsOne())
         assertEquals(1, capabilities.capabilities(valerie).size)
@@ -172,8 +171,8 @@ class CapabilityCoordinatorTest {
      */
     @Test
     fun onePersonHoldsSeveralInstrumentsOnOneSongWithoutCollision() {
-        capabilities.add(valerie, "Coralie", "vocal")
-        capabilities.add(valerie, "Coralie", "backing vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
+        capabilities.add(valerie, "Coralie", "backing vocal").id
         capabilities.add(valerie, "Charlotte", "keys")
 
         val held = capabilities.capabilities(valerie)
@@ -197,7 +196,7 @@ class CapabilityCoordinatorTest {
         capabilities.add(valerie, "Charlotte", "keys")
         capabilities.add(valerie, "Charlotte", "guitar")
         capabilities.add(valerie, "Charlotte", "backing vocal")
-        capabilities.add(valerie, "Coralie", "vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
 
         val lineUp = capabilities.lineUp(valerie)
         assertEquals(2, lineUp.size, "two people, not four rows")
@@ -214,8 +213,8 @@ class CapabilityCoordinatorTest {
     /** Lead performers come first, so the line-up reads as a line-up (E4, E10). */
     @Test
     fun theLeadPerformerHeadsTheLineUp() {
-        capabilities.add(valerie, "Coralie", "backing vocal")
-        val willsRow = capabilities.add(valerie, "Will", "vocal")
+        capabilities.add(valerie, "Coralie", "backing vocal").id
+        val willsRow = capabilities.add(valerie, "Will", "vocal").id
         capabilities.update(
             capabilities.capabilities(valerie).single { it.id == willsRow }.copy(isLead = true),
         )
@@ -230,8 +229,8 @@ class CapabilityCoordinatorTest {
     /** E4: offered on every instrument, defaulting off, and scoped to its own row (V6). */
     @Test
     fun isLeadDefaultsOffAndIsScopedToItsInstrument() {
-        val vocalRow = capabilities.add(valerie, "Will", "vocal")
-        val guitarRow = capabilities.add(valerie, "Will", "guitar")
+        val vocalRow = capabilities.add(valerie, "Will", "vocal").id
+        val guitarRow = capabilities.add(valerie, "Will", "guitar").id
         assertTrue(capabilities.capabilities(valerie).none { it.isLead }, "defaults off")
 
         capabilities.update(
@@ -246,7 +245,7 @@ class CapabilityCoordinatorTest {
     /** E4 again: `backing vocal` gets no special case — a featured backing vocalist is real. */
     @Test
     fun backingVocalCanBeLead() {
-        val row = capabilities.add(valerie, "Coralie", "backing vocal")
+        val row = capabilities.add(valerie, "Coralie", "backing vocal").id
         capabilities.update(
             capabilities.capabilities(valerie).single().copy(isLead = true),
         )
@@ -258,8 +257,8 @@ class CapabilityCoordinatorTest {
     /** E8: range is offered on the two voices and refused everywhere else. */
     @Test
     fun vocalRangeIsOfferedOnVoicesOnly() {
-        capabilities.add(valerie, "Coralie", "vocal")
-        capabilities.add(valerie, "Coralie", "backing vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
+        capabilities.add(valerie, "Coralie", "backing vocal").id
         capabilities.add(valerie, "Coralie", "guitar")
 
         val held = capabilities.capabilities(valerie).associateBy { it.instrumentName }
@@ -283,7 +282,7 @@ class CapabilityCoordinatorTest {
      */
     @Test
     fun renamingVocalKeepsTheRangeFieldWhereItBelongs() {
-        capabilities.add(valerie, "Coralie", "vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
         repository.lookups.rename(LookupTableKey.INSTRUMENT, vocal, "Lead Voice")
 
         val row = capabilities.capabilities(valerie).single()
@@ -318,8 +317,12 @@ class CapabilityCoordinatorTest {
     fun theInstrumentTypeAheadSurfacesANearMatchBeforeADuplicateIsCommitted() {
         capabilities.add(valerie, "Will", "Ukulele")
 
-        assertEquals(listOf("Ukulele"), capabilities.suggestInstruments("Ukelele", capabilities.instruments()).map { it.name })
-        assertEquals(listOf("Will"), capabilities.suggestPerformers("Wil", capabilities.performers()).map { it.name })
+        // The sheet's own matchers (F22 B2: the dead coordinator wrappers are gone).
+        assertEquals(
+            listOf("Ukulele"),
+            dev.repertosaurus.core.NearMatches.search("Ukelele", capabilities.instruments()) { it.name }.map { it.name },
+        )
+        assertEquals(listOf("Will"), PerformerSuggestions.search("Wil", capabilities.performers()).map { it.name })
     }
 
     // ---- E1: this is not the practice path -----------------------------------------------
@@ -331,13 +334,13 @@ class CapabilityCoordinatorTest {
      */
     @Test
     fun nothingInTheCapabilityEditorEverWritesAPracticeEvent() {
-        val id = capabilities.add(valerie, "Coralie", "vocal")
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
         capabilities.update(
             capabilities.capabilities(valerie).single()
                 .copy(isLead = true, vocalRange = VocalRange.LOW, notes = "sits low"),
         )
         capabilities.remove(id)
-        capabilities.add(valerie, "Coralie", "vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
         capabilities.lineUp(valerie)
 
         assertEquals(0L, repository.timesPractised(valerie))
@@ -351,7 +354,7 @@ class CapabilityCoordinatorTest {
     /** E7: the tombstone stays, and it is what E6's revive path needs to find. */
     @Test
     fun removingACapabilityIsATombstone() {
-        val id = capabilities.add(valerie, "Coralie", "vocal")
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
         capabilities.remove(id)
 
         val row = database.song_performerQueries.selectById(id).executeAsOneOrNull()
@@ -376,7 +379,7 @@ class CapabilityCoordinatorTest {
      */
     @Test
     fun updatingARemovedCapabilityLeavesTheTombstoneInPlace() {
-        val id = capabilities.add(valerie, "Coralie", "vocal")
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
         // What the open editor is still holding when the remove lands.
         val stale = capabilities.capabilities(valerie).single()
 
@@ -402,7 +405,7 @@ class CapabilityCoordinatorTest {
     /** The same statement still edits a live row, which is the whole point of keeping it. */
     @Test
     fun updatingALiveCapabilityStillWritesAllThreeFacts() {
-        capabilities.add(valerie, "Coralie", "vocal")
+        capabilities.add(valerie, "Coralie", "vocal").id
 
         clock.instant = Instant.parse("2026-08-17T12:00:00.000Z")
         capabilities.update(
@@ -452,7 +455,7 @@ class CapabilityCoordinatorTest {
 
         // Writer A completes in full while B is between its read and its write, and types a
         // fact onto the row — the fact an OR REPLACE would silently discard.
-        assertEquals(id, capabilities.addById(valerie, coralie, vocal))
+        assertEquals(id, capabilities.addById(valerie, coralie, vocal).id)
         capabilities.update(
             capabilities.capabilities(valerie).single().copy(notes = "capo 3"),
         )
@@ -543,8 +546,8 @@ class CapabilityCoordinatorTest {
         capabilities.add(valerie, "Charlotte", "keys")
         capabilities.add(valerie, "Charlotte", "guitar")
         capabilities.add(valerie, "Charlotte", "backing vocal")
-        val willsRow = capabilities.add(valerie, "Will", "vocal")
-        capabilities.add(valerie, "Will", "guitar")
+        val willsRow = capabilities.add(valerie, "Will", "vocal").id
+        capabilities.add(valerie, "Will", "guitar").id
         capabilities.update(
             capabilities.capabilities(valerie).single { it.id == willsRow }.copy(isLead = true),
         )
@@ -570,8 +573,83 @@ class CapabilityCoordinatorTest {
         )
     }
 
+    // ---- R23b / R23c / R23d through the shared envelope (F15 N3, N4) ----------------------
+
+    /**
+     * **F15 N3: `add` on a removed song writes nothing — not the capability row, and not the two
+     * lookups either** — and says [JunctionWrite.SongGone] with the id the row would have had.
+     */
+    @Test
+    fun anAddOnARemovedSongWritesNothingNotEvenItsLookups() {
+        assertTrue(repository.catalog.removeSong(valerie))
+
+        val write = capabilities.add(valerie, "Nadia", "theremin")
+
+        val nadia = Ids.derived("performer", "Nadia")
+        val theremin = Ids.derived("instrument", "theremin")
+        assertEquals(JunctionWrite.SongGone(Ids.songPerformer(valerie, nadia, theremin)), write)
+        assertFalse(write.wrote)
+        assertNull(database.performerQueries.selectById(nadia).executeAsOneOrNull(), "no orphan performer")
+        assertNull(database.instrumentQueries.selectById(theremin).executeAsOneOrNull(), "no orphan instrument")
+        assertTrue(database.song_performerQueries.selectChangedSince("").executeAsList().isEmpty())
+    }
+
+    /**
+     * **R23b for the performer, and F15 N4.** The capability row is live but its performer was
+     * removed underneath it (so the editor hides it, E40). Asking for it again revives the
+     * performer; the row itself was already live, so it is [Resolution.EXISTING] — and the write
+     * **still reports that it wrote**, because the performer came back.
+     */
+    @Test
+    fun reAddingUnderARemovedPerformerRevivesThePerformerAndReportsAWrite() {
+        val coralie = repository.lookups.add(LookupTableKey.PERFORMER, "Coralie")
+        val id = capabilities.addById(valerie, coralie, vocal).id
+        assertTrue(repository.lookups.remove(LookupTableKey.PERFORMER, coralie))
+        assertTrue(capabilities.capabilities(valerie).isEmpty(), "E40: hidden under a removed performer")
+
+        val again = capabilities.addById(valerie, coralie, vocal)
+
+        assertEquals(JunctionWrite.Added(id, Resolution.EXISTING, revivedParent = true), again)
+        assertTrue(again.wrote, "F15 N4: a revived parent is a write")
+        assertNull(database.performerQueries.selectById(coralie).executeAsOne().deleted_at)
+        assertEquals(listOf("Coralie"), capabilities.capabilities(valerie).map { it.performerName })
+
+        val once = capabilities.addById(valerie, coralie, vocal)
+        assertEquals(JunctionWrite.Added(id, Resolution.EXISTING), once)
+        assertFalse(once.wrote, "nothing left to revive, so nothing written")
+    }
+
+    /** The same through the typed path: a performer revived by name counts as a write too. */
+    @Test
+    fun aTypedAddThatRevivesItsPerformerReportsAWrite() {
+        val id = capabilities.add(valerie, "Coralie", "vocal").id
+        assertTrue(repository.lookups.remove(LookupTableKey.PERFORMER, Ids.derived("performer", "Coralie")))
+
+        val again = capabilities.add(valerie, "Coralie", "vocal")
+
+        assertEquals(JunctionWrite.Added(id, Resolution.EXISTING, revivedParent = true), again)
+        assertTrue(again.wrote)
+    }
+
+    /** **F15 N3: the `update` Booleans** — true when it wrote; false on a removed row or song. */
+    @Test
+    fun updateSaysWhetherItWrote() {
+        val first = capabilities.add(valerie, "Coralie", "vocal").id
+        val row = capabilities.capabilities(valerie).single()
+        assertTrue(capabilities.update(row.copy(isLead = true)), "a live row on a live song writes")
+
+        assertTrue(capabilities.remove(first).wrote)
+        assertFalse(capabilities.update(row.copy(notes = "x")), "E37: a removed row writes nothing")
+
+        capabilities.add(jolene, "Coralie", "vocal")
+        val onJolene = capabilities.capabilities(jolene).single()
+        assertTrue(repository.catalog.removeSong(jolene))
+        assertFalse(capabilities.update(onJolene.copy(isLead = true)), "R23c: a removed song's row writes nothing")
+        assertEquals(0L, database.song_performerQueries.selectById(onJolene.id).executeAsOne().is_lead)
+    }
+
     // ---- Fixtures ------------------------------------------------------------------------
 
     private fun song(title: String, artist: String): String =
-        repository.createSong(title, repository.findOrCreateArtist(artist))
+        repository.catalog.addSong(title, SongCatalog.LookupChoice.Typed(artist)).song.songId
 }

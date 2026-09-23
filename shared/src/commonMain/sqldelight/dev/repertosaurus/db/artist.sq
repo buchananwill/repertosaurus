@@ -52,12 +52,40 @@ applyMerged:
 INSERT OR REPLACE INTO artist(id, name, sort_name, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?, ?);
 
+-- The Artists route (repertoire-editing R24): every live artist with its live song count.
+-- COUNT(song.id) over a LEFT JOIN is 0 for an artist with none, and the song's tombstone is
+-- tested in the ON clause, so a removed song neither counts nor drops its artist from the list.
+selectAllLiveWithSongCount:
+SELECT artist.id, artist.name, artist.sort_name, COUNT(song.id) AS live_songs
+FROM artist
+LEFT JOIN song
+       ON song.artist_id = artist.id
+      AND song.deleted_at IS NULL
+WHERE artist.deleted_at IS NULL
+GROUP BY artist.id, artist.name, artist.sort_name
+ORDER BY artist.sort_name, artist.id;
+
+-- Rename (R24). The id is never re-derived (decision 5, E21, R22).
+--
+-- E37 precedent: deleted_at is NOT in the SET list and `deleted_at IS NULL` IS in the WHERE,
+-- so a rename that lands after a remove writes nothing.
 update:
 UPDATE artist
 SET name = ?, sort_name = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;
 
+-- R23d: an artist already removed is not re-stamped.
 softDelete:
 UPDATE artist
 SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?
+  AND deleted_at IS NULL;
+
+-- R21 for artists: create-on-enter of a name whose derived id is a tombstone revives it.
+-- Clears deleted_at and bumps updated_at and nothing else, so the stored spelling and sort
+-- name survive, exactly as LookupTables' revive keeps a lookup's spelling.
+restore:
+UPDATE artist
+SET deleted_at = NULL, updated_at = ?, device_id = ?
 WHERE id = ?;

@@ -5,8 +5,9 @@ import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -40,9 +41,7 @@ import kotlin.test.assertTrue
  */
 class ViewsTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-15T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-15T10:30:00.250Z")
     private val today = "2026-08-15"
 
     private lateinit var driver: JdbcSqliteDriver
@@ -846,8 +845,7 @@ class ViewsTest {
     )
 
     private fun insertSong(title: String, artist: String): String {
-        val artistId = repository.findOrCreateArtist(artist)
-        return repository.createSong(title, artistId)
+        return repository.catalog.addSong(title, SongCatalog.LookupChoice.Typed(artist)).song.songId
     }
 
     private fun insertPerformer(id: String, name: String) {

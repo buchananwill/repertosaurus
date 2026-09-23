@@ -228,6 +228,41 @@ INSERT OR REPLACE INTO song(
     updated_at, deleted_at, device_id
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- The Songs route's list (repertoire-editing R11): every live song with its artist's name.
+-- The artist join is inner and ignores the artist's tombstone on purpose: artist_id is NOT
+-- NULL with a foreign key, and R25 refuses to remove an artist that still has live songs, so
+-- a live song always has a name to show. The display order is applied once, in SongCatalog.
+selectAllLiveWithArtist:
+SELECT song.id, song.title, song.artist_id, artist.name AS artist_name
+FROM song
+JOIN artist ON artist.id = song.artist_id
+WHERE song.deleted_at IS NULL;
+
+-- The song detail (R12): every column, plus the names of the two lookups it points at. Live
+-- songs only — a removed song has no detail (R21; there is no bin view, section 3). The groove
+-- join is LEFT because groove_id is nullable, and neither join tests deleted_at: the detail
+-- shows what the row points at, and a removed groove is still that song's groove until edited.
+selectDetailById:
+SELECT song.*, artist.name AS artist_name, groove.name AS groove_name
+FROM song
+JOIN artist ON artist.id = song.artist_id
+LEFT JOIN groove ON groove.id = song.groove_id
+WHERE song.id = ?
+  AND song.deleted_at IS NULL;
+
+-- R25: how many live songs point at an artist. An artist with any cannot be removed.
+countLiveByArtist:
+SELECT COUNT(*)
+FROM song
+WHERE artist_id = ?
+  AND deleted_at IS NULL;
+
+-- The whole row (R14). id is not here: editing a title or artist never re-derives the id
+-- (decision 5, E21, R22).
+--
+-- E37 precedent: deleted_at is NOT in the SET list and `deleted_at IS NULL` IS in the WHERE.
+-- Without the guard, a save that lands after a remove writes the tombstoned row and bumps its
+-- updated_at — the tombstone survives, but the edit is applied to a row the user removed.
 update:
 UPDATE song
 SET title = ?,
@@ -248,9 +283,22 @@ SET title = ?,
     chart_url = ?,
     updated_at = ?,
     device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;
 
+-- R23d: `deleted_at IS NULL` in the WHERE, as E37 does for updates. Removing a song that is
+-- already removed writes nothing; a spurious later stamp would outrank, under last-write-wins,
+-- a legitimate revive made on another device.
 softDelete:
 UPDATE song
 SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?
+  AND deleted_at IS NULL;
+
+-- R21: adding a song whose derived id is a tombstone revives it rather than returning a hidden
+-- row. Clears deleted_at and bumps updated_at and nothing else — the row keeps whatever it
+-- carried before it was removed, as every other revive in this schema does (E6).
+restore:
+UPDATE song
+SET deleted_at = NULL, updated_at = ?, device_id = ?
 WHERE id = ?;

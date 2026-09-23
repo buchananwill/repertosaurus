@@ -256,8 +256,9 @@ class IdsTest {
                 Ids.derived("instrument", "vocal"),
             ),
         )
-        // song_instrument: Valerie on guitar. No migration row to compare — the migration
-        // emits per-instrument facts without ids yet — so this pins the construction.
+        // song_instrument: Valerie on guitar — this pins the construction. The migration does
+        // emit song_instrument rows now; the value lifted from one is pinned in
+        // songTagAndSongInstrumentIdsAreTheValuesTheMigrationEmitted below.
         assertEquals(
             "124c7c67-a795-57c4-a04a-a655d2df3145",
             Ids.junction("song_instrument", valerie, Ids.derived("instrument", "guitar")),
@@ -305,6 +306,36 @@ class IdsTest {
         assertEquals(
             "6ad88d91-5233-55ee-abf4-77745577ffe7",
             Ids.songPerformer("79915806-b3fe-5ece-b33e-77c09dd8c907", will, vocal),
+        )
+    }
+
+    /**
+     * `Ids.songTag` and `Ids.songInstrument` (repertoire-editing, style review B4) against
+     * **rows lifted from the migrated database**, not recomputed by the author of this test.
+     *
+     * Read from `.scratch/repertosaurus.db` (written by `tools/import/build.py`) with:
+     *
+     *     SELECT song_id, tag_id, id FROM song_tag ORDER BY id LIMIT 1;
+     *     SELECT song_id, instrument_id, id FROM song_instrument ORDER BY id LIMIT 1;
+     *
+     * The first is *Angels* tagged `party`; the second is *Shake It Off* on `bass`. The tag and
+     * instrument ids are the seeded ones pinned above.
+     */
+    @Test
+    fun songTagAndSongInstrumentIdsAreTheValuesTheMigrationEmitted() {
+        assertEquals(
+            "00eb4404-8e4d-511e-a0e1-d3603781f2cb",
+            Ids.songTag(
+                "86b45735-0085-541c-9064-9798b3c70ca9",
+                "19f52880-05eb-5873-9d19-e754f0ee75f6",
+            ),
+        )
+        assertEquals(
+            "03c3a1a5-0845-5555-a749-64dd1c49eb02",
+            Ids.songInstrument(
+                "80d3f74d-82c2-514b-a9bf-498d89592a68",
+                "4e6210b7-1029-5855-99c2-32f48d87ec2a",
+            ),
         )
     }
 

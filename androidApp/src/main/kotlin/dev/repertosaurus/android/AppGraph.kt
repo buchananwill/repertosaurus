@@ -2,6 +2,7 @@ package dev.repertosaurus.android
 
 import android.content.Context
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.session.SessionPreferences
 
@@ -44,19 +45,23 @@ public class AppGraph private constructor(context: Context) {
 }
 
 /**
- * The instrument chip, the sort direction and the home View, remembered across launches. The
- * rules live in the shared core and are tested there; this is only the storage. None of the
- * three is data, so none is ever synced.
+ * The instrument chip, the sort direction, the home View and the note spelling, remembered
+ * across launches. The rules live in the shared core and are tested there; this is only the
+ * storage. None of the four is data, so none is ever synced.
  *
  * The home View is here and **not** an `is_home` column on `saved_view` (views V19). A flag
  * on many rows has no total order under last-write-wins — two devices each promoting a
  * different View both end up true and no later sync repairs it — and keeping it local lets
  * this phone and a desktop open on different Views, which is the behaviour we want.
  */
-private class AndroidSessionPreferences(context: Context) : SessionPreferences {
+internal class AndroidSessionPreferences(
+    context: Context,
+    // A parameter only so the persistence test can write a file of its own, never the app's.
+    fileName: String = AppGraph.PREFERENCES,
+) : SessionPreferences {
 
     private val preferences =
-        context.getSharedPreferences(AppGraph.PREFERENCES, Context.MODE_PRIVATE)
+        context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
 
     override fun lastInstrumentId(): String? = preferences.getString(KEY_INSTRUMENT, null)
 
@@ -76,9 +81,18 @@ private class AndroidSessionPreferences(context: Context) : SessionPreferences {
         preferences.edit().putString(KEY_HOME_VIEW, viewId).apply()
     }
 
+    // R40-R42: stored by name; unset or unknown reads as the R41 default.
+    override fun noteSpelling(): NoteSpelling =
+        NoteSpelling.fromStored(preferences.getString(KEY_NOTE_SPELLING, null))
+
+    override fun rememberNoteSpelling(spelling: NoteSpelling) {
+        preferences.edit().putString(KEY_NOTE_SPELLING, spelling.name).apply()
+    }
+
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
         const val KEY_ORDER = "last_order"
         const val KEY_HOME_VIEW = "home_view_id"
+        const val KEY_NOTE_SPELLING = "note_spelling"
     }
 }

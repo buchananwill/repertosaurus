@@ -1,5 +1,7 @@
 package dev.repertosaurus.core
 
+import dev.repertosaurus.core.NoteSpelling.AS_WRITTEN
+import dev.repertosaurus.core.NoteSpelling.SIMPLIFIED
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,7 +87,7 @@ class KeysTest {
         assertEquals(6, Keys.soundingKeySignature(6, 0))
         assertEquals(-6, Keys.soundingKeySignature(-6, 0))
         // C-sharp major stays C-sharp major.
-        assertEquals("C♯", Keys.soundingKeyName(keySignature = 7, tonalCentre = 1, transpose = 0))
+        assertEquals("C♯", Keys.soundingKeyName(keySignature = 7, tonalCentre = 1, transpose = 0, AS_WRITTEN))
     }
 
     // ---- The cases the rule exists for (decision 56) ---------------------------------
@@ -95,7 +97,7 @@ class KeysTest {
     fun cMajorUpASemitoneIsDFlatMajorNotCSharpMajor() {
         assertEquals(-5, Keys.soundingKeySignature(0, 1))
         assertEquals(1, Keys.soundingTonalCentre(0, 1))
-        assertEquals("D♭", Keys.soundingKeyName(keySignature = 0, tonalCentre = 0, transpose = 1))
+        assertEquals("D♭", Keys.soundingKeyName(keySignature = 0, tonalCentre = 0, transpose = 1, AS_WRITTEN))
     }
 
     /** A minor up a semitone is B-flat minor, not A-sharp minor. */
@@ -103,7 +105,7 @@ class KeysTest {
     fun aMinorUpASemitoneIsBFlatMinorNotASharpMinor() {
         assertEquals(-5, Keys.soundingKeySignature(0, 1))
         assertEquals(10, Keys.soundingTonalCentre(9, 1))
-        assertEquals("B♭", Keys.soundingKeyName(keySignature = 0, tonalCentre = 9, transpose = 1))
+        assertEquals("B♭", Keys.soundingKeyName(keySignature = 0, tonalCentre = 9, transpose = 1, AS_WRITTEN))
     }
 
     /** A minor down a tone -> G minor. */
@@ -125,7 +127,7 @@ class KeysTest {
     fun gUpASemitoneIsAFlat() {
         assertEquals(-4, Keys.soundingKeySignature(1, 1))
         assertEquals(8, Keys.soundingTonalCentre(7, 1))
-        assertEquals("A♭", Keys.soundingKeyName(keySignature = 1, tonalCentre = 7, transpose = 1))
+        assertEquals("A♭", Keys.soundingKeyName(keySignature = 1, tonalCentre = 7, transpose = 1, AS_WRITTEN))
     }
 
     /** B-flat -> A-flat. */
@@ -140,7 +142,7 @@ class KeysTest {
     fun bFlatUpASemitoneIsB() {
         assertEquals(5, Keys.soundingKeySignature(-2, 1))
         assertEquals(11, Keys.soundingTonalCentre(10, 1))
-        assertEquals("B", Keys.soundingKeyName(keySignature = -2, tonalCentre = 10, transpose = 1))
+        assertEquals("B", Keys.soundingKeyName(keySignature = -2, tonalCentre = 10, transpose = 1, AS_WRITTEN))
     }
 
     // ---- The reduction rule itself ----------------------------------------------------
@@ -190,13 +192,15 @@ class KeysTest {
 
     @Test
     fun spellingIsDerivedFromTheKeySignature() {
-        assertEquals("F♯", Keys.noteName(6, keySignature = 1))   // G major
-        assertEquals("G♭", Keys.noteName(6, keySignature = -2))  // B-flat major
-        assertEquals("D♭", Keys.noteName(1, keySignature = -5))
-        assertEquals("B", Keys.noteName(11, keySignature = 5))
-        assertEquals("E♭", Keys.noteName(3, keySignature = -3))
-        assertEquals("C", Keys.noteName(0, keySignature = 0))
-        assertEquals("A", Keys.noteName(9, keySignature = 0))
+        for (spelling in NoteSpelling.entries) {
+            assertEquals("F♯", Keys.noteName(6, keySignature = 1, spelling))   // G major
+            assertEquals("G♭", Keys.noteName(6, keySignature = -2, spelling))  // B-flat major
+            assertEquals("D♭", Keys.noteName(1, keySignature = -5, spelling))
+            assertEquals("B", Keys.noteName(11, keySignature = 5, spelling))
+            assertEquals("E♭", Keys.noteName(3, keySignature = -3, spelling))
+            assertEquals("C", Keys.noteName(0, keySignature = 0, spelling))
+            assertEquals("A", Keys.noteName(9, keySignature = 0, spelling))
+        }
     }
 
     @Test
@@ -206,19 +210,94 @@ class KeysTest {
             "C", "D♭", "D", "E♭", "E", "F",
             "G♭", "G", "A♭", "A", "B♭", "B",
         )
-        for (pitchClass in 0..11) {
-            assertEquals(expected[pitchClass], Keys.noteName(pitchClass, keySignature = null))
+        for (spelling in NoteSpelling.entries) {
+            for (pitchClass in 0..11) {
+                assertEquals(expected[pitchClass], Keys.noteName(pitchClass, keySignature = null, spelling))
+            }
         }
     }
 
     @Test
     fun everyPitchClassIsNameableForEveryKeySignature() {
+        for (spelling in NoteSpelling.entries) {
+            for (keySignature in -7..7) {
+                for (pitchClass in 0..11) {
+                    val name = Keys.noteName(pitchClass, keySignature, spelling)
+                    assertTrue(name.isNotEmpty())
+                    assertTrue(name[0] in 'A'..'G', "bad letter in $name")
+                }
+            }
+        }
+    }
+
+    // ---- Note spelling setting (repertoire-editing R40-R42) ------------------------------
+
+    /**
+     * **As written is today's behaviour, unchanged.** Every row was captured from the pre-R40
+     * `noteName` over the full 15 x 12 grid before the setting existed; it is not re-derived here.
+     */
+    @Test
+    fun asWrittenIsUnchangedFromBeforeTheSetting() {
+        for (keySignature in -7..7) {
+            val row = (0..11).map { Keys.noteName(it, keySignature, AS_WRITTEN) }
+            assertEquals(CAPTURED_BEFORE_R40.getValue(keySignature), row, "ks=$keySignature")
+        }
+    }
+
+    /** Simplified: the captured grid with exactly its four double accidentals respelled. */
+    @Test
+    fun simplifiedRespellsOnlyTheDoubleAccidentals() {
+        for (keySignature in -7..7) {
+            val row = (0..11).map { Keys.noteName(it, keySignature, SIMPLIFIED) }
+            val expected = CAPTURED_BEFORE_R40.getValue(keySignature).map { SIMPLIFIED_DOUBLES[it] ?: it }
+            assertEquals(expected, row, "ks=$keySignature")
+        }
+    }
+
+    @Test
+    fun simplifiedNeverShowsADoubleAccidentalAndAsWrittenStillCan() {
+        val simplified = mutableListOf<String>()
+        val asWritten = mutableListOf<String>()
         for (keySignature in -7..7) {
             for (pitchClass in 0..11) {
-                val name = Keys.noteName(pitchClass, keySignature)
-                assertTrue(name.isNotEmpty())
-                assertTrue(name[0] in 'A'..'G', "bad letter in $name")
+                simplified += Keys.noteName(pitchClass, keySignature, SIMPLIFIED)
+                asWritten += Keys.noteName(pitchClass, keySignature, AS_WRITTEN)
             }
+        }
+        assertTrue(simplified.none { "♯♯" in it || "♭♭" in it }, "a double accidental survived simplifying")
+        assertEquals(setOf("F♯♯", "C♯♯", "B♭♭", "E♭♭"), asWritten.filter { "♯♯" in it || "♭♭" in it }.toSet())
+        // No triple accidental arises in either mode.
+        assertTrue((simplified + asWritten).none { "♯♯♯" in it || "♭♭♭" in it })
+    }
+
+    /** R40's own example: under six sharps the tonal centre G. */
+    @Test
+    fun gUnderSixSharpsIsFDoubleSharpAsWrittenAndGSimplified() {
+        assertEquals("F♯♯", Keys.noteName(7, keySignature = 6, AS_WRITTEN))
+        assertEquals("G", Keys.noteName(7, keySignature = 6, SIMPLIFIED))
+        assertEquals("F♯♯", Keys.soundingKeyName(keySignature = 6, tonalCentre = 7, transpose = 0, AS_WRITTEN))
+        assertEquals("G", Keys.soundingKeyName(keySignature = 6, tonalCentre = 7, transpose = 0, SIMPLIFIED))
+    }
+
+    /** Single-accidental spellings are outside the setting: E♯, B♯, F♭ and C♭ stay in both modes. */
+    @Test
+    fun singleAccidentalSpellingsAreNotSimplified() {
+        for (spelling in NoteSpelling.entries) {
+            assertEquals("E♯", Keys.noteName(5, keySignature = 6, spelling))
+            assertEquals("B♯", Keys.noteName(0, keySignature = 7, spelling))
+            assertEquals("F♭", Keys.noteName(4, keySignature = -7, spelling))
+            assertEquals("C♭", Keys.noteName(11, keySignature = -7, spelling))
+        }
+    }
+
+    /** R41, and how the stored preference reads back. */
+    @Test
+    fun theStoredSpellingReadsBackAndDefaultsToSimplified() {
+        assertEquals(SIMPLIFIED, NoteSpelling.DEFAULT)
+        assertEquals(SIMPLIFIED, NoteSpelling.fromStored(null), "never chosen")
+        assertEquals(SIMPLIFIED, NoteSpelling.fromStored("ENHARMONIC"), "unknown to this build")
+        for (spelling in NoteSpelling.entries) {
+            assertEquals(spelling, NoteSpelling.fromStored(spelling.name))
         }
     }
 
@@ -227,5 +306,38 @@ class KeysTest {
         assertEquals("3♯", Keys.keySignatureLabel(3))
         assertEquals("2♭", Keys.keySignatureLabel(-2))
         assertEquals("0", Keys.keySignatureLabel(0))
+    }
+
+    private companion object {
+        /**
+         * `noteName(pc, ks)` for pc 0..11, **captured from the build before R40** by running the old
+         * function over the grid and pasting its output. Pinned so "as written" provably changed
+         * nothing; do not regenerate it from the current implementation.
+         */
+        val CAPTURED_BEFORE_R40: Map<Int, List<String>> = mapOf(
+            -7 to listOf("C", "D♭", "E♭♭", "E♭", "F♭", "F", "G♭", "G", "A♭", "B♭♭", "B♭", "C♭"),
+            -6 to listOf("C", "D♭", "D", "E♭", "F♭", "F", "G♭", "G", "A♭", "B♭♭", "B♭", "C♭"),
+            -5 to listOf("C", "D♭", "D", "E♭", "F♭", "F", "G♭", "G", "A♭", "A", "B♭", "C♭"),
+            -4 to listOf("C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "C♭"),
+            -3 to listOf("C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B"),
+            -2 to listOf("C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B"),
+            -1 to listOf("C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"),
+            0 to listOf("C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"),
+            1 to listOf("C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"),
+            2 to listOf("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "B♭", "B"),
+            3 to listOf("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"),
+            4 to listOf("C", "C♯", "D", "D♯", "E", "E♯", "F♯", "G", "G♯", "A", "A♯", "B"),
+            5 to listOf("B♯", "C♯", "D", "D♯", "E", "E♯", "F♯", "G", "G♯", "A", "A♯", "B"),
+            6 to listOf("B♯", "C♯", "D", "D♯", "E", "E♯", "F♯", "F♯♯", "G♯", "A", "A♯", "B"),
+            7 to listOf("B♯", "C♯", "C♯♯", "D♯", "E", "E♯", "F♯", "F♯♯", "G♯", "A", "A♯", "B"),
+        )
+
+        /** R40: the natural of the same pitch, for each double the grid produces. */
+        val SIMPLIFIED_DOUBLES: Map<String, String> = mapOf(
+            "F♯♯" to "G",
+            "C♯♯" to "D",
+            "B♭♭" to "A",
+            "E♭♭" to "D",
+        )
     }
 }

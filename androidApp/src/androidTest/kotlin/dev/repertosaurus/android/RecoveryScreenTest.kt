@@ -113,10 +113,18 @@ class RecoveryScreenTest {
     private fun show(name: String): SessionViewModel {
         val holder = DatabaseHolder(context, TEST_DEVICE, name)
         lateinit var model: SessionViewModel
+        lateinit var repertoire: RepertoireViewModel
+        lateinit var songs: SongsViewModel
+        lateinit var artists: ArtistsViewModel
         instrumentation.runOnMainSync {
             model = SessionViewModel(holder, InMemoryPreferences(), TEST_DEVICE)
+            // The three editing routes' ViewModels read nothing until their screen is entered,
+            // so building them over an unloadable database must not disturb the gate.
+            repertoire = RepertoireViewModel(holder)
+            songs = SongsViewModel(holder)
+            artists = ArtistsViewModel(holder)
         }
-        compose.setContent { MaterialTheme { RepertosaurusApp(model) } }
+        compose.setContent { MaterialTheme { RepertosaurusApp(model, repertoire, songs, artists) } }
         compose.waitUntil(BOOT_TIMEOUT_MS) {
             model.databaseState.value is DatabaseState.Unloadable || !model.state.value.loading
         }

@@ -1,13 +1,16 @@
 package dev.repertosaurus.android
 
-import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.android.DatabaseFixtures.count
+import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PerformerLineUp
-import dev.repertosaurus.session.SessionRow
+import dev.repertosaurus.session.SongIdentity
 import dev.repertosaurus.session.VocalRange
+import dev.repertosaurus.session.identity
 import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -247,6 +250,61 @@ class SongCapabilityEditingTest {
         assertNull(fixture.model.capabilities.value.error)
     }
 
+    /**
+     * **R23c on the capability path: a write to a removed song is refused, and says so.** The
+     * editor is now reachable from the Songs detail too (R18), so a song removed underneath the
+     * open sheet is a real state. The add must land on the error channel, not claim "Added", and
+     * must not move E44's counter — or the form would clear over a write that never happened.
+     */
+    @Test
+    fun anAddOnARemovedSongIsRefusedOnTheErrorChannel() {
+        val fixture = fixture("song-gone")
+        val song = firstSong(fixture.model)
+
+        openOn(fixture.model, song)
+        assertTrue(fixture.holder.repository.catalog.removeSong(song.songId))
+        add(fixture.model, "Coralie", "vocal")
+
+        val state = fixture.model.capabilities.value
+        assertEquals(Messages.SONG_GONE, state.error)
+        assertNull(state.message, "a refused add left a confirmation beside the refusal")
+        assertEquals(0L, state.addsCommitted, "a refused add moved the counter the form clears on")
+        assertEquals(0L, count(fixture.holder, "song_performer"), "an add on a removed song wrote a row")
+    }
+
+    /**
+     * R23c / R23d: a removal that removed nothing — the row was already gone — says so rather than
+     * "Removed", and an edit to that row says nothing was saved, on the error channel.
+     */
+    @Test
+    fun aNoOpRemovalAndANoOpEditAreSaidTruthfully() {
+        val fixture = fixture("no-op")
+        val song = firstSong(fixture.model)
+
+        openOn(fixture.model, song)
+        add(fixture.model, "Coralie", "vocal")
+        val row = capability(fixture.model, "Coralie", "vocal")
+
+        onMain { fixture.model.removeCapability(row) }
+        awaitIdle(fixture.model)
+        assertEquals("Removed Coralie", fixture.model.capabilities.value.message)
+
+        onMain { fixture.model.removeCapability(row) }
+        awaitIdle(fixture.model)
+        val again = fixture.model.capabilities.value
+        assertTrue(
+            again.message.orEmpty().contains("already removed"),
+            "a removal that wrote nothing claimed to have removed: ${again.message}",
+        )
+        assertNull(again.error)
+
+        onMain { fixture.model.updateCapability(row.copy(isLead = true)) }
+        awaitIdle(fixture.model)
+        val edited = fixture.model.capabilities.value
+        assertEquals(Messages.NOTHING_WRITTEN, edited.error)
+        assertNull(edited.message, "an edit that saved nothing said Saved")
+    }
+
     /** Closing the editor drops the song, which is how the sheet knows it is shut. */
     @Test
     fun closingTheEditorClearsItsState() {
@@ -275,24 +333,18 @@ class SongCapabilityEditingTest {
         val name = "capability-test-$suffix.db".also { names += it }
         DatabaseFixtures.delete(context, name)
         val holder = DatabaseHolder(context, TEST_DEVICE, name)
-        lateinit var model: SessionViewModel
-        // The main thread, because `viewModelScope` is `Dispatchers.Main.immediate` and the
-        // initialisation-order hazard that crashed this class once only reproduces there.
-        instrumentation.runOnMainSync {
-            model = SessionViewModel(holder, InMemoryPreferences(), TEST_DEVICE)
-        }
-        awaitIdle(model)
+        val model = EditingFixtures.session(holder)
         assertEquals(DatabaseState.Ready, model.databaseState.value)
         return Fixture(holder, model)
     }
 
-    private fun firstSong(model: SessionViewModel): SessionRow {
+    private fun firstSong(model: SessionViewModel): SongIdentity {
         val rows = model.state.value.pending
         assertTrue(rows.isNotEmpty(), "the sample data produced no rows to edit")
-        return rows.first()
+        return rows.first().identity()
     }
 
-    private fun openOn(model: SessionViewModel, song: SessionRow) {
+    private fun openOn(model: SessionViewModel, song: SongIdentity) {
         onMain { model.openCapabilities(song) }
         awaitIdle(model)
         assertTrue(
@@ -315,47 +367,7 @@ class SongCapabilityEditingTest {
             .capabilities.firstOrNull { it.instrumentName == instrument }
             ?: error("$performer holds no $instrument row")
 
-    private fun onMain(block: () -> Unit) {
-        instrumentation.runOnMainSync(block)
-    }
-
-    /**
-     * Settled means the editor is not writing and the session list is not reloading. Both are
-     * checked because a capability edit reloads the list afterwards (a View's eligibility reads
-     * `song_performer`), and a test that watched only one of the two would race the other.
-     */
-    private fun awaitIdle(model: SessionViewModel) {
-        val deadline = System.currentTimeMillis() + BOOT_TIMEOUT_MS
-        var settled = 0
-        while (System.currentTimeMillis() < deadline) {
-            settled = if (!model.capabilities.value.busy && !model.state.value.loading) {
-                settled + 1
-            } else {
-                0
-            }
-            // Twice in a row, because the reload is started after the write reports done and
-            // there is a window in which neither flag is set yet.
-            if (settled >= 3) return
-            Thread.sleep(50)
-        }
-        error("the editor never settled within ${BOOT_TIMEOUT_MS}ms")
-    }
+    private fun awaitIdle(model: SessionViewModel) = EditingFixtures.awaitSession(model)
 
     private fun practiceEventCount(holder: DatabaseHolder): Long = count(holder, "practice_event")
-
-    /**
-     * Counted out of the file on a second, read-only connection rather than through the
-     * repository, so the number is what is actually on disk. [from] is a `FROM` clause, so a
-     * `WHERE` can ride along.
-     */
-    private fun count(holder: DatabaseHolder, from: String): Long =
-        SQLiteDatabase.openDatabase(
-            holder.databaseFile().path,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { db ->
-            db.rawQuery("SELECT COUNT(*) FROM $from", null).use { cursor ->
-                if (cursor.moveToFirst()) cursor.getLong(0) else -1L
-            }
-        }
 }

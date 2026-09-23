@@ -169,7 +169,9 @@ UPDATE setlist_item_performer
 SET position = ?, updated_at = ?, device_id = ?
 WHERE id = ?;
 
+-- R23d: a row already removed is not re-stamped.
 softDelete:
 UPDATE setlist_item_performer
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;

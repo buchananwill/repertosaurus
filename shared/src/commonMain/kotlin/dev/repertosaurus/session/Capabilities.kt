@@ -1,7 +1,7 @@
 package dev.repertosaurus.session
 
 import dev.repertosaurus.core.Ids
-import dev.repertosaurus.core.NearMatches
+import dev.repertosaurus.data.JunctionWrite
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
 
@@ -75,31 +75,6 @@ public class CapabilityCoordinator(
     public fun instruments(): List<InstrumentChip> =
         SessionInstruments.chips(repository.instruments())
 
-    /**
-     * Near-matches while typing (decisions 16, 17d), so `Ukelele` meets `Ukulele` **before** a
-     * second row is committed. Those two normalise differently and would derive different
-     * ids, so nothing downstream would ever merge them — the type-ahead is the only defence.
-     *
-     * **E36: the matcher takes the list it matches against.** These used to call [performers]
-     * and [instruments], which go to disk, on every keystroke. The editor already holds both
-     * lists — it renders them — and every other type-ahead in the app already matches in
-     * memory over the list it holds. Either they take the list or they do not exist; there is
-     * deliberately no third overload for a caller to reach for by accident.
-     */
-    public fun suggestPerformers(
-        query: String,
-        from: List<RepertosaurusRepository.Performer>,
-        limit: Int = 6,
-    ): List<RepertosaurusRepository.Performer> =
-        NearMatches.search(query, from, limit) { it.name }
-
-    public fun suggestInstruments(
-        query: String,
-        from: List<InstrumentChip>,
-        limit: Int = 6,
-    ): List<InstrumentChip> =
-        NearMatches.search(query, from, limit) { it.name }
-
     // ---- Writing (E5, E6, E7, E9) --------------------------------------------------------
 
     /**
@@ -117,27 +92,26 @@ public class CapabilityCoordinator(
      * method is where `"performer"` and `"instrument"` were spelled by hand, so a typo
      * compiled and threw on the editor's first create-on-enter.
      *
-     * @return the capability row's id.
+     * @return what the capability write did. R23c: on a removed song it is
+     *   [JunctionWrite.SongGone] and **nothing** is written — not even the two lookups. The
+     *   envelope is `SongChildren.addNamed`, the one by-name add, shared with
+     *   `SongCatalog.addTagNamed` (F22 B1).
      */
-    public fun add(songId: String, performerName: String, instrumentName: String): String =
-        repository.inTransaction {
-            val performerId = repository.lookups.add(LookupTableKey.PERFORMER, performerName)
-            val instrumentId = repository.lookups.add(LookupTableKey.INSTRUMENT, instrumentName)
-            addById(songId, performerId, instrumentId)
-        }
+    public fun add(songId: String, performerName: String, instrumentName: String): JunctionWrite =
+        repository.addSongPerformerNamed(songId, performerName, instrumentName)
 
     /**
      * The same, when both were picked out of the suggestions.
      *
      * **E6 lives one call down, in [RepertosaurusRepository.addSongPerformer], and is the part
-     * of this arc most likely to be got wrong.** The id is derived from the three keys, so
-     * re-adding a pair that was removed computes the *same* primary key: a plain `INSERT`
-     * throws and an `INSERT OR REPLACE` silently discards that row's `notes` and
-     * `vocal_range`. Adding is therefore insert-or-revive, and it deliberately carries no
+     * of this arc most likely to be got wrong.** Re-adding a triple that was removed lands on
+     * the *same* row — found by the triple, never by assuming its id is the derived one (R4a) —
+     * and a plain `INSERT` would throw while an `INSERT OR REPLACE` would silently discard that
+     * row's `notes` and `vocal_range`. Adding is therefore insert-or-revive, and it deliberately carries no
      * facts — [update] sets those afterwards, so a revive can never be the thing that quietly
      * resets them.
      */
-    public fun addById(songId: String, performerId: String, instrumentId: String): String =
+    public fun addById(songId: String, performerId: String, instrumentId: String): JunctionWrite =
         repository.addSongPerformer(songId, performerId, instrumentId)
 
     /**
@@ -147,13 +121,15 @@ public class CapabilityCoordinator(
      * E8 is enforced here rather than left to the screen: a non-null range on a guitar row is
      * nonsense, SQLite cannot `CHECK` it across a foreign table (V7), and a UI that offered it
      * anyway would write a permanent value no read would ever question. It fails loudly.
+     *
+     * @return false when nothing was written: the row is removed (E37) or its song is (R23c).
      */
-    public fun update(capability: SongCapability) {
+    public fun update(capability: SongCapability): Boolean {
         require(capability.vocalRange == null || capability.rangeApplies) {
             "vocal_range is offered on vocal and backing vocal only (E8), " +
                 "not on ${capability.instrumentName}"
         }
-        repository.updateSongPerformer(
+        return repository.updateSongPerformer(
             id = capability.id,
             isLead = if (capability.isLead) 1L else 0L,
             vocalRange = capability.vocalRange?.stored,
@@ -165,10 +141,20 @@ public class CapabilityCoordinator(
      * E7: a soft delete, like every other mutable row in this schema — a tombstone, never a
      * `DELETE`, because a stale device reinserts a hard-deleted row on the next merge. It is
      * also what makes E6's revive path possible at all.
+     *
+     * @return what the write did (R23c, R23d).
      */
-    public fun remove(capabilityId: String) {
+    public fun remove(capabilityId: String): JunctionWrite =
         repository.removeSongPerformer(capabilityId)
-    }
+
+    /**
+     * [remove], for a caller that knows the triple and not the row — the Repertoire toggle's off
+     * path (R4). **R4a: the row is found by the triple through the unique key**, never by
+     * assuming its id is `Ids.songPerformer` of it, which on a database upgraded 1 → 2 names no
+     * row (schema-compatibility S3).
+     */
+    public fun removeByKey(songId: String, performerId: String, instrumentId: String): JunctionWrite =
+        repository.removeSongPerformerByKey(songId, performerId, instrumentId)
 
     public companion object {
 
@@ -196,6 +182,20 @@ public class CapabilityCoordinator(
         }
     }
 }
+
+/**
+ * **The song the capability editor is open on** (R18) — only what the editor needs to name it,
+ * not the logger's row. The logger opens the editor from a [SessionRow] and the Songs detail
+ * from a stored record, so the editor takes this narrower identity from either. In the core
+ * (style review F17 B1) so the desktop UI opens the same editor on the same value.
+ */
+public data class SongIdentity(val songId: String, val title: String, val artistName: String?) {
+    /** The one song label (R11, E46), for the editor's heading. */
+    public val label: String get() = songLabel(title, artistName)
+}
+
+/** The logger row as the capability editor's [SongIdentity]. */
+public fun SessionRow.identity(): SongIdentity = SongIdentity(songId, title, artistName)
 
 /**
  * One resolved `song_performer` row for display (decisions 26, 27; views V1-V9).

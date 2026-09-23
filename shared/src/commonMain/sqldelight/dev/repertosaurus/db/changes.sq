@@ -1,0 +1,8 @@
+-- Not a table. The row count of the most recent INSERT, UPDATE or DELETE on this connection,
+-- which is how a guarded write (E37, R23c, R23d) reports whether it wrote anything. SQLDelight's
+-- generated mutators return nothing, so this is the one way to ask.
+--
+-- Read it inside the same transaction as the write it describes (data/Writes.kt does), so no
+-- other statement on the connection can land between the two.
+rowsChanged:
+SELECT changes();

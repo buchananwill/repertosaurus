@@ -96,6 +96,19 @@ internal object DatabaseFixtures {
         edit(file) { db -> db.execSQL("PRAGMA user_version = $userVersion") }
     }
 
+    /**
+     * Counted out of the file on a second, read-only connection rather than through the
+     * repository, so the number is what is actually on disk. [from] is a `FROM` clause, so a
+     * `WHERE` can ride along. The one copy (style review F17 N7) — three test files held their own.
+     */
+    fun count(holder: DatabaseHolder, from: String): Long =
+        SQLiteDatabase.openDatabase(holder.databaseFile().path, null, SQLiteDatabase.OPEN_READONLY)
+            .use { db ->
+                db.rawQuery("SELECT COUNT(*) FROM $from", null).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getLong(0) else -1L
+                }
+            }
+
     fun userVersion(file: File): Long =
         SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
             db.rawQuery("PRAGMA user_version", null).use { cursor ->

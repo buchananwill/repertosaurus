@@ -272,6 +272,20 @@ class SessionStateTest {
         assertEquals(3, loaded.withQuery("   ").pending.size)
     }
 
+    /**
+     * **Style review B1: the logger uses the one song matcher**, so its search changed on
+     * purpose — `acdc` now finds *AC/DC*, as it does on the Songs and Repertoire lists. The
+     * old matcher compared against the spaced normalised form only and found nothing.
+     */
+    @Test
+    fun theLoggersSearchIsTheOneSongMatcherSoAcdcFindsAcDc() {
+        val acdc = SessionRow("s-acdc", "Back in Black", "AC/DC", null, 0L)
+        val withAcdc = loaded.copy(rows = listOf(never, cold, warm, acdc))
+
+        assertEquals(listOf("s-acdc"), withAcdc.withQuery("acdc").pending.map { it.songId })
+        assertEquals(listOf("s-acdc"), withAcdc.withQuery("black acdc").pending.map { it.songId })
+    }
+
     @Test
     fun searchAlsoFiltersTheLoggedSection() {
         val after = loaded.plusTap(tap("t1", cold)).withQuery("valerie")

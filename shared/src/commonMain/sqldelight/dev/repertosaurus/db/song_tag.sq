@@ -32,6 +32,26 @@ WHERE song_tag.song_id = ?
   AND tag.deleted_at IS NULL
 ORDER BY tag.name;
 
+-- One row by the id a display read handed out, whatever its deleted_at — the remove path. The
+-- add path's insert-or-revive check (R17) reads through selectByKey instead (R4a).
+selectById:
+SELECT *
+FROM song_tag
+WHERE id = ?;
+
+-- repertoire-editing R4a: the row for one (song, tag), tombstone and all, through the unique
+-- key (song_tag_pair) rather than by assuming the derived id.
+selectByKey:
+SELECT *
+FROM song_tag
+WHERE song_id = ? AND tag_id = ?;
+
+-- F22 N8: every tag row a song has, tombstoned rows and rows under tombstoned tags included.
+selectAllBySong:
+SELECT *
+FROM song_tag
+WHERE song_id = ?;
+
 selectSongsByTag:
 SELECT song.id, song.title, artist.name AS artist_name
 FROM song_tag
@@ -56,10 +76,12 @@ applyMerged:
 INSERT OR REPLACE INTO song_tag(id, song_id, tag_id, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?, ?);
 
+-- R23d: a tag already removed is not re-stamped.
 softDelete:
 UPDATE song_tag
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;
 
 -- Re-adding a tag reuses the derived id, so it is an untombstone, not a second row.
 restore:

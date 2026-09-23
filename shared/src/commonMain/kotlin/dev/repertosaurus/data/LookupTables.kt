@@ -323,27 +323,47 @@ internal class LookupTables(
      * branches to insert, revive or no-op across separate statements; without atomicity two
      * rapid taps both observe "absent" and the second violates the primary key.
      *
-     * The transaction is the whole guard here, and deliberately so: unlike
-     * `song_performer.sq :: insertIfAbsent` this insert stays a plain `INSERT`, because a
-     * lookup row is created from a typed name on a form and not from a tap target, and an
-     * `OR IGNORE` would additionally swallow a `CHECK` failure for no gain on this path.
+     * The branch is [insertOrRevive]'s, with a plain `INSERT` ([Insert.Plain] says why). A
+     * live row is left exactly as it is: the stored spelling is the canonical one (decision 5)
+     * and the notes are the user's.
      */
-    fun add(key: LookupTableKey, name: String): String {
+    fun add(key: LookupTableKey, name: String): String = resolve(key, name).first
+
+    /**
+     * [add], also saying how the name resolved — for a caller whose own report has to count a
+     * lookup it created or revived as a write (R23d; `SongCatalog.addTagNamed`).
+     */
+    fun resolve(key: LookupTableKey, name: String): Pair<String, Resolution> {
         val queries = table(key)
         val display = name.trim()
         require(display.isNotEmpty()) { "a ${key.table} needs a name" }
-        val id = Ids.derived(key.table, display)
-        database.transaction {
-            val existing = queries.byId(id)
-            when {
-                existing == null -> queries.insert(id, display, Timestamps.now(clock))
-                existing.deletedAt != null -> queries.revive(existing, Timestamps.now(clock))
-                // A live row already carries this value. Leave it exactly as it is: the
-                // stored spelling is the canonical one (decision 5) and the notes are the
-                // user's.
-            }
-        }
-        return id
+        val id = idFor(key, display)
+        val resolution = database.insertOrRevive(
+            read = { queries.byId(id) },
+            deletedAt = { it.deletedAt },
+            insert = Insert.Plain { queries.insert(id, display, Timestamps.now(clock)) },
+            revive = { queries.revive(it, Timestamps.now(clock)) },
+        )
+        return id to resolution
+    }
+
+    /**
+     * The id a name derives in this table (decisions 2, 4) — the one place a lookup's derived id
+     * is computed, so a caller that needs it without writing (to report a refused write) cannot
+     * spell it differently from [add].
+     */
+    fun idFor(key: LookupTableKey, name: String): String = Ids.derived(key.table, name.trim())
+
+    /**
+     * R23b: **a write that makes a live row reference a tombstoned parent revives the parent**,
+     * in the caller's transaction. Reviving keeps the parent's spelling and notes, as [add]'s
+     * revive does. A live parent, or an id with no row, is left alone.
+     *
+     * @return true when a tombstone was revived.
+     */
+    fun reviveIfRemoved(key: LookupTableKey, id: String): Boolean {
+        val queries = table(key)
+        return reviveIfRemoved(queries.byId(id), { it.deletedAt }) { queries.revive(it, Timestamps.now(clock)) }
     }
 
     /**
@@ -372,8 +392,15 @@ internal class LookupTables(
      * Remove: a tombstone, never a `DELETE` (decision 9, E7, E22). A hard delete gets
      * reinserted by any stale device on the next merge, and the history pointing at the row
      * must survive either way — it does, and it keeps counting.
+     *
+     * R23d: a row that is already removed is **not re-stamped** (`deleted_at IS NULL` is in every
+     * lookup's `softDelete`), because under last-write-wins a spurious later stamp would outrank
+     * a legitimate revive made on another device.
+     *
+     * @return false when there was no live row to remove: nothing was written.
      */
-    fun remove(key: LookupTableKey, id: String) {
-        table(key).softDelete(id, Timestamps.now(clock))
+    fun remove(key: LookupTableKey, id: String): Boolean {
+        val queries = table(key)
+        return database.softDelete(clock) { now -> queries.softDelete(id, now) }
     }
 }

@@ -46,6 +46,27 @@ WHERE song_instrument.song_id = ?
   AND instrument.deleted_at IS NULL
 ORDER BY instrument.name;
 
+-- One row by the id a display read handed out, whatever its deleted_at — the edit and remove
+-- paths. The add path's insert-or-revive check (R19) reads through selectByKey instead (R4a).
+selectById:
+SELECT *
+FROM song_instrument
+WHERE id = ?;
+
+-- repertoire-editing R4a: the row for one (song, instrument), tombstone and all, through the
+-- unique key (song_instrument_pair) rather than by assuming the derived id.
+selectByKey:
+SELECT *
+FROM song_instrument
+WHERE song_id = ? AND instrument_id = ?;
+
+-- F22 N8: every instrument row a song has, tombstoned rows and rows under tombstoned
+-- instruments included.
+selectAllBySong:
+SELECT *
+FROM song_instrument
+WHERE song_id = ?;
+
 selectBySongAndInstrument:
 SELECT *
 FROM song_instrument
@@ -69,12 +90,28 @@ INSERT OR REPLACE INTO song_instrument(
     updated_at, deleted_at, device_id
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- song_id and instrument_id are the derived key and so are not updatable.
+--
+-- E37: deleted_at is NOT in the SET list and `deleted_at IS NULL` IS in the WHERE. This
+-- statement used to write deleted_at, which made editing a removed row a second, undocumented
+-- revive path beside the deliberate one below — the defect E37 fixed on song_performer.
 update:
 UPDATE song_instrument
-SET difficulty = ?, patch = ?, notes = ?, updated_at = ?, deleted_at = ?, device_id = ?
-WHERE id = ?;
+SET difficulty = ?, patch = ?, notes = ?, updated_at = ?, device_id = ?
+WHERE id = ?
+  AND deleted_at IS NULL;
 
+-- R23d: a row already removed is not re-stamped.
 softDelete:
 UPDATE song_instrument
 SET deleted_at = ?, updated_at = ?, device_id = ?
+WHERE id = ?
+  AND deleted_at IS NULL;
+
+-- R19: re-adding an instrument's facts reuses the derived id, so it is an untombstone, not a
+-- second row. difficulty, patch and notes are left as they were (E6's rule, same shape as
+-- song_tag.restore and song_performer.restore).
+restore:
+UPDATE song_instrument
+SET deleted_at = NULL, updated_at = ?, device_id = ?
 WHERE id = ?;

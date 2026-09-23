@@ -89,13 +89,64 @@ WHERE song_performer.performer_id = ?
   AND song.deleted_at IS NULL
 ORDER BY song.title, song_performer.instrument_id;
 
--- The tombstone check behind editing E6's revive path. Reads the row whatever its
--- deleted_at, which is the whole point: a re-add derives the SAME primary key, so the
--- writer has to know whether it is inserting or reviving before it writes anything.
+-- repertoire-editing R9: EVERY live song, each with whether one (performer, instrument) holds
+-- it — the Repertoire route's toggle list, which exists to reach songs a View hides (R3).
+--
+-- Here rather than in song.sq because the question is about capability rows: the held flag is
+-- the only thing this adds over song.selectAllLiveWithArtist, and it is a song_performer fact.
+--
+-- The capability's tombstone is tested in the ON clause, not the WHERE: in the WHERE it would
+-- turn the LEFT JOIN into an inner one for tombstoned rows and drop those songs from the list,
+-- when a removed capability must read as "not held". The unique index on the triple
+-- (song_performer_key) means at most one row joins per song, so no song repeats.
+--
+-- Deliberately NO ORDER BY. R7's order — held first, then title case-insensitively — is
+-- applied once, in RepertoireCoordinator.ORDER (the E35 precedent: one comparator, applied
+-- once). SQLite's NOCASE folds ASCII only, so an SQL order here would disagree with Kotlin's
+-- on accented titles, and a second order is how two surfaces come to disagree.
+--
+-- The artist join is inner and ignores the artist's tombstone: artist_id is NOT NULL with a
+-- foreign key, and R25 refuses to remove an artist while it has live songs.
+--
+-- held is a CASE rather than `song_performer.id IS NOT NULL` so it types as a plain INTEGER.
+selectSongsWithHeldFlag:
+SELECT
+    song.id     AS song_id,
+    song.title  AS title,
+    artist.name AS artist_name,
+    CASE WHEN song_performer.id IS NULL THEN 0 ELSE 1 END AS held
+FROM song
+JOIN artist ON artist.id = song.artist_id
+LEFT JOIN song_performer
+       ON song_performer.song_id = song.id
+      AND song_performer.performer_id = :performerId
+      AND song_performer.instrument_id = :instrumentId
+      AND song_performer.deleted_at IS NULL
+WHERE song.deleted_at IS NULL;
+
+-- One row by the id a display read handed out, whatever its deleted_at — the edit and remove
+-- paths. The add path's insert-or-revive check (E6) reads through selectByKey instead (R4a).
 selectById:
 SELECT *
 FROM song_performer
 WHERE id = ?;
+
+-- repertoire-editing R4a: the row that holds one (song, performer, instrument), tombstone and
+-- all, found through the unique key (song_performer_key) and NEVER by assuming its id is
+-- Ids.songPerformer of the triple. A database upgraded 1 -> 2 on a device keeps two-key ids
+-- (schema-compatibility S3), so there the derived id names no row at all while the triple
+-- still names exactly one.
+selectByKey:
+SELECT *
+FROM song_performer
+WHERE song_id = ? AND performer_id = ? AND instrument_id = ?;
+
+-- F22 N8: every capability row a song has, tombstoned rows and rows under tombstoned parents
+-- included — the read a merge needs (R38a), which must not drop what the display reads hide.
+selectAllBySong:
+SELECT *
+FROM song_performer
+WHERE song_id = ?;
 
 -- E15: the instruments each performer is recorded on, derived from the capability rows and
 -- never stored. There is no performer_instrument table and none is proposed; a second place
@@ -164,6 +215,10 @@ INSERT INTO song_performer(
 -- accepted cost: is_lead is bound as the literal 0 here and the timestamp comes from
 -- Timestamps.now, which has its own tests. If this statement ever takes a caller-supplied
 -- is_lead, it must stop being OR IGNORE.
+--
+-- R4a: an ignore is never reported as a success. insertOrRevive reads changes() after this
+-- statement and throws when it wrote nothing, so the caller's transaction rolls back — a blocked
+-- insert (a unique-key hit the read did not see, or a swallowed CHECK) is a failure, not CREATED.
 insertIfAbsent:
 INSERT OR IGNORE INTO song_performer(
     id, song_id, performer_id, instrument_id, is_lead, vocal_range, notes,
@@ -195,10 +250,14 @@ WHERE id = ?
 
 -- E7: removing a capability is a soft delete, like every other mutable row in this schema.
 -- A stale device reinserts a hard-deleted row on the next merge.
+--
+-- R23d: a row already removed is not re-stamped — a spurious later stamp would outrank, under
+-- last-write-wins, a legitimate revive made on another device.
 softDelete:
 UPDATE song_performer
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;
 
 -- E6, and the whole reason this statement exists rather than a second insert.
 --

@@ -1,0 +1,6 @@
+# LF on every checkout, whatever core.autocrlf says: these are parsed or byte-compared.
+*.sql   text eol=lf
+*.sq    text eol=lf
+*.sqm   text eol=lf
+*.tsv   text eol=lf
+gradlew text eol=lf

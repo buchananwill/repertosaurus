@@ -45,7 +45,9 @@ applyMerged:
 INSERT OR REPLACE INTO artist_alias(id, artist_id, alias, updated_at, deleted_at, device_id)
 VALUES (?, ?, ?, ?, ?, ?);
 
+-- R23d: a row already removed is not re-stamped.
 softDelete:
 UPDATE artist_alias
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;

@@ -17,8 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,19 +48,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.core.Timestamps
-import dev.repertosaurus.core.normalise
 import dev.repertosaurus.data.RepertosaurusRepository
-import dev.repertosaurus.session.ArtistSuggestions
 import dev.repertosaurus.session.InstrumentChip
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.SessionOrder
 import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.ViewFilter
+import dev.repertosaurus.session.identity
 import kotlinx.datetime.LocalDate
 
 /** Stable handles for the instrumented tests and for on-device inspection. */
@@ -295,7 +292,7 @@ public fun SessionScreen(
             // the rating path has moved or grown a step.
             onEditLineUp = {
                 feelFor = null
-                viewModel.openCapabilities(row)
+                viewModel.openCapabilities(row.identity())
             },
         )
     }
@@ -550,7 +547,7 @@ private fun SessionList(
                 ) {
                     Text(
                         text = when {
-                            state.query.isNotEmpty() -> "Nothing matches \"${state.query}\"."
+                            state.query.isNotEmpty() -> Messages.nothingMatches(state.query)
                             filterNamesRemovedRow ->
                                 "This view filters on someone — or something — that has " +
                                     "been removed, so no song can match it. Your songs are " +
@@ -650,117 +647,6 @@ private fun StalenessBadge(row: SessionRow, loggedCount: Int) {
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
-    }
-}
-
-/**
- * Add a song: a title, and an artist typed into a type-ahead. Nothing else is asked for —
- * decisions 27 and 37 are explicit that no key may be required, and this is not the song
- * editor.
- *
- * The artist field is the substance of this sheet. Decisions 16 and 17 call for a
- * type-ahead that creates on enter and surfaces near-matches *while typing*, with no admin
- * screen anywhere, and matching runs through the shared `normalise` — so `Fratellis`
- * surfaces `The Fratellis` and `AC DC` surfaces `AC/DC` before a second row can be made.
- * Even if the suggestion goes unnoticed, the derived id resolves to the same existing row,
- * because that id *is* `UUIDv5(namespace, normalise(name))`.
- *
- * Leaving the artist blank uses the seeded `Unknown Artist` (decision 28a). A musician
- * mid-practice must never be blocked from logging by an unsettled attribution.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AddSongSheet(
-    initialTitle: String,
-    artists: List<RepertosaurusRepository.Artist>,
-    onDismiss: () -> Unit,
-    onAdd: (title: String, artistName: String, artistId: String?) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState()
-    var title by remember { mutableStateOf(initialTitle) }
-    var artist by remember { mutableStateOf("") }
-    var pickedArtistId by remember { mutableStateOf<String?>(null) }
-
-    val suggestions = remember(artist, artists) { ArtistSuggestions.search(artist, artists) }
-    val exact = remember(artist, suggestions) {
-        val typed = normalise(artist)
-        suggestions.firstOrNull { normalise(it.name) == typed && typed.isNotEmpty() }
-    }
-    val commit = {
-        if (title.isNotBlank()) onAdd(title, artist, pickedArtistId)
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("Add a song", style = MaterialTheme.typography.headlineSmall)
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Title") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            OutlinedTextField(
-                value = artist,
-                onValueChange = {
-                    artist = it
-                    // Typing again abandons a picked suggestion; the name now rules.
-                    pickedArtistId = null
-                },
-                label = { Text("Artist") },
-                supportingText = {
-                    Text(
-                        when {
-                            exact != null -> "Uses the existing ${exact.name}."
-                            artist.isBlank() -> "Leave blank for Unknown Artist."
-                            else -> "Enter adds it. Nothing else to fill in."
-                        },
-                    )
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { commit() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (suggestions.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for (match in suggestions) {
-                        FilterChip(
-                            selected = pickedArtistId == match.id,
-                            onClick = {
-                                artist = match.name
-                                pickedArtistId = match.id
-                            },
-                            label = { Text(match.name) },
-                            modifier = Modifier.height(44.dp),
-                        )
-                    }
-                }
-            }
-
-            Button(
-                onClick = commit,
-                enabled = title.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Text("Add song")
-            }
-        }
     }
 }
 

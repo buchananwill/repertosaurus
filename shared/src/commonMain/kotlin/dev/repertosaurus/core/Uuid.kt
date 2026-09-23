@@ -159,6 +159,23 @@ public object Ids {
     public fun setlistItemPerformer(setlistItemId: String, performerId: String): String =
         junction("setlist_item_performer", setlistItemId, performerId)
 
+    /**
+     * A `song_tag` row id (decisions 4, 13, 43) — [junction] over `(song_id, tag_id)`, named
+     * so no caller spells the table string by hand. The value is exactly the two-key
+     * junction's, which is exactly what the migration emits; `IdsTest` pins it against a row
+     * lifted from the migrated database.
+     */
+    public fun songTag(songId: String, tagId: String): String =
+        junction("song_tag", songId, tagId)
+
+    /**
+     * A `song_instrument` row id (decisions 4, 41) — [junction] over
+     * `(song_id, instrument_id)`, in the order the table declares them. Pinned in `IdsTest`
+     * against a row lifted from the migrated database.
+     */
+    public fun songInstrument(songId: String, instrumentId: String): String =
+        junction("song_instrument", songId, instrumentId)
+
     /** A UUIDv4, for rows where a duplicate is meaningful (decisions 3, 6). */
     public fun random(random: Random = Random.Default): String {
         val bytes = ByteArray(16)

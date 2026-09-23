@@ -4,14 +4,16 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -26,9 +28,7 @@ import kotlin.test.assertTrue
  */
 class SessionCoordinatorTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-15T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-15T10:30:00.250Z")
     private val today = "2026-08-15"
 
     private lateinit var driver: JdbcSqliteDriver
@@ -128,9 +128,13 @@ class SessionCoordinatorTest {
 
     // ---- Adding a song ----------------------------------------------------------------
 
+    /** The logger's add with a typed artist name, as the sheet sends it. */
+    private fun addSong(title: String, artistName: String): String =
+        coordinator.addSong(title, SongCatalog.LookupChoice.Typed(artistName)).song.songId
+
     @Test
     fun addingASongMakesItAppearImmediatelyAsNeverPractised() {
-        val songId = coordinator.addSong("Wonderwall", "Oasis")
+        val songId = addSong("Wonderwall", "Oasis")
         val rows = coordinator.rows(unfiltered(guitar))
 
         assertEquals(songId, rows.single().songId)
@@ -147,7 +151,7 @@ class SessionCoordinatorTest {
     /** Decisions 4 and 4d: the id is derived, not random, so two devices converge. */
     @Test
     fun theNewSongsIdIsTheDerivedId() {
-        val songId = coordinator.addSong("Wonderwall", "Oasis")
+        val songId = addSong("Wonderwall", "Oasis")
         val artistId = Ids.derived("artist", "Oasis")
 
         assertEquals(Ids.song(artistId, "Wonderwall"), songId)
@@ -163,7 +167,7 @@ class SessionCoordinatorTest {
         insertSong("Chelsea Dagger", "The Fratellis")
         val before = coordinator.artists().size
 
-        val songId = coordinator.addSong("Henrietta", "Fratellis")
+        val songId = addSong("Henrietta", "Fratellis")
 
         assertEquals(before, coordinator.artists().size, "no second Fratellis")
         val stored = coordinator.artists().single { it.name == "The Fratellis" }
@@ -178,19 +182,27 @@ class SessionCoordinatorTest {
         // And the same holds through punctuation.
         insertSong("Thunderstruck", "AC/DC")
         val artistsNow = coordinator.artists().size
-        coordinator.addSong("Back in Black", "AC DC")
+        addSong("Back in Black", "AC DC")
         assertEquals(artistsNow, coordinator.artists().size, "no second AC/DC")
     }
 
-    /** Decision 28a: the escape hatch, not a blocked save. */
+    /**
+     * Decision 28a: the escape hatch, not a blocked save — for a blank typed name and for no
+     * artist at all, through the one rule (style review B2). R23a: neither counts as differing.
+     */
     @Test
     fun aBlankArtistResolvesToTheSeededUnknownArtist() {
-        val songId = coordinator.addSong("A Song With No Artist", "")
+        val added = coordinator.addSong("A Song With No Artist", SongCatalog.LookupChoice.Typed("  "))
+        val songId = added.song.songId
 
-        assertEquals(RepertosaurusRepository.UNKNOWN_ARTIST_ID, coordinator.resolveArtist(""))
+        assertEquals(SongCatalog.UNKNOWN_ARTIST_ID, added.artist.artistId)
+        assertFalse(added.differs, "R23a: a blank artist landing on Unknown Artist does not differ")
+        val none = coordinator.addSong("Another With No Artist", null)
+        assertEquals(SongCatalog.UNKNOWN_ARTIST_ID, none.artist.artistId)
+        assertFalse(none.differs)
         assertEquals(
             Ids.derived("artist", "Unknown Artist"),
-            RepertosaurusRepository.UNKNOWN_ARTIST_ID,
+            SongCatalog.UNKNOWN_ARTIST_ID,
         )
         assertEquals(
             "Unknown Artist",
@@ -201,8 +213,8 @@ class SessionCoordinatorTest {
     /** Adding the same song twice is one row: the id is derived from its identity. */
     @Test
     fun addingTheSameSongTwiceDoesNotForkIt() {
-        val first = coordinator.addSong("Wonderwall", "Oasis")
-        val second = coordinator.addSong("  wonderwall  ", "oasis")
+        val first = addSong("Wonderwall", "Oasis")
+        val second = addSong("  wonderwall  ", "oasis")
 
         assertEquals(first, second)
         assertEquals(1, coordinator.rows(unfiltered(guitar)).size)
@@ -213,9 +225,9 @@ class SessionCoordinatorTest {
     @Test
     fun aSongAddedAgainstAPickedArtistUsesThatArtistId() {
         insertSong("Chelsea Dagger", "The Fratellis")
-        val picked = coordinator.suggestArtists("fratellis").single()
+        val picked = ArtistSuggestions.search("fratellis", coordinator.artists()).single()
 
-        val songId = coordinator.addSongWithArtistId("Henrietta", picked.id)
+        val songId = coordinator.addSong("Henrietta", SongCatalog.LookupChoice.Picked(picked.id)).song.songId
 
         assertEquals(Ids.song(picked.id, "Henrietta"), songId)
         assertEquals(

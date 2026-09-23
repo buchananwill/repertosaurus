@@ -1,6 +1,5 @@
 package dev.repertosaurus.android
 
-import android.database.sqlite.SQLiteDatabase
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
@@ -16,11 +15,14 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.android.DatabaseFixtures.count
+import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.PerformerLineUp
-import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SongCapability
+import dev.repertosaurus.session.SongIdentity
+import dev.repertosaurus.session.identity
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -263,59 +265,28 @@ class SongCapabilitySheetTest {
         val name = "capability-sheet-$suffix.db".also { names += it }
         DatabaseFixtures.delete(context, name)
         val holder = DatabaseHolder(context, TEST_DEVICE, name)
-        lateinit var model: SessionViewModel
-        instrumentation.runOnMainSync {
-            model = SessionViewModel(holder, InMemoryPreferences(), TEST_DEVICE)
-        }
-        settle(model)
+        val model = EditingFixtures.session(holder)
         assertEquals(DatabaseState.Ready, model.databaseState.value)
         return Fixture(holder, model)
     }
 
-    private fun firstSong(model: SessionViewModel): SessionRow {
+    private fun firstSong(model: SessionViewModel): SongIdentity {
         val rows = model.state.value.pending
         assertTrue(rows.isNotEmpty(), "the sample data produced no rows to edit")
-        return rows.first()
+        return rows.first().identity()
     }
 
-    private fun onMain(block: () -> Unit) {
-        instrumentation.runOnMainSync(block)
-    }
-
-    /** Settled means the editor is not writing and the session list is not reloading. */
-    private fun settle(model: SessionViewModel) {
-        val deadline = System.currentTimeMillis() + BOOT_TIMEOUT_MS
-        var quiet = 0
-        while (System.currentTimeMillis() < deadline) {
-            quiet = if (!model.capabilities.value.busy && !model.state.value.loading) {
-                quiet + 1
-            } else {
-                0
-            }
-            if (quiet >= 3) return
-            Thread.sleep(50)
-        }
-        error("the editor never settled within ${BOOT_TIMEOUT_MS}ms")
-    }
-
-    private fun count(holder: DatabaseHolder, from: String): Long =
-        SQLiteDatabase.openDatabase(
-            holder.databaseFile().path,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { db ->
-            db.rawQuery("SELECT COUNT(*) FROM $from", null).use { cursor ->
-                if (cursor.moveToFirst()) cursor.getLong(0) else -1L
-            }
+    /** The logger and the capability editor both idle — through the rule, the one wait here (F27 N6). */
+    private fun settle(model: SessionViewModel) =
+        compose.awaitUntil("the logger and the capability editor") {
+            !model.capabilities.value.busy && !model.state.value.loading
         }
 
     private companion object {
-        val SONG = SessionRow(
+        val SONG = SongIdentity(
             songId = "song-1",
             title = "Jolene",
             artistName = "Dolly Parton",
-            daysSince = null,
-            timesPractised = 0L,
         )
     }
 }

@@ -5,6 +5,7 @@ import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.db.RepertosaurusDatabase
 import dev.repertosaurus.session.ViewFilter
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
@@ -23,9 +24,7 @@ import kotlin.test.assertTrue
  */
 class RepertosaurusDatabaseTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-15T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-15T10:30:00.250Z")
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: RepertosaurusDatabase

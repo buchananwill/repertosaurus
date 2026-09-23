@@ -1,7 +1,5 @@
 package dev.repertosaurus.session
 
-import dev.repertosaurus.core.normalise
-
 /**
  * The Session screen's state, as a plain immutable value with pure transitions.
  *
@@ -96,12 +94,12 @@ public data class SessionState(
     /** True when there is nothing at all to show — an empty database, not an empty search. */
     public val empty: Boolean get() = !loading && rows.isEmpty()
 
-    private fun matches(row: SessionRow): Boolean {
-        val terms = normalise(query).split(' ').filter { it.isNotEmpty() }
-        if (terms.isEmpty()) return true
-        val haystack = normalise(row.title + " " + (row.artistName ?: ""))
-        return terms.all { haystack.contains(it) }
-    }
+    /**
+     * The search box — **the one song matcher** (style review B1), shared with the Songs and
+     * Repertoire lists. Adopting it changed the logger on purpose: `acdc` now finds *AC/DC*.
+     */
+    private fun matches(row: SessionRow): Boolean =
+        SongSearch.matches(query, row.title, row.artistName)
 
     // ---- Transitions ------------------------------------------------------------------
 

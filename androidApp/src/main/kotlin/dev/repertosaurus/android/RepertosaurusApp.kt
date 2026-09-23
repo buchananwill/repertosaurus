@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -27,7 +28,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.LookupKind
 import kotlinx.coroutines.launch
@@ -44,23 +47,47 @@ import kotlinx.coroutines.launch
  * UI will have a different shape; what belongs in the shared core is the *state* each screen
  * reads, not the enum naming them.
  *
- * [lookup] is null for exactly one entry, [SESSION], and that is what makes the branch below
- * exhaustive without a second map to keep in step.
+ * **Repertoire-editing R27: three more siblings, and E25's revisit is declined.** Repertoire,
+ * Songs and Artists are first-class routes; their drill-downs (the toggle list, the song detail)
+ * are each screen's own state holding ids only. No route takes arguments from outside itself and
+ * none is a third level.
+ *
+ * [lookup] is set for the seven lookup routes and null for the four that are screens of their
+ * own; the dispatch below is an exhaustive `when` over the enum, so a new route that nobody
+ * dispatches is a compile error.
+ *
+ * **The drawer label is the route's** (style review F17 N4): the drawer iterates [entries], so a
+ * route added here is in the drawer with no second list to keep in step.
  */
-private enum class Route(val lookup: LookupKind?) {
-    SESSION(null),
+internal enum class Route(private val title: String? = null, val lookup: LookupKind? = null) {
+    /** The root, reached by back rather than from the drawer — so it has no label. */
+    SESSION,
+
+    // Repertoire-editing R27, in the drawer above the lookup kinds.
+    REPERTOIRE("Repertoire"),
+    SONGS("Songs"),
+    ARTISTS("Artists"),
 
     // Declared in `LookupKind`'s own order, which is the drawer's order (E26).
-    INSTRUMENTS(LookupKind.INSTRUMENT),
-    PERFORMERS(LookupKind.PERFORMER),
-    TAGS(LookupKind.TAG),
-    GROOVES(LookupKind.GROOVE),
-    VENUES(LookupKind.VENUE),
-    BANDS(LookupKind.BAND),
-    PRACTICE_CONTEXTS(LookupKind.PRACTICE_CONTEXT),
+    INSTRUMENTS(lookup = LookupKind.INSTRUMENT),
+    PERFORMERS(lookup = LookupKind.PERFORMER),
+    TAGS(lookup = LookupKind.TAG),
+    GROOVES(lookup = LookupKind.GROOVE),
+    VENUES(lookup = LookupKind.VENUE),
+    BANDS(lookup = LookupKind.BAND),
+    PRACTICE_CONTEXTS(lookup = LookupKind.PRACTICE_CONTEXT),
     ;
 
+    /** The drawer label: a lookup route is named by its kind, the rest by their own title. Null for the root. */
+    val label: String? get() = lookup?.plural ?: title
+
     companion object {
+        /** R27: the editing routes, in declaration order — the drawer's upper block. */
+        val EDITING: List<Route> = entries.filter { it.lookup == null && it.label != null }
+
+        /** E26: the lookup routes, in declaration order (`LookupKind`'s) — the "Advanced" block. */
+        val LOOKUPS: List<Route> = entries.filter { it.lookup != null }
+
         /**
          * The kind's route. Exhaustive on purpose: adding a [LookupKind] without giving it a
          * route is a **compile error here**, not a kind that silently never appears in the
@@ -77,6 +104,13 @@ private enum class Route(val lookup: LookupKind?) {
             LookupKind.PRACTICE_CONTEXT -> PRACTICE_CONTEXTS
         }
     }
+}
+
+/** Test tags for the drawer's own controls. */
+internal object DrawerTags {
+    /** Repertoire-editing R40-R42: the note spelling toggle. */
+    const val NOTE_SPELLING: String = "drawer-note-spelling"
+    const val NOTE_SPELLING_SWITCH: String = "drawer-note-spelling-switch"
 }
 
 /**
@@ -106,14 +140,41 @@ private enum class Route(val lookup: LookupKind?) {
  * branch so the import picker is reachable from either side of it.
  */
 @Composable
-public fun RepertosaurusApp(viewModel: SessionViewModel) {
+public fun RepertosaurusApp(
+    viewModel: SessionViewModel,
+    repertoire: RepertoireViewModel,
+    songs: SongsViewModel,
+    artists: ArtistsViewModel,
+) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var route by remember { mutableStateOf(Route.SESSION) }
     val databaseState by viewModel.databaseState.collectAsState()
+    val noteSpelling by viewModel.noteSpelling.collectAsState()
 
     val close = { scope.launch { drawerState.close() } }
+
+    // R26: **returning to the logger reloads it**, from every route. A toggle on the Repertoire
+    // route changes which songs a View shows, a song edit changes a row's title, and the logger
+    // must not keep the old list until the app restarts. `reload` re-reads the rows, the
+    // instrument chips and the Views, and then the performers.
+    //
+    // F18 B1: **the reload waits for the route's write queue to drain.** A toggle tapped just
+    // before back may still be queued; a reload that read first would miss it and keep the old
+    // list. The lookup routes write through the logger's own ViewModel and reload it themselves.
+    val toLogger = {
+        val leaving = route
+        if (leaving != Route.SESSION) {
+            route = Route.SESSION
+            when (leaving) {
+                Route.REPERTOIRE -> viewModel.reloadAfter(repertoire::awaitIdle)
+                Route.SONGS -> viewModel.reloadAfter(songs::awaitIdle)
+                Route.ARTISTS -> viewModel.reloadAfter(artists::awaitIdle)
+                else -> viewModel.reload()
+            }
+        }
+    }
 
     // The system save and open sheets. They live here because both the top bar and the
     // drawer reach them, and an ActivityResultLauncher must be remembered above both.
@@ -145,7 +206,7 @@ public fun RepertosaurusApp(viewModel: SessionViewModel) {
     }
 
     BackHandler(enabled = drawerState.isOpen) { close() }
-    BackHandler(enabled = !drawerState.isOpen && route != Route.SESSION) { route = Route.SESSION }
+    BackHandler(enabled = !drawerState.isOpen && route != Route.SESSION) { toLogger() }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -185,6 +246,44 @@ public fun RepertosaurusApp(viewModel: SessionViewModel) {
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
 
+                    // Repertoire-editing R27: the three routes that reach the database outside
+                    // a logger View. "Better too many routes than anything inaccessible" — which
+                    // of them is foregrounded is decided later, from use.
+                    for (target in Route.EDITING) {
+                        NavigationDrawerItem(
+                            label = { Text(target.label.orEmpty()) },
+                            selected = route == target,
+                            onClick = {
+                                close()
+                                route = target
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+
+                    // Repertoire-editing R40-R42: a toggle in the drawer itself, not a route —
+                    // one switch needs no screen. It leaves the drawer open so the flip is seen.
+                    val simplified = noteSpelling == NoteSpelling.SIMPLIFIED
+                    val flipSpelling = {
+                        viewModel.setNoteSpelling(
+                            if (simplified) NoteSpelling.AS_WRITTEN else NoteSpelling.SIMPLIFIED,
+                        )
+                    }
+                    NavigationDrawerItem(
+                        // One line: the drawer item is a fixed 56dp, and a second line is clipped.
+                        label = { Text("Simplify F♯♯ to G") },
+                        badge = {
+                            Switch(
+                                checked = simplified,
+                                onCheckedChange = { flipSpelling() },
+                                modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING_SWITCH),
+                            )
+                        },
+                        selected = false,
+                        onClick = flipSpelling,
+                        modifier = Modifier.padding(horizontal = 12.dp).testTag(DrawerTags.NOTE_SPELLING),
+                    )
+
                     Spacer(modifier = Modifier.height(8.dp))
                     HorizontalDivider()
                     Text(
@@ -196,18 +295,17 @@ public fun RepertosaurusApp(viewModel: SessionViewModel) {
 
                     // E26: **the drawer is the only menu of routes, and every manageable kind
                     // is in it**, so "where do I edit X" has one answer rather than a scavenger
-                    // hunt through long-presses. Driven off `LookupKind.entries` so adding a
-                    // kind adds a drawer entry with no edit here; its declaration order is this
-                    // order.
+                    // hunt through long-presses. Driven off the `Route` entries (F17 N4), and
+                    // `Route.of` is exhaustive over `LookupKind`, so adding a kind without a
+                    // route — and so without a drawer entry — is a compile error.
                     //
                     // E19 is worth remembering at the Practice contexts entry: it manages the
                     // *vocabulary* and nothing else. The app still cannot attach a context to a
                     // logged event — that is a change on the logging path, and the drawer entry
                     // is not the feature.
-                    for (kind in LookupKind.entries) {
-                        val target = Route.of(kind)
+                    for (target in Route.LOOKUPS) {
                         NavigationDrawerItem(
-                            label = { Text(kind.plural) },
+                            label = { Text(target.label.orEmpty()) },
                             selected = route == target,
                             onClick = {
                                 close()
@@ -230,19 +328,32 @@ public fun RepertosaurusApp(viewModel: SessionViewModel) {
             }
         },
     ) {
-        // One screen serves every lookup kind (E13, E18); the route only says which. E24: both
-        // `onBack` and the back handler above land on `Route.SESSION`, never on another route.
-        when (val lookup = route.lookup) {
-            null -> SessionScreen(
+        // E24: every `onBack` and the back handler above land on `Route.SESSION`, never on
+        // another route, and R26 reloads the logger on the way. A drill-down inside a route has
+        // its own back handler, composed below this one's and so consulted first.
+        when (route) {
+            Route.SESSION -> SessionScreen(
                 viewModel = viewModel,
                 onOpenDrawer = { scope.launch { drawerState.open() } },
                 onExport = { export() },
             )
-            else -> ManageLookupScreen(
+            Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, onBack = toLogger)
+            Route.SONGS -> SongsScreen(viewModel = songs, session = viewModel, onBack = toLogger)
+            Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
+            // One screen serves every lookup kind (E13, E18); the route only says which.
+            Route.INSTRUMENTS,
+            Route.PERFORMERS,
+            Route.TAGS,
+            Route.GROOVES,
+            Route.VENUES,
+            Route.BANDS,
+            Route.PRACTICE_CONTEXTS,
+            -> ManageLookupScreen(
                 viewModel = viewModel,
-                kind = lookup,
-                onBack = { route = Route.SESSION },
+                kind = checkNotNull(route.lookup) { "$route is a lookup route with no kind" },
+                onBack = toLogger,
             )
         }
     }
 }
+

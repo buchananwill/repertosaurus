@@ -35,7 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.core.normalise
+import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.PerformerSuggestions
@@ -328,7 +328,7 @@ internal fun ViewEditorSheet(
                     // A View stores an id, never a name (V24), so the id follows only when
                     // what was typed *is* an existing performer. Otherwise there is no
                     // constraint, and the supporting text says so.
-                    performerId = performers.firstOrNull { normalise(it.name) == normalise(entered) }?.id
+                    performerId = NearMatches.exact(entered, performers) { it.name }?.id
                 },
                 label = { Text("Performer") },
                 supportingText = {

@@ -181,7 +181,26 @@ UPDATE setlist_item
 SET transpose = 0, updated_at = :updatedAt, device_id = :deviceId
 WHERE id IN :ids;
 
+-- repertoire-editing R37: a merge re-points every LIVE set-list item on the loser to the survivor.
+-- One statement, and the item keeps its id, position, transpose and note — it is the same entry
+-- in the same set, now naming the surviving song. A removed item is not re-stamped, on R23d's
+-- reasoning: a later stamp on a tombstone would outrank a revive made on another device.
+repointLiveSong:
+UPDATE setlist_item
+SET song_id = :survivorId, updated_at = :updatedAt, device_id = :deviceId
+WHERE song_id = :loserId
+  AND deleted_at IS NULL;
+
+-- R37 / R38: how many live set-list items point at a song, for the merge preview.
+countLiveBySong:
+SELECT COUNT(*)
+FROM setlist_item
+WHERE song_id = ?
+  AND deleted_at IS NULL;
+
+-- R23d: a row already removed is not re-stamped.
 softDelete:
 UPDATE setlist_item
 SET deleted_at = ?, updated_at = ?, device_id = ?
-WHERE id = ?;
+WHERE id = ?
+  AND deleted_at IS NULL;

@@ -56,6 +56,19 @@ public object NearMatches {
      */
     public const val BROWSE_LIMIT: Int = 8
 
+    /**
+     * **The exact-match rule, once** (style review F17 B4): the item whose name normalises to
+     * exactly what [query] normalises to — the row a create-on-enter would land on, since the
+     * derived id is `UUIDv5(namespace, normalise(name))`. Null for a blank or punctuation-only
+     * query, which names nothing. The four type-aheads that say "Uses the existing *X*" each
+     * held a copy of this.
+     */
+    public fun <T> exact(query: String, items: List<T>, name: (T) -> String): T? {
+        val needle = normalise(query)
+        if (needle.isEmpty()) return null
+        return items.firstOrNull { normalise(name(it)) == needle }
+    }
+
     /** Ranked near-matches, best first. An empty or punctuation-only query matches nothing. */
     public fun <T> search(
         query: String,

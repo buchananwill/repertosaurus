@@ -4,8 +4,9 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -28,9 +29,7 @@ import kotlin.test.assertTrue
  */
 class LookupStoresTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-17T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-17T10:30:00.250Z")
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: RepertosaurusDatabase
@@ -106,7 +105,7 @@ class LookupStoresTest {
             store.add("Ukulele")
             assertEquals(
                 listOf("Ukulele"),
-                store.suggest("Ukelele", store.items()).map { it.name },
+                LookupSuggestions.search("Ukelele", store.items()).map { it.name },
                 "${kind.table.table}: a typo must be seen before it is committed",
             )
         }
@@ -389,7 +388,7 @@ class LookupStoresTest {
     fun removingAPerformerHidesThemButKeepsEveryCapabilityRow() {
         val valerie = song("Valerie", "The Zutons")
         val coordinator = CapabilityCoordinator(repository)
-        val rowId = coordinator.add(valerie, "Coralie", "vocal")
+        val rowId = coordinator.add(valerie, "Coralie", "vocal").id
         val coralie = Ids.derived("performer", "Coralie")
         assertEquals(1L, usage(LookupKind.PERFORMER, coralie))
 
@@ -437,11 +436,11 @@ class LookupStoresTest {
     private val now = "2026-08-17T10:30:00.250Z"
 
     private fun song(title: String, artist: String): String =
-        repository.createSong(title, repository.findOrCreateArtist(artist))
+        repository.catalog.addSong(title, SongCatalog.LookupChoice.Typed(artist)).song.songId
 
     private fun tag(songId: String, tagId: String) {
         database.song_tagQueries.insert(
-            id = Ids.junction("song_tag", songId, tagId),
+            id = Ids.songTag(songId, tagId),
             song_id = songId,
             tag_id = tagId,
             updated_at = now,

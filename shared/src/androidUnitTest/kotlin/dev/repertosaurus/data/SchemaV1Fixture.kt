@@ -43,10 +43,15 @@ internal object SchemaV1Fixture {
         for (statement in DOWNGRADE) driver.execute(null, statement, 0)
     }
 
+    /**
+     * `\r\n` is normalised to `\n` after reading, so a checkout that converts line endings
+     * (Git on Windows with `core.autocrlf`) still splits on the `--;` separator below. The
+     * dump itself is not touched.
+     */
     private fun readDump(): String =
         checkNotNull(javaClass.classLoader?.getResourceAsStream(DUMP)) {
             "$DUMP is not on the test classpath"
-        }.bufferedReader().use { it.readText() }
+        }.bufferedReader().use { it.readText() }.replace("\r\n", "\n")
 
     /** The dump separates statements with a line containing only `--;`. */
     private fun statements(dump: String): List<String> = dump.split("\n--;\n")

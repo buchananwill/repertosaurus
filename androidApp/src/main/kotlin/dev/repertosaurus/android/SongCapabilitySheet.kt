@@ -39,8 +39,8 @@ import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.PerformerLineUp
 import dev.repertosaurus.session.PerformerSuggestions
-import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SongCapability
+import dev.repertosaurus.session.SongIdentity
 import dev.repertosaurus.session.VocalRange
 
 /** Stable handles for the instrumented tests, which have to find controls that are disabled. */
@@ -83,7 +83,7 @@ internal object CapabilityTags {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SongCapabilitySheet(
-    song: SessionRow,
+    song: SongIdentity,
     lineUp: List<PerformerLineUp>,
     performers: List<RepertosaurusRepository.Performer>,
     instruments: List<InstrumentChip>,

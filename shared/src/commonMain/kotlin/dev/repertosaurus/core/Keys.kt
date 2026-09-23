@@ -3,6 +3,29 @@ package dev.repertosaurus.core
 import kotlin.math.abs
 
 /**
+ * How [Keys.noteName] spells a double sharp or double flat (repertoire-editing R40-R42): as
+ * written (F♯♯) or simplified to the natural of the same pitch (G). Display only — no stored
+ * value and no id depends on it.
+ */
+public enum class NoteSpelling {
+    SIMPLIFIED,
+    AS_WRITTEN,
+    ;
+
+    public companion object {
+        /** R41: simplified. A working musician reads G faster than F♯♯. */
+        public val DEFAULT: NoteSpelling = SIMPLIFIED
+
+        /**
+         * The stored preference read back: its [name], or [DEFAULT] when nothing was stored or
+         * the stored text is not a spelling this build knows.
+         */
+        public fun fromStored(stored: String?): NoteSpelling =
+            entries.firstOrNull { it.name == stored } ?: DEFAULT
+    }
+}
+
+/**
  * Key and transposition arithmetic (decisions 32-40, 55-57).
  *
  * `tonalCentre` is a pitch class 0-11 with 0 = C (decision 33). `keySignature` is a signed
@@ -15,6 +38,9 @@ public object Keys {
 
     /** The legal range of a key signature (decision 32). */
     public val KEY_SIGNATURE_RANGE: IntRange = -7..7
+
+    /** The legal range of a tonal centre: a pitch class, 0 = C (decision 33). */
+    public val TONAL_CENTRE_RANGE: IntRange = 0..11
 
     /**
      * Sounding pitch class after transposition: `(tonal_centre + transpose) mod 12`
@@ -64,8 +90,15 @@ public object Keys {
      * When [keySignature] is null there is no context to derive from, so fall back to the
      * fixed table — flats for pitch classes 1, 3, 6, 8 and 10 — so the UI is never unable
      * to name a key.
+     *
+     * [spelling] is the user's setting (repertoire-editing R40-R42), and it is required so no
+     * caller can name a note without it. Across every signature in -7..+7 the derivation above
+     * yields exactly four double accidentals — F♯♯ and C♯♯ in the sharp keys, B♭♭ and E♭♭ in
+     * the flat keys — and never a triple. [NoteSpelling.SIMPLIFIED] respells those four to
+     * the natural of the same pitch (G, D, A, D). Single-accidental spellings such as E♯, B♯,
+     * F♭ and C♭ are left as written in both modes: the setting covers double accidentals only.
      */
-    public fun noteName(pitchClass: Int, keySignature: Int?): String {
+    public fun noteName(pitchClass: Int, keySignature: Int?, spelling: NoteSpelling): String {
         val pc = ((pitchClass % 12) + 12) % 12
         if (keySignature == null) return FALLBACK_NAMES[pc]
 
@@ -93,13 +126,24 @@ public object Keys {
                 bestAccidentals = accidentals
             }
         }
+        if (spelling == NoteSpelling.SIMPLIFIED) {
+            // Twelve fifths is a diminished second: the same pitch, one letter over, with the
+            // accidental count moved by -2 (sharps) or +2 (flats) — a double becomes a natural.
+            while (accidentalCount(best) >= 2) best -= 12
+            while (accidentalCount(best) <= -2) best += 12
+        }
         return fifthIndexToName(best)
     }
 
     /** The sounding key of a set list item, spelled for display (decisions 56, 60). */
-    public fun soundingKeyName(keySignature: Int?, tonalCentre: Int, transpose: Int): String {
+    public fun soundingKeyName(
+        keySignature: Int?,
+        tonalCentre: Int,
+        transpose: Int,
+        spelling: NoteSpelling,
+    ): String {
         val sounding = keySignature?.let { soundingKeySignature(it, transpose) }
-        return noteName(soundingTonalCentre(tonalCentre, transpose), sounding)
+        return noteName(soundingTonalCentre(tonalCentre, transpose), sounding, spelling)
     }
 
     /** `3#` / `2b` / `0` as decision 32 describes, using the real accidental glyphs. */

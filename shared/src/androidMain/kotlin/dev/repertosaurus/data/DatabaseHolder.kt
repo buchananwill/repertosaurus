@@ -8,6 +8,9 @@ import dev.repertosaurus.db.RepertosaurusDatabase
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * Owns the open database for the process, so import can close it, swap the file underneath
@@ -40,6 +43,13 @@ public class DatabaseHolder(
     private var unloadable: DatabaseState.Unloadable? = null
 
     /**
+     * F23 N1: shared by a route write for its whole duration ([whileCurrent]), exclusive for a
+     * swap ([close], [commitImport], [startFresh]). Fair, so a waiting swap is not starved by a
+     * stream of writes.
+     */
+    private val swapLock = ReentrantReadWriteLock(true)
+
+    /**
      * Rebuilt on every import, so callers must ask each time rather than caching it — the
      * old one points at a database file that no longer exists.
      *
@@ -49,6 +59,48 @@ public class DatabaseHolder(
      */
     public val repository: RepertosaurusRepository
         get() = RepertosaurusRepository(open(), deviceId)
+
+    /**
+     * Which open database this is: bumped every time the holder lets go of one — an import's
+     * swap, a start-fresh, a close. Cheap to read on the main thread; it touches no file.
+     *
+     * Repertoire-editing F18 N2: **a write binds to the database that was current when it was
+     * tapped.** A route reads this at dispatch and hands it to [repositoryAt] when the write
+     * reaches the front of its queue, so a write queued before an import cannot land in the
+     * imported file.
+     */
+    @Volatile
+    public var generation: Long = 0L
+        private set
+
+    /**
+     * The repository **only if** the database is still the one [expected] named — null when it
+     * was replaced since. Synchronized with [close], so the check and the open cannot straddle a
+     * swap.
+     */
+    @Synchronized
+    public fun repositoryAt(expected: Long): RepertosaurusRepository? =
+        if (generation == expected) repository else null
+
+    /**
+     * **F23 N1: an import cannot swap the database while a route's write is running.** [work]
+     * runs holding the shared half of [swapLock]; [close], [commitImport] and [startFresh] take the
+     * exclusive half, so a swap waits for every write already running to finish, and a write that
+     * starts after the swap began sees the new generation. [work] receives [repositoryAt]'s answer:
+     * the repository when the database is still the one [expected] names, null when it was
+     * replaced before the write reached the front of its queue (F18 N2).
+     *
+     * Chosen over "`commitImport` waits for the queues to drain" because the holder cannot see the
+     * routes' queues, and a lock the holder owns covers every route — and any future writer, merge
+     * included — without the holder knowing who they are.
+     *
+     * Lock order, which is what keeps this deadlock-free: **[swapLock] first, then this object's
+     * monitor**, on every path. A writer holds the read lock and then enters `@Synchronized`
+     * [repositoryAt] / [open]; a swap holds the write lock and then synchronizes. Nothing takes the
+     * monitor and then asks for [swapLock].
+     */
+    public fun <T> whileCurrent(expected: Long, work: (RepertosaurusRepository?) -> T): T =
+        swapLock.read { work(repositoryAt(expected)) }
 
     /**
      * Open the database if it is not open, and say what happened. Idempotent, and the only
@@ -144,12 +196,26 @@ public class DatabaseHolder(
      * The fields are cleared **before** the driver is closed, so a failure to close cannot leave
      * this holder pointing at a driver it has already given up on. The failure itself is not
      * swallowed (S11) — it reaches the caller, all of whom are inside a `runCatching`.
+     *
+     * F23 N1: waits for any route write running under [whileCurrent] to finish first.
      */
-    @Synchronized
     public fun close() {
+        swapLock.write {
+            synchronized(this) { closeLocked() }
+        }
+    }
+
+    /**
+     * [close]'s body, for a caller that **already holds** [swapLock]'s write half and this object's
+     * monitor (F25 N3) — [startFresh] and [commitImport]. They used to call the lock-taking
+     * [close], which worked only because both locks are re-entrant; no synchronized path now asks
+     * for [swapLock] at all, so the lock order (swap lock, then monitor) holds by construction.
+     */
+    private fun closeLocked() {
         val open = driver
         driver = null
         database = null
+        generation++
         open?.close()
     }
 
@@ -158,15 +224,17 @@ public class DatabaseHolder(
      * current-schema database, so a user whose only copy is unreadable is not stuck staring at
      * a screen with one button they cannot use.
      *
-     * Destructive and unrecoverable, which is why the screen asks first.
+     * Destructive and unrecoverable, which is why the screen asks first. F23 N1: waits for any
+     * route write running under [whileCurrent].
      */
-    @Synchronized
-    public fun startFresh(): DatabaseState {
-        close()
-        unloadable = null
-        val target = databaseFile()
-        for (suffix in SIDECARS) File(target.path + suffix).delete()
-        return load()
+    public fun startFresh(): DatabaseState = swapLock.write {
+        synchronized(this) {
+            closeLocked()
+            unloadable = null
+            val target = databaseFile()
+            for (suffix in SIDECARS) File(target.path + suffix).delete()
+            load()
+        }
     }
 
     public fun databaseFile(): File = context.getDatabasePath(name)
@@ -180,13 +248,19 @@ public class DatabaseHolder(
      * real file and nothing else. Journalling is DELETE mode (see [createDriver]), so the
      * file on disk is complete at every commit.
      *
+     * **F25 N1: the copy holds [swapLock]'s write half**, so it waits for every route write
+     * running under [whileCurrent] — a merge's transaction included — and none starts until the
+     * copy is done. A copy taken mid-write could tear, and this file is the backup. The lock order
+     * is the usual one: swap lock, then the monitor [open] takes. Writes that do not go through
+     * [whileCurrent] (the logger's, F20's known gap) are not held off by this.
+     *
      * @return bytes written.
      */
-    public fun exportTo(target: OutputStream): Long {
+    public fun exportTo(target: OutputStream): Long = swapLock.write {
         open()
         val file = databaseFile()
         require(file.exists()) { "no database file at ${file.absolutePath}" }
-        return file.inputStream().use { it.copyTo(target) }
+        file.inputStream().use { it.copyTo(target) }
     }
 
     /**
@@ -264,20 +338,24 @@ public class DatabaseHolder(
      * @return the state the app is in afterwards. A staged file that passed [stageImport] is
      *   loadable by construction, but the answer is returned rather than assumed, because
      *   this is the path a user in recovery is standing on.
+     *
+     * **F23 N1: the swap waits for every route write already running** ([whileCurrent]) and
+     * holds off any that starts meanwhile; those see the new generation and are dropped (F18 N2).
      */
-    @Synchronized
-    public fun commitImport(): DatabaseState {
-        val staged = File(context.cacheDir, STAGING_NAME)
-        require(staged.exists()) { "nothing staged to import" }
+    public fun commitImport(): DatabaseState = swapLock.write {
+        synchronized(this) {
+            val staged = File(context.cacheDir, STAGING_NAME)
+            require(staged.exists()) { "nothing staged to import" }
 
-        close()
-        unloadable = null
-        val target = databaseFile()
-        target.parentFile?.mkdirs()
-        for (suffix in SIDECARS) File(target.path + suffix).delete()
-        staged.copyTo(target, overwrite = true)
-        discardStagedImport()
-        return load()
+            closeLocked()
+            unloadable = null
+            val target = databaseFile()
+            target.parentFile?.mkdirs()
+            for (suffix in SIDECARS) File(target.path + suffix).delete()
+            staged.copyTo(target, overwrite = true)
+            discardStagedImport()
+            load()
+        }
     }
 
     /** Drops a staged import the user declined, and any sidecar it was opened with. */

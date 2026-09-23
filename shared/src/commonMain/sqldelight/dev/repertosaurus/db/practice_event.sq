@@ -77,6 +77,23 @@ WHERE practice_event.song_id = ?
   AND practice_event_void.id IS NULL
 ORDER BY practice_event.logged_on DESC, practice_event.created_at DESC;
 
+-- repertoire-editing R32, R33: one song's live events AS STORED — every column a merge copy keeps
+-- (created_at included), plus the instrument's name for the merge preview. Voided events are
+-- excluded by the same left anti-join as selectBySong: a voided event is already out of the
+-- history and is neither voided again nor copied. The instrument join is LEFT and ignores its
+-- tombstone, so an event on a removed instrument is still read (and still carried).
+selectLiveRowsBySong:
+SELECT
+    practice_event.*,
+    instrument.name AS instrument_name
+FROM practice_event
+LEFT JOIN practice_event_void
+       ON practice_event_void.practice_event_id = practice_event.id
+LEFT JOIN instrument ON instrument.id = practice_event.instrument_id
+WHERE practice_event.song_id = ?
+  AND practice_event_void.id IS NULL
+ORDER BY practice_event.logged_on DESC, practice_event.created_at DESC, practice_event.id;
+
 -- Undo target: the newest live event this device could sensibly void.
 selectMostRecentLive:
 SELECT practice_event.id, practice_event.song_id, practice_event.logged_on

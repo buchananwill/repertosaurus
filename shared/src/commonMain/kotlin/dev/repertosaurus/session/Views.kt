@@ -424,10 +424,12 @@ public class ViewCoordinator(
         )
     }
 
-    /** V23: a tombstone, never a `DELETE`. There is no hard delete anywhere in this schema. */
-    public fun deleteView(viewId: String) {
-        repository.deleteSavedView(viewId)
-    }
+    /**
+     * V23: a tombstone, never a `DELETE`. There is no hard delete anywhere in this schema.
+     *
+     * @return false when there was no live View to delete (R23d): nothing was written.
+     */
+    public fun deleteView(viewId: String): Boolean = repository.deleteSavedView(viewId)
 
     private fun toSessionView(row: RepertosaurusRepository.SavedView): SessionView = SessionView(
         id = row.id,

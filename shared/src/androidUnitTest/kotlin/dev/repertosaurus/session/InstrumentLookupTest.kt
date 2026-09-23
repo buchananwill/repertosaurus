@@ -4,8 +4,9 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Clock
+import dev.repertosaurus.TestClock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -30,9 +31,7 @@ import kotlin.test.assertTrue
  */
 class InstrumentLookupTest {
 
-    private val fixedClock = object : Clock {
-        override fun now(): Instant = Instant.parse("2026-08-16T10:30:00.250Z")
-    }
+    private val fixedClock = TestClock("2026-08-16T10:30:00.250Z")
 
     private lateinit var driver: JdbcSqliteDriver
     private lateinit var database: RepertosaurusDatabase
@@ -95,19 +94,19 @@ class InstrumentLookupTest {
     fun typingUkeleleSurfacesTheExistingUkulele() {
         store.add("Ukulele")
 
-        val suggested = store.suggest("Ukelele", store.items())
+        val suggested = LookupSuggestions.search("Ukelele", store.items())
 
         assertEquals(listOf("Ukulele"), suggested.map { it.name })
-        assertEquals(listOf("Ukulele"), store.suggest("ukelele", store.items()).map { it.name })
-        assertEquals(listOf("Ukulele"), store.suggest("Ukule", store.items()).map { it.name })
+        assertEquals(listOf("Ukulele"), LookupSuggestions.search("ukelele", store.items()).map { it.name })
+        assertEquals(listOf("Ukulele"), LookupSuggestions.search("Ukule", store.items()).map { it.name })
     }
 
     @Test
     fun theSeededInstrumentsAreSurfacedByNearMatchToo() {
-        assertEquals(listOf("guitar"), store.suggest("Guitr", store.items()).map { it.name })
-        assertEquals(listOf("keys"), store.suggest("keyz", store.items()).map { it.name })
-        assertEquals(listOf("backing vocal"), store.suggest("backing vokal", store.items()).map { it.name })
-        assertTrue(store.suggest("trombone", store.items()).isEmpty(), "a genuinely new value matches nothing")
+        assertEquals(listOf("guitar"), LookupSuggestions.search("Guitr", store.items()).map { it.name })
+        assertEquals(listOf("keys"), LookupSuggestions.search("keyz", store.items()).map { it.name })
+        assertEquals(listOf("backing vocal"), LookupSuggestions.search("backing vokal", store.items()).map { it.name })
+        assertTrue(LookupSuggestions.search("trombone", store.items()).isEmpty(), "a genuinely new value matches nothing")
     }
 
     /** A name that normalises to an existing one is that row, not a second one. */
@@ -218,7 +217,6 @@ class InstrumentLookupTest {
             .rows(SessionView.unsaved(guitar))
 
     private fun insertSong(title: String, artist: String): String {
-        val artistId = repository.findOrCreateArtist(artist)
-        return repository.createSong(title, artistId)
+        return repository.catalog.addSong(title, SongCatalog.LookupChoice.Typed(artist)).song.songId
     }
 }

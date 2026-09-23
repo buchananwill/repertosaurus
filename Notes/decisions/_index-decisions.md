@@ -38,6 +38,13 @@ Contracts implementers execute against.
   soft-deleted performers — latent until this arc made deletion reachable. Song field editing is
   explicitly the *next* arc, not this one.
 
+- [Repertoire Editing — Decision Spec](repertoire-editing.md) — That next arc. Three drawer routes:
+  **Repertoire** (performer → role → toggle every song on or off for that pairing), **Songs** (every
+  editable field of a song, plus tags, `song_instrument`, line-up and practice history) and
+  **Artists**. Governing principle from the user: too many routes beats anything inaccessible.
+  Read **R22–R23** before touching song creation: renaming never re-derives the id, and the UI
+  names the row an add resolved to.
+
 ## Not yet written
 
 - **Sync protocol** — the four-method storage interface, the device-owned file layout, and the
