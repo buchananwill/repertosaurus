@@ -196,6 +196,49 @@ the primitives. The closing polish pass (P13) restyles whatever still looks like
 **VI17. Light theme only for now.** The app ignores the system dark setting until P13, which
 decides dark mode. A night version is worth doing for dark stages, but it is its own design.
 
+### Motion (added 2026-09-23 on the user's direction; journal session 11, D55)
+
+**VI18. Things move as if they have mass: springs and anticipation, never a plain vanish.** Every
+motion that answers a touch uses a **spring** (Compose `spring`), under-damped just enough to
+settle with one small overshoot (damping ratio about 0.6–0.75), or a `back`-style ease where a
+spring does not fit. **Anticipation** is the user's "move a little in the opposite direction
+first". Before an element travels, it gives a small counter-movement, a few dp, the other way.
+
+**VI19. Satisfying, never compulsive.** The response to a log is **the same small, crisp
+movement every time**:
+- **no variable or random rewards**, which are the mechanism of compulsion;
+- no confetti, sound, haptic flourish, counters ticking up, or streak effects;
+- nothing that grows with repetition.
+
+The test: a musician should enjoy the tap once and never want to tap **for the animation**. It
+is part of the "not a nag" rule (vision).
+
+**VI20. The log tap, choreographed** (the session row):
+1. **Press:** the row sinks about 2 dp, onto its rule, like a button sinking onto its shadow
+   (VI12).
+2. **Release:** the log is **written immediately**. Animation never delays the write (roadmap §2
+   rule 1). The staleness badge **stamps**: it squashes slightly, then springs back as it
+   becomes "DONE", like a rubber stamp meeting paper.
+3. **Leaving:** the row gives a small **anticipation** movement (a few dp the opposite way), then
+   travels out and collapses its height with a spring.
+4. **Closing the gap:** the rows below **spring up** into the gap with a little mass, settling
+   with one small overshoot. They do not slide linearly.
+
+The whole sequence completes in **about 450 ms**. **Input is never blocked.** Tapping another row
+mid-animation logs it at once, and its own animation runs concurrently. A row that is animating
+out cannot be tapped again: it has been logged. The logged section's arrival uses the same
+spring.
+
+**VI21. The same physics everywhere else, kept small:**
+- buttons sink onto their shadow on press and spring back on release (VI12);
+- a selected segment's fill springs in (RS9 and VI13);
+- a sheet opening keeps the platform's own motion.
+
+**No idle animation. Nothing moves unless touched or changed.**
+
+**VI22. Reduced motion is honoured.** When the system's animator duration scale is 0 ("Remove
+animations"), every VI18–VI21 motion is instant, and the layout ends in the same final state.
+
 ## 3. Verification
 
 - The instrumented suite stays green, and the count is quoted.
@@ -206,6 +249,14 @@ decides dark mode. A night version is worth doing for dark stages, but it is its
 - **Screenshots** of the session screen (all three ramps), the feel sheet, the drawer and the
   ramp picker, **compared side by side with the canvas's round 3 boards.** Every deliberate
   difference is listed.
+- **Motion (VI20):**
+  - two rapid taps on two different rows both log, and the second is not blocked by the first's
+    animation;
+  - a tap still writes its event before any animation frame (assert the database row with the
+    test clock paused);
+  - with animations disabled, the list ends in the same state.
+  - A short screen recording (`adb shell screenrecord`) of a log tap goes in `.scratch/`,
+    because motion cannot be judged from a still.
 - The APK grows by the fonts (about 550 KB) and the grain bitmap. Quote the size change.
 
 ## 4. Deferred

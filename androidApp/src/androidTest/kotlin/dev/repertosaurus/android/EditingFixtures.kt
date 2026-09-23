@@ -1,9 +1,13 @@
 package dev.repertosaurus.android
 
 import android.content.Context
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.android.theme.RepertosaurusTheme
+import dev.repertosaurus.android.theme.paperGrain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.data.SampleData
@@ -117,9 +121,16 @@ internal class AppModels(
     val settings: DeviceSettings,
 )
 
-/** Compose the whole app over [app], as `MainActivity` does. */
+/**
+ * Compose the whole app over [app], as `MainActivity` does — the theme and the grain included, so
+ * every test through here also taps through the grain (visual-identity VI10).
+ */
 internal fun ComposeContentTestRule.setApp(app: AppModels) {
     setContent {
-        MaterialTheme { RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings) }
+        RepertosaurusTheme {
+            Surface(modifier = Modifier.fillMaxSize().paperGrain()) {
+                RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings)
+            }
+        }
     }
 }

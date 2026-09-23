@@ -1,7 +1,6 @@
 package dev.repertosaurus.android
 
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,6 +11,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.DatabaseFixtures.count
+import dev.repertosaurus.android.theme.RepertosaurusTheme
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.DatabaseHolder
 import org.junit.After
@@ -49,7 +49,7 @@ class FeelSheetTest {
         compose.onNodeWithText(title).performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithTag(RatingTags.segment(FeelSheetTags.FEEL, RatingLevel.CERTAINLY)).performClick()
-        compose.onNodeWithText("Log it").performClick()
+        compose.onNodeWithText(LOG_IT, ignoreCase = true).performClick()
 
         compose.awaitUntil("the feel-2 insert") {
             count(holder, "practice_event WHERE feel = 2") == feelTwoBefore + 1
@@ -79,7 +79,7 @@ class FeelSheetTest {
             compose.onNodeWithTag(RatingTags.segment(FeelSheetTags.FEEL, level)).assertExists()
         }
         compose.onNodeWithTag(RatingTags.segment(FeelSheetTags.FEEL, RatingLevel.NOT_AT_ALL)).performClick()
-        compose.onNodeWithText("Log it").performClick()
+        compose.onNodeWithText(LOG_IT, ignoreCase = true).performClick()
 
         compose.awaitUntil("the feel-0 insert") {
             count(holder, "practice_event WHERE feel = 0") == feelZeroBefore + 1
@@ -112,11 +112,16 @@ class FeelSheetTest {
         val session = EditingFixtures.session(holder)
         val title = session.state.value.pending.first().title
         compose.setContent {
-            MaterialTheme {
+            RepertosaurusTheme {
                 SessionScreen(viewModel = session, onOpenDrawer = {}, onExport = {})
             }
         }
         compose.waitForIdle()
         return holder to title
+    }
+
+    private companion object {
+        /** The primary button sets its label in upper case (visual-identity VI6); matched without case. */
+        const val LOG_IT = "Log it"
     }
 }

@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -64,7 +65,7 @@ class RouteNavigationTest {
 
         back()
         compose.onNodeWithTag(SongsTags.LIST).assertDoesNotExist()
-        compose.onNodeWithText(LOGGER_MENU).assertIsDisplayed()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertIsDisplayed()
     }
 
     /**
@@ -96,7 +97,7 @@ class RouteNavigationTest {
 
         back()
         compose.onNodeWithTag(RepertoireTags.PERFORMERS).assertDoesNotExist()
-        compose.onNodeWithText(LOGGER_MENU).assertIsDisplayed()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertIsDisplayed()
 
         await("the logger's reload") {
             fixture.session.state.value.pending.any { it.songId == shake.id }
@@ -140,7 +141,7 @@ class RouteNavigationTest {
     }
 
     private fun openRoute(label: String) {
-        compose.onNodeWithText(LOGGER_MENU).performClick()
+        compose.onNodeWithContentDescription(LOGGER_MENU).performClick()
         compose.waitForIdle()
         compose.onNodeWithText(label).performClick()
         compose.waitForIdle()
@@ -155,7 +156,7 @@ class RouteNavigationTest {
     }
 
     private companion object {
-        /** The logger's drawer button — on the logger and nowhere else. */
+        /** The logger's drawer button's content description — on the logger and nowhere else. */
         const val LOGGER_MENU = "Menu"
     }
 }

@@ -257,7 +257,7 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
 | P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | blocked |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
-| P10 | Timer spec | spec | P1 | G8 soft | blocked |
+| P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); impl ready once P3 is committed |

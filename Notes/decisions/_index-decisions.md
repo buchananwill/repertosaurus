@@ -105,6 +105,16 @@ Contracts implementers execute against.
   **VI8:** every label survives a 1.3 font scale. **No halftone, and nothing that reads as the
   Anthropic brand.**
 
+- [Timed Practice — Decision Spec](timer.md) — Habit arc packages P10 and P11:
+  - the timer starts from the long-press sheet or the suggestion card, one at a time;
+  - a running bar and a full-screen clock, but no notification or service, since it is a stored
+    start instant that survives death;
+  - Stop writes one event with a duration. Under 10 s it is logged untimed, and over 3 h it asks
+    once;
+  - Cancel is undoable.
+
+  **TM5:** a running timer never changes the tap.
+
 ## Not yet written
 
 - **Sync protocol** — the four-method storage interface, the device-owned file layout, and the

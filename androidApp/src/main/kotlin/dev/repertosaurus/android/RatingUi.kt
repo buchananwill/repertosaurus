@@ -1,30 +1,42 @@
 package dev.repertosaurus.android
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.Segment
+import dev.repertosaurus.android.theme.SegmentStrip
+import dev.repertosaurus.android.theme.Tokens
+import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.Heat
 import dev.repertosaurus.core.RatingLevel
@@ -53,15 +65,13 @@ internal object RatingTags {
     fun ramp(ramp: ColourRamp): String = "colour-ramp-${ramp.name}"
 }
 
-/** Every tappable rating surface: a segment and a ramp row. */
-private val RatingShape = RoundedCornerShape(12.dp)
-
-/** A step shown as a swatch, inside a ramp row. */
-private val SwatchShape = RoundedCornerShape(8.dp)
+/** RS9: an unselected segment shows its step as a band along its foot, so the ramp reads before a pick. */
+private val SwatchBand = 5.dp
 
 /**
  * rating-scale RS9: **the only 0-3 input in the app.** A tap on the selected segment clears it, so
- * unrated is one tap away. The segments shown run from [lowest] up (RS10).
+ * unrated is one tap away. The segments shown run from [lowest] up (RS10). visual-identity VI14: the
+ * segments are joined in one [SegmentStrip], and the selected one is filled with its ramp step.
  */
 @Composable
 internal fun RatingSegmentedControl(
@@ -71,7 +81,7 @@ internal fun RatingSegmentedControl(
     lowest: RatingLevel = RatingLevel.NOT_AT_ALL,
     tagPrefix: String = "rating",
 ) {
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    SegmentStrip(modifier = modifier.fillMaxWidth()) {
         for (level in RatingLevel.entries) {
             if (level < lowest) continue
             val selected = value == level
@@ -79,39 +89,58 @@ internal fun RatingSegmentedControl(
                 level = level,
                 selected = selected,
                 onClick = { onValueChange(if (selected) null else level) },
-                modifier = Modifier.weight(1f).testTag(RatingTags.segment(tagPrefix, level)),
+                modifier = Modifier.testTag(RatingTags.segment(tagPrefix, level)),
             )
         }
     }
 }
 
-/** Filled with its step when selected, outlined in it otherwise, so the ramp reads before a pick. */
 @Composable
 private fun RatingSegment(level: RatingLevel, selected: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val step = LocalColourRamp.current.colour(level)
-    Surface(
+    Segment(
+        selected = selected,
         onClick = onClick,
-        color = if (selected) step else MaterialTheme.colorScheme.surface,
-        // RS6: every step is light enough for dark text.
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RatingShape,
-        border = BorderStroke(if (selected) 2.dp else 3.dp, step),
-        modifier = modifier.heightIn(min = 56.dp).semantics { this.selected = selected },
+        selectedFill = step,
+        modifier = modifier.drawWithContent {
+            drawContent()
+            if (!selected) {
+                val band = SwatchBand.toPx()
+                drawRect(step, topLeft = Offset(0f, size.height - band), size = Size(size.width, band))
+            }
+        },
     ) {
-        LevelText(level, modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp))
+        LevelText(level, modifier = Modifier.padding(bottom = SwatchBand))
     }
 }
 
-/** RS6: a level's number over its label, so no step relies on colour alone. */
+/**
+ * RS6: a level's number over its label, so no step relies on colour alone.
+ *
+ * visual-identity VI8: **a label never clips.** "exceptionally" in a quarter-width segment does not
+ * fit at a large font scale, and a single word has nowhere to wrap, so a label that overflows drops
+ * to the shorter form the spec allows — the number alone — and the label stays as the number's
+ * content description. Position and number still carry the level.
+ */
 @Composable
 private fun LevelText(level: RatingLevel, modifier: Modifier = Modifier) {
+    var labelFits by remember(level) { mutableStateOf(true) }
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(level.value.toString(), style = MaterialTheme.typography.titleMedium)
         Text(
-            level.label,
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
+            level.value.toString(),
+            style = DisplayType.Number,
+            modifier = if (labelFits) Modifier else Modifier.semantics { contentDescription = level.label },
         )
+        if (labelFits) {
+            Text(
+                level.label,
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false,
+                onTextLayout = { if (it.hasVisualOverflow) labelFits = false },
+            )
+        }
     }
 }
 
@@ -128,9 +157,10 @@ internal fun ColourRampPicker(onSelect: (ColourRamp) -> Unit, onDismiss: () -> U
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Colour ramp", style = MaterialTheme.typography.headlineSmall)
+            // visual-identity VI6: a heading, so display type in upper case.
+            Text("COLOUR RAMP", style = DisplayType.Heading)
             for (ramp in ColourRamp.entries) {
                 RampRow(ramp = ramp, current = ramp == current, onClick = { onSelect(ramp) })
             }
@@ -138,34 +168,41 @@ internal fun ColourRampPicker(onSelect: (ColourRamp) -> Unit, onDismiss: () -> U
     }
 }
 
+/**
+ * One ramp: its label over its four steps, joined as a [SegmentStrip] shows them. The current ramp
+ * is marked in words and by an `Ink` fill behind its label, not by colour alone.
+ */
 @Composable
 private fun RampRow(ramp: ColourRamp, current: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        // The sheet's own colour shows through; only the border marks the row.
-        color = Color.Transparent,
-        shape = RatingShape,
-        border = BorderStroke(if (current) 2.dp else 1.dp, if (current) scheme.primary else scheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth().testTag(RatingTags.ramp(ramp)).semantics { selected = current },
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Tokens.Ground)
+            .inkBorder()
+            .clickable(onClick = onClick)
+            .testTag(RatingTags.ramp(ramp))
+            .semantics { selected = current },
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ramp.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (current) {
-                    Text("✓ current", style = MaterialTheme.typography.labelLarge, color = scheme.primary)
-                }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (current) Tokens.Ink else Color.Transparent)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val text = if (current) Tokens.Paper else Tokens.Ink
+            Text(ramp.label, style = MaterialTheme.typography.titleMedium, color = text, modifier = Modifier.weight(1f))
+            if (current) {
+                Text("✓ current", style = MaterialTheme.typography.labelLarge, color = Tokens.Ochre)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (level in RatingLevel.entries) {
-                    Surface(
-                        color = ramp.colour(level),
-                        contentColor = scheme.onSurface,
-                        shape = SwatchShape,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        LevelText(level, modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp))
-                    }
+        }
+        SegmentStrip(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+            for (level in RatingLevel.entries) {
+                Box(
+                    modifier = Modifier.background(ramp.colour(level)).padding(vertical = 6.dp, horizontal = 2.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LevelText(level)
                 }
             }
         }

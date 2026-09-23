@@ -3,11 +3,12 @@ package dev.repertosaurus.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.repertosaurus.android.theme.RepertosaurusTheme
+import dev.repertosaurus.android.theme.paperGrain
 
 /**
  * One Activity. Routing is a `when` inside [RepertosaurusApp]. The song detail arrived without a
@@ -23,8 +24,9 @@ public class MainActivity : ComponentActivity() {
         val graph = AppGraph.of(applicationContext)
 
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            RepertosaurusTheme {
+                // visual-identity VI10: the grain covers the whole window, drawer included.
+                Surface(modifier = Modifier.fillMaxSize().paperGrain()) {
                     val model: SessionViewModel =
                         viewModel(factory = SessionViewModel.factory(graph))
                     // R28: one ViewModel per repertoire-editing route. None reads anything in

@@ -2,55 +2,65 @@ package dev.repertosaurus.android
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.HandMark
+import dev.repertosaurus.android.theme.HeaderText
+import dev.repertosaurus.android.theme.InkHeader
+import dev.repertosaurus.android.theme.InkIconButton
+import dev.repertosaurus.android.theme.MenuGlyph
+import dev.repertosaurus.android.theme.Motion
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.Segment
+import dev.repertosaurus.android.theme.SegmentStrip
+import dev.repertosaurus.android.theme.Tokens
+import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.Messages
@@ -65,6 +75,9 @@ import dev.repertosaurus.session.identity
 internal object SessionTags {
     /** E47's way out of a View whose filter names a row that is gone. */
     const val EDIT_BROKEN_VIEW: String = "session-edit-broken-view"
+
+    /** visual-identity VI20: a logged row on its way out, which has no other semantics. */
+    fun leaving(songId: String): String = "session-leaving-$songId"
 }
 
 /** The colour a staleness badge wears, so a test can see a ramp change without sampling pixels. */
@@ -94,6 +107,27 @@ public fun SessionScreen(
     val transfer by viewModel.transfer.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var feelFor by remember { mutableStateOf<SessionRow?>(null) }
+
+    // visual-identity VI20: rows just logged out of the pending list, drawn in place while they
+    // leave. [entries] is what the screen shows. The log runs first and is never held back; the
+    // row's place is noted from the list as it was drawn, and it leaves only if the log really took
+    // it out — `log` updates the state before it returns, so that is read straight after it. Input
+    // is never blocked: another tap departs another row, concurrently.
+    val leaving = remember { mutableStateMapOf<String, Leaving>() }
+    val entries by remember(state.pending) { derivedStateOf { withLeaving(state.pending, leaving) } }
+    val logAndDepart = { row: SessionRow, log: () -> Unit ->
+        val at = entries.indexOfFirst { it is ListEntry.Pending && it.songId == row.songId }
+        log()
+        if (at >= 0 && viewModel.state.value.pending.none { it.songId == row.songId }) {
+            leaving[row.songId] = Leaving(row, before = entries.getOrNull(at + 1)?.songId, index = at)
+        }
+    }
+    // A write that fails puts its row back in the pending list; its ghost must not outlive that, or
+    // a later search that hides the row would play an exit for a log that never happened.
+    LaunchedEffect(state.pending) {
+        val live = state.pending.mapTo(HashSet()) { it.songId }
+        leaving.keys.removeAll(live)
+    }
     var addingSong by remember { mutableStateOf(false) }
     var addSongTitle by remember { mutableStateOf("") }
     val artists by viewModel.artists.collectAsState()
@@ -143,38 +177,37 @@ public fun SessionScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    addSongTitle = state.query
-                    viewModel.loadArtists()
-                    addingSong = true
-                },
+        bottomBar = {
+            // visual-identity VI15: the screen's one primary action, full width at the foot,
+            // with its shadow. Below the list, so it never covers the last row as a FAB did.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawBehind {
+                        drawRect(Tokens.Ink, size = Size(size.width, Tokens.StrokeHeavy.toPx()))
+                    }
+                    .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 10.dp),
             ) {
-                Text("Add song")
+                PrimaryButton(
+                    text = "Add song",
+                    onClick = {
+                        addSongTitle = state.query
+                        viewModel.loadArtists()
+                        addingSong = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         topBar = {
-            TopAppBar(
-                title = {
-                    // The active View names the screen, and tapping it switches. Two taps
-                    // from anywhere to any other View, which is what "now I'm switching to
-                    // classical piano" has to cost.
-                    ActiveViewTitle(
-                        view = state.view,
-                        instruments = state.instruments,
-                        performers = performers,
-                        onClick = { switching = true },
-                    )
-                },
-                navigationIcon = {
-                    TextButton(onClick = onOpenDrawer) { Text("Menu") }
-                },
-                actions = {
-                    // Export is the only backup there is until phase 2 sync exists, so it
-                    // stays on the surface as well as being the first item in the drawer.
-                    TextButton(onClick = onExport) { Text("Export") }
-                },
+            SessionHeader(
+                view = state.view,
+                instruments = state.instruments,
+                performers = performers,
+                songCount = state.pending.size + state.logged.size,
+                onOpenDrawer = onOpenDrawer,
+                onExport = onExport,
+                onSwitchView = { switching = true },
             )
         },
     ) { padding ->
@@ -182,22 +215,28 @@ public fun SessionScreen(
 
             // The practice instrument (V13): what a tap logs to, and what staleness is
             // measured against. It is **not** the capability filter — that is a field of
-            // the View, set in the editor and summarised in the title above. Merging the
+            // the View, set in the editor and summarised in the header above. Merging the
             // two back into one control is the bug Views exist to fix.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                for (chip in state.instruments) {
-                    FilterChip(
-                        selected = chip.id == state.selectedInstrumentId,
-                        onClick = { viewModel.selectInstrument(chip.id) },
-                        label = { Text(chip.label) },
-                        modifier = Modifier.height(44.dp),
-                    )
+                // visual-identity VI13: one strip, each segment as wide as its instrument's name.
+                SegmentStrip(equalWidths = false) {
+                    for (chip in state.instruments) {
+                        Segment(
+                            selected = chip.id == state.selectedInstrumentId,
+                            onClick = { viewModel.selectInstrument(chip.id) },
+                        ) {
+                            Text(
+                                chip.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -215,25 +254,28 @@ public fun SessionScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                for (option in SessionOrder.entries) {
-                    FilterChip(
-                        selected = state.order == option,
-                        onClick = { viewModel.setOrder(option) },
-                        label = {
+                SegmentStrip(modifier = Modifier.weight(1f)) {
+                    for (option in SessionOrder.entries) {
+                        Segment(
+                            selected = state.order == option,
+                            onClick = { viewModel.setOrder(option) },
+                        ) {
                             Text(
                                 text = when (option) {
                                     SessionOrder.COLDEST_FIRST -> "Coldest first"
                                     SessionOrder.HOTTEST_FIRST -> "Hottest first"
                                 },
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelLarge,
+                                textAlign = TextAlign.Center,
                             )
-                        },
-                        modifier = Modifier.height(40.dp),
-                    )
+                        }
+                    }
                 }
             }
 
-            OutlinedTextField(
+            // VI1, VI4: an input is `Field` white inside a 3 dp `Ink` outline. A filled field with
+            // its indicator hidden, because the outlined one's stroke is fixed at 1-2 dp.
+            TextField(
                 value = state.query,
                 onValueChange = viewModel::setQuery,
                 placeholder = { Text("Search title or artist") },
@@ -243,7 +285,17 @@ public fun SessionScreen(
                         TextButton(onClick = { viewModel.setQuery("") }) { Text("Clear") }
                     }
                 },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                shape = RectangleShape,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Tokens.Field,
+                    unfocusedContainerColor = Tokens.Field,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .inkBorder(),
             )
 
             if (state.loading || transfer.busy) {
@@ -259,8 +311,10 @@ public fun SessionScreen(
                     instruments = state.instruments,
                     performers = performers,
                 ),
-                onTap = viewModel::log,
+                entries = entries,
+                onTap = { row -> logAndDepart(row) { viewModel.log(row.songId) } },
                 onLongPress = { row -> feelFor = row },
+                onLeft = { songId -> leaving.remove(songId) },
                 onAddSong = { title ->
                     addSongTitle = title
                     viewModel.loadArtists()
@@ -286,7 +340,7 @@ public fun SessionScreen(
             row = row,
             onDismiss = { feelFor = null },
             onLog = { feel, note, loggedOn ->
-                viewModel.log(row.songId, feel, note, loggedOn)
+                logAndDepart(row) { viewModel.log(row.songId, feel, note, loggedOn) }
                 feelFor = null
             },
             onEditLineUp = {
@@ -426,45 +480,73 @@ public fun SessionScreen(
 }
 
 /**
- * The top bar's title: which View is on screen, and what it lets through.
+ * visual-identity VI15: the header. The menu, the hand mark and the Suggest slot on one line, the
+ * active View as the screen title beneath, and "practising on … · N songs" under that.
  *
- * The second line is the *filter* (V11) and not the practice instrument — that is the chip
- * row directly beneath, and the two are separate on purpose (V13). With no saved Views this
- * reads "All songs / Every song", which is exactly what the app does today (V21).
+ * **The title switches Views**, as the old top bar's did: two taps from anywhere to any other View,
+ * which is what "now I'm switching to classical piano" has to cost.
  *
+ * **Export stays up here** (see [SessionScreen]): it is the only backup until phase 2 sync exists.
+ *
+ * With no saved Views the title reads "All songs", which is exactly what the app does today (V21).
  * V13a adds a third case: a chip tap forks a saved View into an unsaved one that **keeps the
- * filter**. Calling that "All songs" over a filtered list would be a plain falsehood, so it
- * reads "Not saved". That wording is an assumption, not a recorded decision.
+ * filter**. Calling that "All songs" over a filtered list would be a plain falsehood, so it reads
+ * "Not saved". That wording is an assumption, not a recorded decision.
+ *
+ * The subline names the practice instrument, which VI15 asks for; the *filter* (V11) is a separate
+ * thing (V13), so a filtered View states it on a line of its own rather than losing it.
  */
 @Composable
-private fun ActiveViewTitle(
+private fun SessionHeader(
     view: SessionView?,
     instruments: List<InstrumentChip>,
     performers: List<RepertosaurusRepository.Performer>,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+    songCount: Int,
+    onOpenDrawer: () -> Unit,
+    onExport: () -> Unit,
+    onSwitchView: () -> Unit,
 ) {
-    Column(modifier = modifier.clickable(onClick = onClick)) {
-        Text(
-            text = when {
-                view == null -> "All songs"
-                view.saved -> view.name
-                view.filter.unfiltered -> "All songs"
-                else -> "Not saved"
-            } + " ▾",
-            // Two lines inside a 64dp top bar: titleMedium over labelSmall fits at every
-            // system font scale, where titleLarge clips the second line at the large ones.
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = filterSummary(view?.filter ?: ViewFilter.NONE, instruments, performers),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+    val filter = view?.filter ?: ViewFilter.NONE
+    InkHeader {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            InkIconButton(onClick = onOpenDrawer, contentDescription = "Menu") { MenuGlyph() }
+            HandMark()
+            Spacer(modifier = Modifier.weight(1f))
+            // VI15's Suggest slot: P5 puts its Ochre icon button here, before Export.
+            SecondaryButton(text = "Export", onClick = onExport)
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSwitchView)
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+        ) {
+            HeaderText(
+                text = when {
+                    view == null -> "All songs"
+                    view.saved -> view.name
+                    filter.unfiltered -> "All songs"
+                    else -> "Not saved"
+                } + " ▾",
+                style = DisplayType.ScreenTitle,
+                maxLines = 2,
+            )
+            HeaderText(
+                text = "Practising on ${instrumentLabel(view?.practiceInstrumentId, instruments)}" +
+                    " · $songCount ${if (songCount == 1) "song" else "songs"}",
+                style = DisplayType.Subline,
+            )
+            if (!filter.unfiltered) {
+                Text(
+                    text = filterSummary(filter, instruments, performers),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
     }
 }
 
@@ -473,36 +555,47 @@ private fun ActiveViewTitle(
  * below a divider — "the row shows it is logged and moves out of the way". A logged row
  * stays tappable: a second pass at the same song on the same day is a second session and
  * the UI must not treat it as a mistake (decision 47).
+ *
+ * visual-identity VI20: [entries] are the pending rows with the leaving ones drawn where they were
+ * until their exit has run, and every
+ * item moves with the one spring (`animateItemPlacement`: this Compose version, foundation 1.6, has
+ * no appearance or disappearance animation for lazy items, which is why the exit is done by hand).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionList(
     state: SessionState,
+    entries: List<ListEntry>,
     filterNamesRemovedRow: Boolean,
-    onTap: (String) -> Unit,
+    onTap: (SessionRow) -> Unit,
     onLongPress: (SessionRow) -> Unit,
+    onLeft: (String) -> Unit,
     onAddSong: (String) -> Unit,
     onEditView: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 96.dp),
+        contentPadding = PaddingValues(bottom = 16.dp),
     ) {
-        items(state.pending, key = { "pending:${it.songId}" }) { row ->
-            SongRow(
-                row = row,
-                loggedCount = 0,
-                onTap = { onTap(row.songId) },
-                onLongPress = { onLongPress(row) },
-                modifier = Modifier.animateItemPlacement(),
-            )
-            HorizontalDivider()
+        items(entries, key = { it.key }) { entry ->
+            Column(modifier = Modifier.animateItemPlacement(Motion.spring())) {
+                when (entry) {
+                    is ListEntry.Pending -> SongRow(
+                        row = entry.row,
+                        loggedCount = 0,
+                        onTap = { onTap(entry.row) },
+                        onLongPress = { onLongPress(entry.row) },
+                    )
+                    is ListEntry.Departing -> LeavingRow(leaving = entry.leaving, onLeft = onLeft)
+                }
+                RowRule()
+            }
         }
 
         if (state.logged.isNotEmpty()) {
             item(key = "logged-header") {
-                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                Column(modifier = Modifier.animateItemPlacement(Motion.spring()).fillMaxWidth().padding(16.dp)) {
                     Text(
                         "Logged this session · ${state.logged.size}",
                         style = MaterialTheme.typography.titleSmall,
@@ -516,14 +609,15 @@ private fun SessionList(
                 }
             }
             items(state.logged, key = { "logged:${it.row.songId}" }) { logged ->
-                SongRow(
-                    row = logged.row,
-                    loggedCount = logged.countThisSession,
-                    onTap = { onTap(logged.row.songId) },
-                    onLongPress = { onLongPress(logged.row) },
-                    modifier = Modifier.animateItemPlacement(),
-                )
-                HorizontalDivider()
+                Column(modifier = Modifier.animateItemPlacement(Motion.spring())) {
+                    SongRow(
+                        row = logged.row,
+                        loggedCount = logged.countThisSession,
+                        onTap = { onTap(logged.row) },
+                        onLongPress = { onLongPress(logged.row) },
+                    )
+                    RowRule()
+                }
             }
         }
 
@@ -559,18 +653,16 @@ private fun SessionList(
                     )
                     // Searching for a song that turns out not to be there is exactly the
                     // moment you want to add it, with the title already typed.
+                    // Secondary, both: Add song at the foot stays the screen's one primary (VI12).
                     if (state.query.isNotEmpty()) {
-                        Button(onClick = { onAddSong(state.query) }) {
-                            Text("Add \"${state.query}\"")
-                        }
+                        SecondaryButton(text = "Add \"${state.query}\"", onClick = { onAddSong(state.query) })
                     } else if (filterNamesRemovedRow) {
                         // E42: no automatic repair is honest here, so the way out is explicit.
-                        Button(
+                        SecondaryButton(
+                            text = "Edit this view",
                             onClick = onEditView,
                             modifier = Modifier.testTag(SessionTags.EDIT_BROKEN_VIEW),
-                        ) {
-                            Text("Edit this view")
-                        }
+                        )
                     }
                 }
             }
@@ -578,71 +670,43 @@ private fun SessionList(
     }
 }
 
-/**
- * One row. Tap logs it — no dialog, no confirmation, no wait on the database. Long-press
- * opens the feel sheet (decision 46); it is an addition to the tap path, never the only way
- * to log.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SongRow(
-    row: SessionRow,
-    loggedCount: Int,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 76.dp)
-            .combinedClickable(onClick = onTap, onLongClick = onLongPress)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = row.title,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = row.artistName ?: "unknown artist",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        StalenessBadge(row = row, loggedCount = loggedCount)
+/** One item of the pending block: a live row, or one on its way out (VI20). */
+internal sealed interface ListEntry {
+    val songId: String
+    val key: String
+
+    class Pending(val row: SessionRow) : ListEntry {
+        override val songId: String get() = row.songId
+        override val key: String get() = "pending:$songId"
+    }
+
+    class Departing(val leaving: Leaving) : ListEntry {
+        override val songId: String get() = leaving.row.songId
+        override val key: String get() = "leaving:$songId"
     }
 }
 
 /**
- * Days since the last live practice on the selected instrument, "never" when there is none.
- * rating-scale RS12: "logged" keeps `primary`, so this session's taps stay distinct from heat.
+ * The pending rows with each leaving row put back where it was: directly above the song that was
+ * beneath it, which may itself be leaving, so the placing repeats until nothing more can be placed.
+ * One whose neighbour has gone altogether falls back to its old position. A row that is pending again
+ * — its write failed and the ViewModel took it back — is its live self and not a ghost.
  */
-@Composable
-private fun StalenessBadge(row: SessionRow, loggedCount: Int) {
-    val scheme = MaterialTheme.colorScheme
-    val logged = loggedCount > 0
-    val container = if (logged) scheme.primary else heatColour(row.daysSince)
-    val content = if (logged) scheme.onPrimary else scheme.onSurface
-    Surface(
-        color = container,
-        contentColor = content,
-        shape = RoundedCornerShape(50),
-        modifier = Modifier.semantics { badgeColour = container },
-    ) {
-        Text(
-            text = when {
-                loggedCount > 1 -> "logged ×$loggedCount"
-                loggedCount == 1 -> "logged"
-                else -> row.badge
-            },
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-        )
+private fun withLeaving(pending: List<SessionRow>, leaving: Map<String, Leaving>): List<ListEntry> {
+    val entries: MutableList<ListEntry> = pending.mapTo(ArrayList(pending.size + leaving.size)) { ListEntry.Pending(it) }
+    if (leaving.isEmpty()) return entries
+    val live = pending.mapTo(HashSet()) { it.songId }
+    val unplaced = leaving.values.filterTo(ArrayList()) { it.row.songId !in live }
+    var placedAny = true
+    while (unplaced.isNotEmpty() && placedAny) {
+        placedAny = unplaced.removeAll { ghost ->
+            val at = if (ghost.before == null) entries.size else entries.indexOfFirst { it.songId == ghost.before }
+            if (at >= 0) entries.add(at, ListEntry.Departing(ghost))
+            at >= 0
+        }
     }
+    for (ghost in unplaced.sortedBy { it.index }) {
+        entries.add(ghost.index.coerceAtMost(entries.size), ListEntry.Departing(ghost))
+    }
+    return entries
 }

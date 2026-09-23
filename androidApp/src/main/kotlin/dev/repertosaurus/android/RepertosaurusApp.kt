@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -386,7 +387,10 @@ private fun AppDrawerContent(
     }
 }
 
-/** One drawer row, inset as every row is. */
+/**
+ * One drawer row, inset as every row is. Square (visual-identity VI3): the item's indicator is a
+ * full-radius pill that ignores the theme's shapes.
+ */
 @Composable
 private fun DrawerItem(
     label: String,
@@ -400,6 +404,7 @@ private fun DrawerItem(
         selected = selected,
         onClick = onClick,
         badge = badge,
+        shape = RectangleShape,
         modifier = modifier.padding(horizontal = 12.dp),
     )
 }

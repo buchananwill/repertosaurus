@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws everything; the platform theme only has to stay out of the way. -->
-    <style name="Theme.Repertosaurus" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Compose draws everything; the platform theme only has to stay out of the way. The window
+         is the Ground token before the first frame, so a cold start never flashes white
+         (visual-identity VI1), and the bars match the Indigo header and the Ink rules. -->
+    <style name="Theme.Repertosaurus" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:statusBarColor">@color/indigo_dark</item>
+        <item name="android:navigationBarColor">@color/ink</item>
+    </style>
+
+    <color name="ground">#FFE6E3DA</color>
+    <color name="indigo_dark">#FF1E2A74</color>
+    <color name="ink">#FF1B1A17</color>
 </resources>

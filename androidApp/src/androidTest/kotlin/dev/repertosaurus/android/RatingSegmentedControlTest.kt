@@ -1,7 +1,6 @@
 package dev.repertosaurus.android
 
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.repertosaurus.android.theme.RepertosaurusTheme
 import dev.repertosaurus.core.RatingLevel
 import org.junit.Rule
 import org.junit.Test
@@ -35,7 +35,7 @@ class RatingSegmentedControlTest {
 
     private fun compose(lowest: RatingLevel = RatingLevel.NOT_AT_ALL) {
         compose.setContent {
-            MaterialTheme {
+            RepertosaurusTheme {
                 RatingSegmentedControl(
                     value = value,
                     onValueChange = {

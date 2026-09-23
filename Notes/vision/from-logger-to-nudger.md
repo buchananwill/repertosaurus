@@ -165,6 +165,12 @@ on', so we want to make the user feel like they're part of a tradition, holding 
 musicians since humans began." **It must not look like the Anthropic brand** (warm ivory, clay
 accent, serif over sans).
 
+**Motion, added by the user the same evening:** widgets should move "like they have physical
+mass", with springs rather than a plain vanish. "The interaction of logging needs to generate
+just enough visual, aesthetic satisfaction, that it reinforces the habit without being a
+compulsion (that you want to hack) of itself. The classic rule of 'move a little in the opposite
+direction first' applies in music just like in animation, dance, sports, or martial arts."
+
 The fossil metaphor is there to be used, lightly. Songs going cold can *look* like they are
 settling into stone, and a well-worked song can look warm and alive. Colour does most of this
 work, which is why colour is the user's to choose.
