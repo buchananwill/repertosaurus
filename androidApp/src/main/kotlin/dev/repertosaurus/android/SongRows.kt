@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +14,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,7 +29,6 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.Departure
@@ -128,21 +124,8 @@ private fun SongRowFrame(outer: Modifier, inner: Modifier = Modifier, content: @
 
 @Composable
 private fun RowScope.SongRowContent(row: SessionRow, loggedCount: Int, stampOnEnter: Boolean = false) {
-    Column(modifier = Modifier.weight(1f)) {
-        Text(
-            text = row.title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = row.artistName ?: "unknown artist",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    // F21 B7: the one title-over-artist, which omits a missing artist.
+    SongTitleArtist(title = row.title, artistName = row.artistName, modifier = Modifier.weight(1f))
     Spacer(modifier = Modifier.width(12.dp))
     StalenessBadge(row = row, loggedCount = loggedCount, stampOnEnter = stampOnEnter)
 }

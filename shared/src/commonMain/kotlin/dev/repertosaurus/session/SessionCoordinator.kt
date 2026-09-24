@@ -3,6 +3,7 @@ package dev.repertosaurus.session
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.normalise
+import dev.repertosaurus.data.PartRatings
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog
 
@@ -63,8 +64,9 @@ public class SessionCoordinator(
      * on `session` — the layering is `session → data → core` — so the repository takes the
      * three components as primitives, and this is the one place that knows a View sent them.
      */
-    public fun rows(view: SessionView): List<SessionRow> =
-        repository.songsByStaleness(
+    public fun rows(view: SessionView, part: ResolvedPart? = null): List<SessionRow> {
+        val ratings = ratings(part)
+        return repository.songsByStaleness(
             practiceInstrumentId = view.practiceInstrumentId,
             filterPerformerId = view.filter.performerId,
             filterInstrumentId = view.filter.instrumentId,
@@ -76,8 +78,16 @@ public class SessionCoordinator(
                 artistName = song.artistName,
                 daysSince = song.daysSince,
                 timesPractised = song.timesPractised,
-            )
+            ).ratedBy(ratings[song.songId])
         }
+    }
+
+    /**
+     * triage T9: [part]'s ratings, keyed by song id, in one read for the whole View (never one query a
+     * row). No part is no ratings: every triage sort then degrades to staleness (T8).
+     */
+    public fun ratings(part: ResolvedPart?): Map<String, PartRatings> =
+        part?.let { repository.ratings.ratingsFor(it.performerId, it.instrumentId) } ?: emptyMap()
 
     /** Pure: allocates the local tap identity. No database contact. */
     public fun newTap(

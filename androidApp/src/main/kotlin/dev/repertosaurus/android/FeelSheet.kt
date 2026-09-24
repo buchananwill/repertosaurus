@@ -77,12 +77,8 @@ internal fun FeelSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(row.title, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                row.artistName ?: "unknown artist",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // F21 B7: a missing artist is omitted, never worded.
+            SongTitleArtist(title = row.title, artistName = row.artistName, titleStyle = MaterialTheme.typography.headlineSmall)
 
             Text("Feel", style = MaterialTheme.typography.labelLarge)
             RatingSegmentedControl(

@@ -32,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
@@ -126,17 +125,8 @@ internal fun SongCapabilitySheet(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Who plays this", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    text = song.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = song.artistName ?: "unknown artist",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // F21 B7: a missing artist is omitted, never worded.
+                SongTitleArtist(title = song.title, artistName = song.artistName)
                 // E1, said on the screen and not only in the code: the user has arrived here
                 // from the sheet whose other half logs practice.
                 Text(

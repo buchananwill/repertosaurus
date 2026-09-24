@@ -218,6 +218,29 @@ public object Messages {
     /** triage T9: the disabled Priority and Confidence sort modes (P9). */
     public const val SORT_NEEDS_PERFORMER: String = "Set who you are from the menu (Who you are) to sort by ratings"
 
+    /** triage T6: the mode strip's three segments. */
+    public fun sortMode(mode: SortMode): String = when (mode) {
+        SortMode.STALENESS -> "Cold"
+        SortMode.TRIAGE_PRIORITY -> "Priority"
+        SortMode.TRIAGE_CONFIDENCE -> "Confidence"
+    }
+
+    /**
+     * triage T6, T7: a resolved order read aloud, under the sort and in the View editor. T7's keys read as
+     * a sentence, and this is that sentence.
+     */
+    public fun sortOrder(order: SessionOrder): String = when (order) {
+        SessionOrder.COLDEST_FIRST -> "Coldest first"
+        SessionOrder.HOTTEST_FIRST -> "Hottest first"
+        SessionOrder.TRIAGE_PRIORITY -> "Top priority first, then least confident, then coldest"
+        SessionOrder.TRIAGE_PRIORITY_REVERSED -> "Lowest priority first, then most confident, then hottest"
+        SessionOrder.TRIAGE_CONFIDENCE -> "Least confident first, then top priority, then coldest"
+        SessionOrder.TRIAGE_CONFIDENCE_REVERSED -> "Most confident first, then lowest priority, then hottest"
+    }
+
+    /** triage T6: the direction button's description: what a tap on it turns the list to. */
+    public fun sortFlip(order: SessionOrder): String = "Reverse the order: " + sortOrder(order.flipped).lowercase()
+
     /** triage T1: what "Rate these songs" will open. [part] is `RatingsTarget.title`. */
     public fun rateThesePart(part: String): String = "Priority and confidence for $part"
 

@@ -72,8 +72,9 @@ private val SwatchBand = 5.dp
 
 /**
  * rating-scale RS9: **the only 0-3 input in the app.** A tap on the selected segment clears it, so
- * unrated is one tap away. The segments shown run from [lowest] up (RS10). visual-identity VI14: the
- * segments are joined in one [SegmentStrip], and the selected one is filled with its ramp step.
+ * unrated is one tap away. All four levels are shown: RS10's `lowest` is gone (F16), since schema 3
+ * widened feel to 0-3 and nothing passed it. visual-identity VI14: the segments are joined in one
+ * [SegmentStrip], and the selected one is filled with its ramp step.
  *
  * [labelsFit] is [rememberRatingLabelsFit]'s answer, taken once for a whole list and passed down
  * (Compose review F22 B2). Null, a lone control (the feel sheet) measures its own width for it.
@@ -84,18 +85,16 @@ internal fun RatingSegmentedControl(
     onValueChange: (RatingLevel?) -> Unit,
     modifier: Modifier = Modifier,
     labelsFit: Boolean? = null,
-    lowest: RatingLevel = RatingLevel.NOT_AT_ALL,
     tagPrefix: String = "rating",
 ) {
     if (labelsFit == null) {
         BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-            RatingSegmentedControl(value, onValueChange, Modifier, rememberRatingLabelsFit(maxWidth, lowest), lowest, tagPrefix)
+            RatingSegmentedControl(value, onValueChange, Modifier, rememberRatingLabelsFit(maxWidth), tagPrefix)
         }
         return
     }
     SegmentStrip(modifier = modifier.fillMaxWidth()) {
         for (level in RatingLevel.entries) {
-            if (level < lowest) continue
             val selected = value == level
             RatingSegment(
                 level = level,
@@ -138,14 +137,13 @@ private val SegmentInset = 4.dp
 @Composable
 internal fun rememberRatingLabelsFit(
     stripWidth: Dp,
-    lowest: RatingLevel = RatingLevel.NOT_AT_ALL,
     inset: Dp = SegmentInset,
 ): Boolean {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val style = MaterialTheme.typography.labelSmall
-    return remember(density, stripWidth, lowest, inset, style) {
-        val levels = RatingLevel.entries.filter { it >= lowest }
+    return remember(density, stripWidth, inset, style) {
+        val levels = RatingLevel.entries
         val inner = stripWidth - Tokens.StrokeHeavy * 2 - Tokens.StrokeRule * (levels.size - 1)
         val segment = with(density) { (inner / levels.size - inset * 2).toPx() }
         levels.all { measurer.measure(it.label, style, maxLines = 1, softWrap = false).size.width <= segment }

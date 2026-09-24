@@ -143,7 +143,9 @@ list of hundreds, so every parameter must be stable. The segments shown are `low
 - Each segment carries a test tag built from a caller-supplied prefix and the level's value, so
   instrumented tests can address it.
 
-**RS10.** `lowest` (formerly `levels`, amended per RS9) exists only so the feel sheet can offer
+**RS10. RETIRED 2026-09-23 (journal session 11, D76):** schema 3 widened feel to 0–3, so nothing
+passes `lowest`, and it was removed from RS9's signature, along with its test. The original text
+is kept for the record: `lowest` (formerly `levels`, amended per RS9) exists only so the feel sheet can offer
 1–3 until schema 3 widens `practice_event`'s CHECK. **The feel sheet passes `lowest =
 SOMEWHAT`**, with a comment citing the roadmap's P1/P2 as the change that widens it.
 Showing a "not at all" segment that the database would reject is forbidden. Every other caller

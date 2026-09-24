@@ -277,7 +277,7 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); **committed `2d7836e`** |
 | P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
 | P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed** `4631d26` + fix round `2d7836e` |
-| P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
+| P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | **split (journal session 11, D74):** P9a (triage sort plus inherited items) **in flight**; P9b (Suggest v2) next |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |

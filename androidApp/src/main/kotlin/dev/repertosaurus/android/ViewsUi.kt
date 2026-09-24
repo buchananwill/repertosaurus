@@ -42,7 +42,6 @@ import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.PerformerSuggestions
-import dev.repertosaurus.session.RatingsPerformer
 import dev.repertosaurus.session.RatingsSong
 import dev.repertosaurus.session.RatingsSource
 import dev.repertosaurus.session.RatingsTarget
@@ -122,23 +121,20 @@ internal sealed interface RateThese {
 }
 
 /**
- * Triage T1, T9: the active View's pool, rated on the part [RatingsPerformer.resolve] names. What is
- * here is the lookup against the lists this screen holds.
+ * Triage T1, T9: the active View's pool, rated on [part], **the session state's one resolution**
+ * (`SessionState.part`, F21 B11), which the triage sort reads too. What is here is the instrument's label.
  *
- * Null — the entry is not shown — when there is no View, or while [performers] is still null, not yet
- * read (safety review F20 N2): "not known yet" must not read as "nobody". The session screen passes
- * its list as read today; telling the two apart there is P9's, in the hot file.
+ * Null — the entry is not shown — when there is no View, or while [part] is pending because the
+ * performers are not yet read (safety review F20 N2): "not known yet" must not read as "nobody".
  */
 internal fun rateThese(
     view: SessionView?,
+    part: PartResolution,
     pool: List<SessionRow>,
-    ownerPerformerId: String?,
     instruments: List<InstrumentChip>,
-    performers: List<RepertosaurusRepository.Performer>?,
 ): RateThese? {
     if (view == null) return null
-    val resolution = RatingsPerformer.resolve(view.filter.performerId, ownerPerformerId, view.practiceInstrumentId, performers)
-    return when (resolution) {
+    return when (val resolution = part) {
         PartResolution.Pending -> null
         PartResolution.None -> RateThese.Unavailable(Messages.RATE_NEEDS_PERFORMER)
         is PartResolution.Resolved -> RateThese.Ready(
@@ -529,24 +525,10 @@ internal fun ViewEditorSheet(
                 }
             }
 
+            // Triage T6: the same two controls as the session screen's sort. The editor stores what is
+            // picked; whether a performer resolves for the triage modes is the session screen's to say (T9).
             SectionLabel(title = "Starting from", detail = null)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (option in SessionOrder.entries) {
-                    FilterChip(
-                        selected = order == option,
-                        onClick = { order = option },
-                        label = {
-                            Text(
-                                text = when (option) {
-                                    SessionOrder.COLDEST_FIRST -> "Coldest first"
-                                    SessionOrder.HOTTEST_FIRST -> "Hottest first"
-                                },
-                            )
-                        },
-                        modifier = Modifier.height(44.dp),
-                    )
-                }
-            }
+            SortControl(order = order, triageAvailable = true, onOrder = { order = it })
 
             val practice = practiceInstrumentId
             Button(

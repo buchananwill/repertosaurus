@@ -645,6 +645,15 @@ class ViewsTest {
      */
     @Test
     fun everySessionOrderConstantIsAcceptedByTheSortOrderCheck() {
+        // schema-3 M15, triage T6: the six names the CHECK admits, pinned so the loop below covers them all.
+        assertEquals(
+            listOf(
+                "COLDEST_FIRST", "HOTTEST_FIRST",
+                "TRIAGE_PRIORITY", "TRIAGE_PRIORITY_REVERSED",
+                "TRIAGE_CONFIDENCE", "TRIAGE_CONFIDENCE_REVERSED",
+            ),
+            SessionOrder.entries.map { it.name },
+        )
         for ((index, order) in SessionOrder.entries.withIndex()) {
             insertViewRow(
                 id = "v-$index",

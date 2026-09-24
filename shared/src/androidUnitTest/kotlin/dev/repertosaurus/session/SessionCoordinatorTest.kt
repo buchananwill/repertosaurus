@@ -2,8 +2,11 @@ package dev.repertosaurus.session
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import dev.repertosaurus.core.Ids
+import dev.repertosaurus.core.RatingKind
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
+import dev.repertosaurus.data.LookupTableKey
+import dev.repertosaurus.data.Part
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.db.RepertosaurusDatabase
@@ -125,6 +128,41 @@ class SessionCoordinatorTest {
             listOf(warm, cold, unplayed),
             loaded.withOrder(SessionOrder.HOTTEST_FIRST).pending.map { it.songId },
         )
+    }
+
+    /**
+     * triage T9 against the database: the rows carry the resolved part's ratings, and only that part's
+     * (another performer's and another instrument's are not read), and triage T7 orders them. The songs
+     * and the ratings are written in an order that is neither answer.
+     */
+    @Test
+    fun theRowsCarryTheResolvedPartsRatingsAndTheTriageSortOrdersThem() {
+        val will = repository.lookups.add(LookupTableKey.PERFORMER, "Will")
+        val coralie = repository.lookups.add(LookupTableKey.PERFORMER, "Coralie")
+        val low = insertSong("Valerie", "The Zutons")
+        val unrated = insertSong("Dakota", "Stereophonics")
+        val top = insertSong("Chelsea Dagger", "The Fratellis")
+        repository.logPractice(top, guitar, loggedOn = "2026-08-14")
+        repository.ratings.setRating(Part(low, will, guitar), RatingKind.PRIORITY, RatingLevel.SOMEWHAT)
+        repository.ratings.setRating(Part(top, coralie, guitar), RatingKind.PRIORITY, RatingLevel.NOT_AT_ALL)
+        repository.ratings.setRating(Part(top, will, vocal), RatingKind.PRIORITY, RatingLevel.NOT_AT_ALL)
+        repository.ratings.setRating(Part(top, will, guitar), RatingKind.PRIORITY, RatingLevel.EXCEPTIONALLY)
+
+        val part = ResolvedPart(will, "Will", guitar)
+        val rows = coordinator.rows(unfiltered(guitar), part).associateBy { it.songId }
+        assertEquals(RatingLevel.EXCEPTIONALLY, rows.getValue(top).priority, "Will's guitar rating, not Coralie's or his vocal one")
+        assertEquals(RatingLevel.SOMEWHAT, rows.getValue(low).priority)
+        assertNull(rows.getValue(unrated).priority)
+        assertNull(rows.getValue(top).confidence)
+
+        val loaded = SessionState()
+            .switchingTo(unfiltered(guitar).copy(order = SessionOrder.TRIAGE_PRIORITY))
+            .withRows(coordinator.rows(unfiltered(guitar), part), part)
+        assertEquals(listOf(top, low, unrated), loaded.pending.map { it.songId })
+        assertEquals(listOf(unrated, low, top), loaded.withOrder(SessionOrder.COLDEST_FIRST).pending.map { it.songId })
+
+        assertTrue(coordinator.rows(unfiltered(guitar)).all { it.priority == null && it.confidence == null }, "no part, no ratings")
+        assertEquals(emptyMap(), coordinator.ratings(null))
     }
 
     // ---- Adding a song ----------------------------------------------------------------

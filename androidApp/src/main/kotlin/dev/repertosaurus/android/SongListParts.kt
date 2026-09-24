@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.InkTextField
@@ -55,12 +56,18 @@ internal fun SongSearchField(
 /**
  * **A song's title over its artist** (style review F21 B7): the title in the song-title role, the
  * artist muted beneath, and **a missing artist omitted**, never worded (journal session 11, F21 B7
- * ruling). The ratings editor draws it; the logger's row adopts it in P9.
+ * ruling). The ratings editor, the logger's row, the feel sheet and the line-up sheet draw it. A
+ * sheet's heading passes its own [titleStyle].
  */
 @Composable
-internal fun SongTitleArtist(title: String, artistName: String?, modifier: Modifier = Modifier) {
+internal fun SongTitleArtist(
+    title: String,
+    artistName: String?,
+    modifier: Modifier = Modifier,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
+) {
     Column(modifier = modifier) {
-        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(title, style = titleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (!artistName.isNullOrBlank()) {
             Text(
                 artistName,

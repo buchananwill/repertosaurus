@@ -23,7 +23,9 @@ import dev.repertosaurus.session.LookupStore
 import dev.repertosaurus.session.LookupStores
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.Notice
+import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.PerformerLineUp
+import dev.repertosaurus.session.ResolvedPart
 import dev.repertosaurus.session.SessionCoordinator
 import dev.repertosaurus.session.SessionOrder
 import dev.repertosaurus.session.SessionPreferences
@@ -129,7 +131,7 @@ public class SessionViewModel(
     public val firstLoadDone: StateFlow<Boolean> = _firstLoadDone.asStateFlow()
 
     /** What one successful load produced. Null when the database could not be opened. */
-    private class Loaded(val start: SessionStart, val rows: List<SessionRow>)
+    private class Loaded(val start: SessionStart, val rows: List<SessionRow>, val ratedFor: ResolvedPart?)
 
     /**
      * R26, **after the route's writes have landed** (safety review F18 B1). Returning to the
@@ -176,8 +178,9 @@ public class SessionViewModel(
                             it.withInstruments(loaded.start.instruments)
                                 .withViews(loaded.start.views)
                                 .copy(view = loaded.start.view)
-                                .withRows(loaded.rows)
+                                .withRows(loaded.rows, loaded.ratedFor)
                         }
+                        syncRatings()
                     }
                 },
                 onFailure = { failure ->
@@ -217,9 +220,11 @@ public class SessionViewModel(
         // instrument, renaming one — does not throw the musician back to their home
         // View mid-practice.
         val start = viewCoordinator().start(_state.value.view)
-        val rows = start.view?.let { coordinator().rows(it) } ?: emptyList()
+        // Triage T9: the rows carry the part's ratings from the first frame, so a triage sort does not jump.
+        val part = (_state.value.partOf(start.view) as? PartResolution.Resolved)?.part
+        val rows = start.view?.let { coordinator().rows(it, part) } ?: emptyList()
         _databaseState.value = DatabaseState.Ready
-        return Loaded(start, rows)
+        return Loaded(start, rows, part)
     }
 
     /**
@@ -265,7 +270,7 @@ public class SessionViewModel(
                 onSuccess = { state ->
                     _databaseState.value = state
                     if (state is DatabaseState.Ready) {
-                        _state.value = SessionState()
+                        _state.value = freshState()
                         // **Empty means empty.** S9 says this action creates an empty
                         // current-schema database and the screen says so twice. Leaving
                         // `bootstrapped` false would let `SampleData.installIfEmpty` write eight
@@ -319,6 +324,50 @@ public class SessionViewModel(
         }
     }
 
+    // ---- Triage T9: whose ratings the rows carry ------------------------------------------------
+
+    /**
+     * Triage T10: the owner performer, which the device settings hold and the screen passes in. A change
+     * re-resolves the part (T9) and re-reads the ratings.
+     */
+    public fun setOwnerPerformer(performerId: String?) {
+        if (_state.value.ownerPerformerId == performerId) return
+        _state.update { it.withOwnerPerformer(performerId) }
+        syncRatings()
+    }
+
+    /**
+     * Triage T9: when the part has changed under rows already on screen (the performers were read, the
+     * owner changed), read that part's ratings in one query and lay them on the rows. A read that lands
+     * after the part has moved on again, or while rows are reloading, is dropped: the next sync, or the
+     * reload, which reads the ratings with the rows, answers for the newer part.
+     */
+    private fun syncRatings() {
+        val state = _state.value
+        if (!state.ratingsStale) return
+        val part = state.resolvedPart
+        if (part == null) {
+            _state.update { it.withRatings(null, emptyMap()) }
+            return
+        }
+        viewModelScope.launch {
+            val read = withContext(io) { runCatching { coordinator().ratings(part) } }
+            _state.update { current ->
+                if (current.loading || current.resolvedPart != part) {
+                    current
+                } else {
+                    read.fold(
+                        onSuccess = { ratings -> current.withRatings(part, ratings) },
+                        onFailure = { failure -> current.withMessage(Messages.ratingsReadFailed(failure)) },
+                    )
+                }
+            }
+        }
+    }
+
+    /** A new database's state: nothing of the old one, but the owner is the device's (triage T10). */
+    private fun freshState(): SessionState = SessionState(ownerPerformerId = _state.value.ownerPerformerId)
+
     /**
      * The instrument chip: the practice instrument, which is both the log target and the
      * staleness scope (V13). It is **not** the capability filter — that is a field of the
@@ -348,6 +397,7 @@ public class SessionViewModel(
      */
     public fun switchView(view: SessionView) {
         _state.update { it.switchingTo(view) }
+        val part = _state.value.resolvedPart
         viewModelScope.launch {
             val loaded = withContext(io) {
                 runCatching {
@@ -355,7 +405,7 @@ public class SessionViewModel(
                     // The chip is remembered whichever View asked for it, so V21's empty
                     // state opens on the instrument last actually practised on.
                     coordinator.rememberInstrument(view.practiceInstrumentId)
-                    coordinator.rows(view)
+                    coordinator.rows(view, part)
                 }
             }
             _state.update { state ->
@@ -363,7 +413,7 @@ public class SessionViewModel(
                     state
                 } else {
                     loaded.fold(
-                        onSuccess = { rows -> state.withRows(rows) },
+                        onSuccess = { rows -> state.withRows(rows, part) },
                         onFailure = { failure ->
                             state.withRows(emptyList())
                                 .withMessage(Messages.couldNot("open that view", failure))
@@ -371,6 +421,7 @@ public class SessionViewModel(
                     )
                 }
             }
+            syncRatings()
         }
     }
 
@@ -487,12 +538,13 @@ public class SessionViewModel(
     public fun addSong(title: String, artistName: String, artistId: String? = null) {
         val trimmed = title.trim()
         if (trimmed.isEmpty()) return
+        val part = _state.value.resolvedPart
         viewModelScope.launch {
             val outcome = withContext(io) {
                 runCatching {
                     val coordinator = coordinator()
                     val added = coordinator.addSong(trimmed, SongCatalog.LookupChoice.of(artistId, artistName))
-                    added to (_state.value.view?.let { coordinator.rows(it) } ?: emptyList())
+                    added to (_state.value.view?.let { coordinator.rows(it, part) } ?: emptyList())
                 }
             }
             _state.update { state ->
@@ -502,13 +554,14 @@ public class SessionViewModel(
                         // has no detail to open, and the song may be outside the active View —
                         // which V9 makes worth saying, and the core's wording says it.
                         val visible = rows.any { it.songId == added.song.songId }
-                        state.withRows(rows).withMessage(Messages.songAddInView(added, visible))
+                        state.withRows(rows, part).withMessage(Messages.songAddInView(added, visible))
                     },
                     onFailure = { failure ->
                         state.withMessage(Messages.couldNot("add that song", failure))
                     },
                 )
             }
+            syncRatings()
             loadArtists()
         }
     }
@@ -537,14 +590,20 @@ public class SessionViewModel(
         viewModelScope.launch {
             val outcome = withContext(io) { runCatching { coordinator().performers() } }
             outcome.fold(
-                onSuccess = { performers -> _performers.value = performers },
+                onSuccess = { performers ->
+                    _performers.value = performers
+                    _state.update { it.withPerformers(performers) }
+                },
                 onFailure = { failure ->
+                    // F30: read, whatever the result. Triage T9 then resolves on the list already held.
                     _state.update {
-                        it.withMessage(Messages.couldNot("load performers", failure))
+                        it.withPerformers(it.performers ?: _performers.value)
+                            .withMessage(Messages.couldNot("load performers", failure))
                     }
                 },
             )
             _performersLoaded.value = true
+            syncRatings()
         }
     }
 
@@ -1086,7 +1145,7 @@ public class SessionViewModel(
                 // showing, which is how an import performed from RecoveryScreen gets the user
                 // back to the Session screen (S4).
                 _databaseState.value = state
-                _state.value = SessionState()
+                _state.value = freshState()
                 bootstrapped = true
                 reload()
             }

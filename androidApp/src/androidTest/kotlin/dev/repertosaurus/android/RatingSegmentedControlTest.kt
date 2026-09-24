@@ -33,7 +33,7 @@ class RatingSegmentedControlTest {
     private var value by mutableStateOf<RatingLevel?>(null)
     private val changes = mutableListOf<RatingLevel?>()
 
-    private fun compose(lowest: RatingLevel = RatingLevel.NOT_AT_ALL) {
+    private fun compose() {
         compose.setContent {
             RepertosaurusTheme {
                 RatingSegmentedControl(
@@ -42,7 +42,6 @@ class RatingSegmentedControlTest {
                         changes += it
                         value = it
                     },
-                    lowest = lowest,
                     tagPrefix = PREFIX,
                 )
             }
@@ -78,16 +77,6 @@ class RatingSegmentedControlTest {
             compose.onNodeWithText(level.label).assertIsDisplayed()
             compose.onNodeWithTag(RatingTags.segment(PREFIX, level)).assertHeightIsAtLeast(48.dp)
         }
-    }
-
-    /** RS9, RS10: nothing below `lowest` is offered. */
-    @Test
-    fun aRaisedLowestHidesTheLevelsBelowIt() {
-        compose(lowest = RatingLevel.SOMEWHAT)
-        compose.onNodeWithTag(RatingTags.segment(PREFIX, RatingLevel.NOT_AT_ALL)).assertDoesNotExist()
-        compose.onNodeWithText(RatingLevel.NOT_AT_ALL.label).assertDoesNotExist()
-        tap(RatingLevel.EXCEPTIONALLY)
-        assertEquals(RatingLevel.EXCEPTIONALLY, value)
     }
 
     private companion object {
