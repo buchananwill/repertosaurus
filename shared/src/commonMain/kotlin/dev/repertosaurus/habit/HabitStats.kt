@@ -7,8 +7,9 @@ import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 
 /**
- * **The scorecards' arithmetic** (scorecards SC13): pure, from `countLiveByDay`'s per-day counts and
+ * **The scorecards' arithmetic** (scorecards SC13): pure, from `countLiveByDay`'s per-day tallies and
  * an injected today. Days are epoch-day numbers, so month and year boundaries are nothing special.
+ * Minutes (SC16-SC18) ride along as supplementary facts: nothing here buckets, shades or tallies by them.
  */
 public object HabitStats {
     /** SC5. */
@@ -27,7 +28,7 @@ public object HabitStats {
      * The whole card for [instrumentId]. A key after [today], with no events, or that is not a real
      * date is ignored: "no later than today" is enforced here and only here (F24 B5).
      */
-    public fun build(countsByDay: Map<String, Long>, today: LocalDate, instrumentId: String?): HabitCard {
+    public fun build(countsByDay: Map<String, DayTally>, today: LocalDate, instrumentId: String?): HabitCard {
         val days = Days(liveCounts(countsByDay, today.toEpochDays()), today)
         val reliability = days.reliability()
         return HabitCard(
@@ -48,14 +49,18 @@ public object HabitStats {
      * without being a real date ("2026-13-45"), and such a row is skipped, never thrown on
      * (schema-compatibility S8).
      */
-    private fun liveCounts(countsByDay: Map<String, Long>, today: Int): Map<Int, Long> {
-        val counts = HashMap<Int, Long>()
-        for ((date, events) in countsByDay) {
+    private fun liveCounts(countsByDay: Map<String, DayTally>, today: Int): Map<Int, DayTally> {
+        val counts = HashMap<Int, DayTally>()
+        for ((date, tally) in countsByDay) {
             val day = runCatching { LocalDate.parse(date) }.getOrNull()?.toEpochDays() ?: continue
-            if (day <= today && events > 0L) counts[day] = (counts[day] ?: 0L) + events
+            if (day <= today && tally.events > 0L) counts[day] = counts[day]?.let { it + tally } ?: tally
         }
         return counts
     }
+
+    /** SC18: counts add; timed sums add only where there are any, and null stays null. */
+    private operator fun DayTally.plus(other: DayTally): DayTally =
+        DayTally(events + other.events, plusTimed(timedSeconds, other.timedSeconds))
 
     /** SC9: the weekday with the highest share, if it strictly leads and was practised on enough days. */
     private fun strongest(reliability: List<WeekdayReliability>): Int? {
@@ -71,24 +76,33 @@ public object HabitStats {
     }
 
     /** The counts, and today's week and month, as epoch days. */
-    private class Days(val counts: Map<Int, Long>, date: LocalDate) {
+    private class Days(val counts: Map<Int, DayTally>, date: LocalDate) {
         val today: Int = date.toEpochDays()
         val thisMonday: Int = today - (date.dayOfWeek.isoDayNumber - 1)
         val firstOfMonth: LocalDate = LocalDate(date.year, date.monthNumber, 1)
         val gridStart: Int = thisMonday - DAYS_IN_WEEK * (GRID_WEEKS - 1)
 
-        fun count(day: Int): Long = counts[day] ?: 0L
+        fun count(day: Int): Long = counts[day]?.events ?: 0L
+
+        /** SC18: null for a day with no timed event, including a day with no event at all. */
+        fun timed(day: Int): Long? = counts[day]?.timedSeconds
 
         fun practised(day: Int): Boolean = count(day) > 0L
 
-        fun total(range: IntRange): PeriodTotal =
-            PeriodTotal(days = range.count(::practised), events = range.sumOf(::count))
+        fun total(range: IntRange): PeriodTotal = PeriodTotal(
+            days = range.count(::practised),
+            events = range.sumOf(::count),
+            timedSeconds = range.fold(null as Long?) { sum, day -> plusTimed(sum, timed(day)) },
+        )
 
         /** SC5: Monday first, oldest week first, stopping at today. */
         fun grid(): List<HabitWeek> = (0 until GRID_WEEKS).map { week ->
             val monday = gridStart + DAYS_IN_WEEK * week
             val shown = monday..minOf(monday + DAYS_IN_WEEK - 1, today)
-            HabitWeek(monday = iso(monday), days = shown.map { HabitDay(iso(it), count(it), isToday = it == today) })
+            HabitWeek(
+                monday = iso(monday),
+                days = shown.map { HabitDay(iso(it), count(it), isToday = it == today, timedSeconds = timed(it)) },
+            )
         }
 
         /** SC11: the completed weeks before this one, oldest first. */

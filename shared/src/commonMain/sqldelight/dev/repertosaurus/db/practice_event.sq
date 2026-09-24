@@ -141,8 +141,14 @@ WHERE practice_event.instrument_id = ?
 -- scorecards SC1-SC4, SC13: live events per `logged_on` over all history; "no later than today" is
 -- HabitStats's (F24 B5). SC3: deliberately NO join to `song`, unlike E39 above. A null :instrumentId
 -- is every instrument.
+--
+-- scorecards SC18: timed_seconds is SUM(duration_seconds) over the same live events. SUM skips NULLs
+-- and is NULL when every row that day is untimed: that NULL means "untimed" and is NEVER coerced to 0
+-- (no COALESCE, no TOTAL()). GROUP BY and SUM only (SQLite 3.19). The CAST is for SQLDelight, which
+-- types a bare SUM as REAL; SQLite's SUM over INTEGERs is already an INTEGER, and CAST(NULL) is NULL.
 countLiveByDay:
-SELECT practice_event.logged_on, COUNT(*) AS events
+SELECT practice_event.logged_on, COUNT(*) AS events,
+       CAST(SUM(practice_event.duration_seconds) AS INTEGER) AS timed_seconds
 FROM practice_event
 LEFT JOIN practice_event_void
        ON practice_event_void.practice_event_id = practice_event.id

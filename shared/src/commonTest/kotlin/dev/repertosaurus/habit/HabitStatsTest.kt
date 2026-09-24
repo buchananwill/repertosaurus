@@ -14,8 +14,12 @@ class HabitStatsTest {
 
     private fun date(iso: String): LocalDate = LocalDate.parse(iso)
 
+    /** Untimed days: every tally's timed sum is null, as `countLiveByDay` reads a day with no timed event. */
     private fun build(counts: Map<String, Long>, today: String, instrumentId: String? = null): HabitCard =
-        HabitStats.build(counts, date(today), instrumentId)
+        HabitStats.build(counts.mapValues { DayTally(it.value, timedSeconds = null) }, date(today), instrumentId)
+
+    private fun buildTallies(tallies: Map<String, DayTally>, today: String): HabitCard =
+        HabitStats.build(tallies, date(today), instrumentId = null)
 
     // ---- SC5: the grid ----------------------------------------------------------------------
 
@@ -244,6 +248,90 @@ class HabitStatsTest {
             card.recentMonths.map { it.start },
         )
         assertEquals(listOf(1, 0, 0, 0, 0, 1), card.recentMonths.map { it.days })
+    }
+
+    // ---- SC16-SC18: minutes -------------------------------------------------------------------
+
+    /**
+     * Today is Thursday 24 September 2026; this week is Mon 21-Thu 24, this month 1-24 September.
+     * Worked by hand:
+     * - Tue 22: a mixed day, 7 events of which some were timed, 2 520 s = 42 min;
+     * - Wed 23: 3 untimed events, so null;
+     * - Thu 24: 1 event, 1 680 s = 28 min;
+     * - Tue 15: 2 untimed events; Tue 8: 2 events, 600 s; Mon 31 Aug: 4 events, 3 600 s (last month).
+     * This week: 22, 23, 24 = 3 days, 7 + 3 + 1 = 11 songs, 2 520 + 1 680 = 4 200 s = 70 min = "1 h 10 min".
+     * This month: 8, 15, 22, 23, 24 = 5 days, 2 + 2 + 7 + 3 + 1 = 15 songs, 600 + 2 520 + 1 680 = 4 800 s = "1 h 20 min".
+     */
+    private val minutes = mapOf(
+        "2026-09-23" to DayTally(3L, null),
+        "2026-08-31" to DayTally(4L, 3_600L),
+        "2026-09-22" to DayTally(7L, 2_520L),
+        "2026-09-15" to DayTally(2L, null),
+        "2026-09-24" to DayTally(1L, 1_680L),
+        "2026-09-08" to DayTally(2L, 600L),
+    )
+
+    @Test
+    fun aMixedDayCarriesItsTimedSumAndSaysTimed() {
+        val day = buildTallies(minutes, "2026-09-24").day("2026-09-22")!!
+
+        assertEquals(HabitDay("2026-09-22", 7L, isToday = false, timedSeconds = 2_520L), day)
+        assertEquals("Tue 22 Sep: 7 songs · 42 min timed", Messages.habitDay(day))
+        assertEquals("Tue 9 Sep: 1 song · 45 s timed", Messages.habitDay(HabitDay("2025-09-09", 1L, isToday = false, timedSeconds = 45L)))
+    }
+
+    /** SC18: **an all-untimed day is null, not 0**, and its line is exactly SC7's. So is an empty day. */
+    @Test
+    fun anAllUntimedDayIsNullNotZero() {
+        val card = buildTallies(minutes, "2026-09-24")
+        val untimed = card.day("2026-09-23")!!
+
+        assertEquals(3L, untimed.count)
+        assertNull(untimed.timedSeconds)
+        assertEquals("Wed 23 Sep: 3 songs", Messages.habitDay(untimed))
+        assertNull(card.day("2026-09-21")!!.timedSeconds, "a day with nothing logged")
+        assertEquals("Mon 21 Sep: nothing logged", Messages.habitDay(card.day("2026-09-21")!!))
+    }
+
+    @Test
+    fun theWeekAndMonthTotalsSumOnlyTheTimed() {
+        val card = buildTallies(minutes, "2026-09-24")
+
+        assertEquals(PeriodTotal(days = 3, events = 11L, timedSeconds = 4_200L), card.thisWeek)
+        assertEquals(PeriodTotal(days = 5, events = 15L, timedSeconds = 4_800L), card.thisMonth)
+        assertEquals("This week: 3 days, 11 songs · 1 h 10 min timed", Messages.habitThisWeek(card.thisWeek))
+        assertEquals("This month: 5 days, 15 songs · 1 h 20 min timed", Messages.habitThisMonth(card.thisMonth))
+    }
+
+    /**
+     * Today is Sunday 20 September: this week (14-20) holds only Tue 15's 2 untimed events, so it has
+     * no timed sum and no "timed" fragment. The month (1-20) holds Tue 8's 600 s.
+     */
+    @Test
+    fun aWeekWithNothingTimedHasNoTimedFragment() {
+        val card = buildTallies(minutes, "2026-09-20")
+
+        assertEquals(PeriodTotal(days = 1, events = 2L, timedSeconds = null), card.thisWeek)
+        assertEquals("This week: 1 day, 2 songs", Messages.habitThisWeek(card.thisWeek))
+        assertEquals(PeriodTotal(days = 2, events = 4L, timedSeconds = 600L), card.thisMonth)
+        assertEquals("This month: 2 days, 4 songs · 10 min timed", Messages.habitThisMonth(card.thisMonth))
+    }
+
+    /** **SC16: the shading is by count, never by minutes**; SC11's tallies are still days. */
+    @Test
+    fun minutesNeverShadeTheGridOrChangeTheTallies() {
+        val timed = buildTallies(
+            mapOf("2026-09-22" to DayTally(1L, 86_400L), "2026-09-23" to DayTally(12L, null), "2026-09-15" to DayTally(2L, 60L)),
+            "2026-09-24",
+        )
+        val untimed = build(mapOf("2026-09-22" to 1L, "2026-09-23" to 12L, "2026-09-15" to 2L), "2026-09-24")
+
+        assertEquals(HabitBucket.ONE, timed.day("2026-09-22")!!.bucket, "a day's timed run is still one log")
+        assertEquals(HabitBucket.MANY, timed.day("2026-09-23")!!.bucket, "twelve untimed taps are not zero minutes")
+        assertEquals(untimed.weeks.map { w -> w.days.map { it.bucket } }, timed.weeks.map { w -> w.days.map { it.bucket } })
+        assertEquals(untimed.recentWeeks, timed.recentWeeks)
+        assertEquals(untimed.recentMonths, timed.recentMonths)
+        assertEquals(untimed.reliability, timed.reliability)
     }
 
     // ---- SC14 -------------------------------------------------------------------------------

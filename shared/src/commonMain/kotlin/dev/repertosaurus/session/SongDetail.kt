@@ -57,6 +57,28 @@ public data class InstrumentEdit(val difficulty: Long?, val patch: String, val n
     }
 }
 
+/** SC19: one live timed event in a song's history. [instrumentName] is null for a removed instrument. */
+public data class TimedEvent(val id: String, val loggedOn: String, val instrumentName: String?, val seconds: Long)
+
+/**
+ * **scorecards SC19: a song's timed history** — its live timed events, newest first, and their total.
+ * Untimed events are not in it and add nothing to [totalSeconds] (SC18: untimed is never zero minutes).
+ * [NONE] when nothing was timed, and the detail then shows nothing extra.
+ */
+public data class TimedHistory(val events: List<TimedEvent>, val totalSeconds: Long) {
+    public companion object {
+        public val NONE: TimedHistory = TimedHistory(emptyList(), 0L)
+
+        /** From a song's live history, in the order given (`selectBySong`: newest first). */
+        public fun of(history: List<RepertosaurusRepository.PracticeEntry>): TimedHistory {
+            val events = history.mapNotNull { entry ->
+                entry.durationSeconds?.let { TimedEvent(entry.id, entry.loggedOn, entry.instrumentName, it) }
+            }
+            return if (events.isEmpty()) NONE else TimedHistory(events, events.sumOf { it.seconds })
+        }
+    }
+}
+
 /** One song's detail: the stored row, the draft being edited, and the song's children. */
 public data class SongDetail(
     val songId: String,
@@ -66,6 +88,8 @@ public data class SongDetail(
     val tags: List<SongCatalog.SongTag> = emptyList(),
     val instruments: List<SongCatalog.SongInstrument> = emptyList(),
     val practice: List<PracticeSummary> = emptyList(),
+    /** SC19. */
+    val timed: TimedHistory = TimedHistory.NONE,
     val lineUp: List<PerformerLineUp> = emptyList(),
     /**
      * Edits to `song_instrument` rows not yet saved, by row id. Only rows whose edit differs from
@@ -121,6 +145,7 @@ public data class SongDetail(
             tags = read.tags,
             instruments = read.instruments,
             practice = read.practice,
+            timed = read.timed,
             lineUp = read.lineUp,
             instrumentEdits = instrumentEdits.filterKeys { it in keep },
         )
@@ -149,6 +174,8 @@ public class SongDetailRead(
     public val instruments: List<SongCatalog.SongInstrument>,
     public val practice: List<PracticeSummary>,
     public val lineUp: List<PerformerLineUp>,
+    /** SC19. Last and defaulted, so the existing constructions stay as they are. */
+    public val timed: TimedHistory = TimedHistory.NONE,
 ) {
     public companion object {
         /** Read one song's detail. Blocking; the caller keeps it off the main thread. */
@@ -162,6 +189,7 @@ public class SongDetailRead(
                 practice = repository.practiceSummary(songId)
                     .sortedWith(SessionInstruments.displayOrder { it.instrumentName.orEmpty() }),
                 lineUp = CapabilityCoordinator(repository).lineUp(songId),
+                timed = TimedHistory.of(repository.practiceHistory(songId)),
             )
         }
     }

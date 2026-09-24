@@ -2,13 +2,14 @@ package dev.repertosaurus.data
 
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.db.RepertosaurusDatabase
+import dev.repertosaurus.habit.DayTally
 import dev.repertosaurus.habit.HabitCard
 import dev.repertosaurus.habit.HabitStats
 import kotlinx.datetime.Clock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 
-/** **The scorecards' one read** (scorecards SC1-SC4, SC13), reached as `RepertosaurusRepository.habit`. */
+/** **The scorecards' one read** (scorecards SC1-SC4, SC13, SC18), reached as `RepertosaurusRepository.habit`. */
 public class PracticeDays internal constructor(
     private val database: RepertosaurusDatabase,
     private val clock: Clock,
@@ -21,9 +22,12 @@ public class PracticeDays internal constructor(
         return HabitStats.build(liveCountsByDay(instrumentId), today, instrumentId)
     }
 
-    /** `countLiveByDay`: live events per `logged_on` over all history, for the days that have any. */
-    internal fun liveCountsByDay(instrumentId: String?): Map<String, Long> =
+    /**
+     * `countLiveByDay`: live events per `logged_on` over all history, for the days that have any, with
+     * their timed sum. SC18: a NULL sum is carried as null, never as 0.
+     */
+    internal fun liveCountsByDay(instrumentId: String?): Map<String, DayTally> =
         database.practice_eventQueries.countLiveByDay(instrumentId)
             .executeAsList()
-            .associate { it.logged_on to it.events }
+            .associate { it.logged_on to DayTally(events = it.events, timedSeconds = it.timed_seconds) }
 }

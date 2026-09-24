@@ -135,6 +135,18 @@ The timer is **device state, never synced.**
 **TM11. Wall-clock time is used**, because the timer must survive a reboot. If the clock is
 found to have gone backwards (a negative elapsed time), the elapsed time reads as zero, and Stop
 therefore takes TM8's under-10-seconds branch. Nothing crashes (schema-compatibility S8).
+- **A stored start instant later than now is rejected on read** as a corrupt value: the timer is
+  dropped, as for a removed song. Otherwise a backwards clock would restore a timer dated in the
+  future. (AMENDED 2026-09-24, journal session 11, F42 N3.)
+- **When elapsed is negative at Stop, the event is dated today**, not the start instant's date,
+  so a clock that jumped cannot write a `logged_on` in the future or in 1970. (F42 N3.)
+
+**TM12. The date of a timed log is the start instant's date in the time zone current at Stop.**
+The zone is read at Stop through an injected provider, never captured when the timer is built,
+so a timed log and a plain tap at the same moment agree on the day. The store does not keep the
+zone of the start. A musician who crosses a zone mid-timer may see the event land on the
+neighbouring date. That is accepted, because the case is rare and TM10's store stays three
+fields. (ADDED 2026-09-24, journal session 11, F42 B1.)
 
 ## 3. Verification
 

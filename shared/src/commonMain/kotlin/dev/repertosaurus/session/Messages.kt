@@ -512,7 +512,7 @@ public object Messages {
     public const val MERGE_NOT_WRITTEN: String =
         "Something changed under the merge, so nothing was merged. Open the preview again."
 
-    // ---- The scorecards (scorecards SC4-SC14) ----------------------------------------------------
+    // ---- The scorecards (scorecards SC4-SC19) ----------------------------------------------------
 
     public const val HABIT_TITLE: String = "Scorecards"
     public const val HABIT_KICKER: String = "Your practice"
@@ -534,18 +534,37 @@ public object Messages {
     public val habitRecentWeeks: String = "Last ${HabitStats.RECENT_WEEKS} weeks"
     public val habitRecentMonths: String = "Last ${HabitStats.RECENT_MONTHS} months"
 
-    /** SC7: "Tue 9 Sep: 5 songs". A gap is stated plainly, never as a failure. */
+    /**
+     * SC7: "Tue 9 Sep: 5 songs". A gap is stated plainly, never as a failure. SC17: a day with a timed
+     * event gains "· 42 min timed"; an untimed day reads exactly as before.
+     */
     public fun habitDay(day: HabitDay): String {
         val label = DateLabels.day(LocalDate.parse(day.date))
-        return if (day.count > 0L) "$label: ${songCount(day.count)}" else "$label: nothing logged"
+        return if (day.count > 0L) "$label: ${songCount(day.count)}${timedFragment(day.timedSeconds)}" else "$label: nothing logged"
     }
 
-    /** SC10: "This week: 4 days, 23 songs". */
+    /** SC10: "This week: 4 days, 23 songs"; SC17: "… · 1 h 10 min timed" when anything was timed. */
     public fun habitThisWeek(total: PeriodTotal): String = habitPeriod("This week", total)
     public fun habitThisMonth(total: PeriodTotal): String = habitPeriod("This month", total)
 
     private fun habitPeriod(name: String, total: PeriodTotal): String =
-        "$name: ${nounCount(total.days.toLong(), "day")}, ${songCount(total.events)}"
+        "$name: ${nounCount(total.days.toLong(), "day")}, ${songCount(total.events)}${timedFragment(total.timedSeconds)}"
+
+    /**
+     * **SC17: minutes are supplementary and always say "timed"**, so they never read as the whole of
+     * the practice. Null (untimed, SC18) is no fragment at all. A timed sum is at least 1 s (schema-3
+     * M10's CHECK), so there is deliberately no zero guard here: a NULL wrongly coerced to 0 upstream
+     * shows as "0 s timed" and fails the tests, rather than being hidden.
+     */
+    private fun timedFragment(timedSeconds: Long?): String =
+        if (timedSeconds == null) "" else " · ${duration(timedSeconds)} timed"
+
+    /** SC19: one timed event in a song's history: "2026-09-20, Vocal: 24 min". */
+    public fun timedEventLine(event: TimedEvent): String =
+        "${event.loggedOn}, ${event.instrumentName?.let(::titleCase) ?: REMOVED_INSTRUMENT}: ${duration(event.seconds)}"
+
+    /** SC19: "Timed total: 1 h 10 min", shown only when the song has any timed event. */
+    public fun timedTotalLine(seconds: Long): String = "Timed total: ${duration(seconds)}"
 
     /** SC8: "19 of 26", or "not yet" for a weekday the clipped window has not reached. */
     public fun habitFraction(weekday: WeekdayReliability): String =

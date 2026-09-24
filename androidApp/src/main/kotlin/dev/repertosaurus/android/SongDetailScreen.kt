@@ -56,6 +56,7 @@ import dev.repertosaurus.session.SongDetail
 import dev.repertosaurus.session.SongDraft
 import dev.repertosaurus.session.SongField
 import dev.repertosaurus.session.SongIdentity
+import dev.repertosaurus.session.TimedHistory
 import dev.repertosaurus.session.songLabel
 import dev.repertosaurus.session.titleCase
 
@@ -69,6 +70,8 @@ internal object SongDetailTags {
     const val EDIT_LINE_UP: String = "song-detail-edit-line-up"
     const val MERGE: String = "song-detail-merge"
     const val NEW_TAG: String = "song-detail-new-tag"
+    const val TIMED_TOTAL: String = "song-detail-timed-total"
+    fun timedEvent(eventId: String): String = "song-detail-timed-$eventId"
     fun field(field: SongField): String = "song-detail-field-${field.name}"
     fun tag(tagId: String): String = "song-detail-tag-$tagId"
 
@@ -219,7 +222,7 @@ internal fun SongDetailScreen(
             )
 
             HorizontalDivider()
-            PracticeSection(detail.practice)
+            PracticeSection(detail.practice, detail.timed)
 
             HorizontalDivider()
             MergeSection(dirty = detail.dirty, enabled = detail.canMerge, onMerge = actions.onMerge)
@@ -665,15 +668,40 @@ private fun LineUpSection(detail: SongDetail, enabled: Boolean, onEdit: () -> Un
     }
 }
 
-/** R20: read-only, in decision 18's chip order (the core's read applied it), worded by the core. */
+/**
+ * R20: read-only, in decision 18's chip order (the core's read applied it), worded by the core.
+ * scorecards SC19: then the timed total and each timed event, newest first, **only when any exist**;
+ * a song with no timed event reads exactly as before.
+ */
 @Composable
-private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSummary>) {
+private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSummary>, timed: TimedHistory) {
     SectionHeading(Messages.SECTION_PRACTICE)
     if (practice.isEmpty()) {
         Text("Never practised.", style = MaterialTheme.typography.bodyMedium)
     }
     for (summary in practice) {
         Text(text = Messages.practiceLine(summary), style = MaterialTheme.typography.bodyMedium)
+    }
+    if (timed.events.isNotEmpty()) TimedLines(timed)
+}
+
+/** SC19: the song's timed total, then its timed events. */
+@Composable
+private fun TimedLines(timed: TimedHistory) {
+    Text(
+        text = Messages.timedTotalLine(timed.totalSeconds),
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(top = 4.dp).testTag(SongDetailTags.TIMED_TOTAL),
+    )
+    for (event in timed.events) {
+        key(event.id) {
+            Text(
+                text = Messages.timedEventLine(event),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp).testTag(SongDetailTags.timedEvent(event.id)),
+            )
+        }
     }
 }
 

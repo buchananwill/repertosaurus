@@ -149,6 +149,42 @@ will fill this in". No zeros are printed as statistics.
   workbook's history, not the user's month of phone logs. Quote the 26-week practice-day
   count shown next to a count from `sqlite3` over the same file.
 
+## 3a. Scorecards v2: minutes (P12), added 2026-09-24 (journal session 11, D84)
+
+**SC16. The grid keeps shading by the count of live events (SC6). It never shades by minutes.**
+Most logs are one-tap and untimed (the timer is an alternative, never a replacement, per the
+vision). A day of twelve untimed taps would shade paler than one timed ten-minute run, which
+misreports the practice. **Untimed taps never count as zero minutes** (§4's standing rule), and
+the only honest way to keep that promise in a colour is not to colour by minutes.
+
+**SC17. Minutes are shown as supplementary facts wherever timed data exists, and are absent
+otherwise:**
+- the day line reads "Tue 9 Sep: 7 songs · 42 min timed" when that day has timed events, and
+  otherwise stays as it is;
+- SC10's week and month totals gain "· 1 h 10 min timed" when non-zero;
+- the SC11 bars are unchanged (still days).
+
+"Timed" is always said, so a musician never reads the minutes as the whole of their practice.
+
+**SC18. The read gains a timed sum per day.** `countLiveByDay` also returns
+`SUM(duration_seconds)` over the same live events. **A NULL sum (a day with no timed event)
+means untimed, and is never coerced to 0** (journal F23 N5). `HabitStats` carries a per-day value
+type `(events, timedSeconds: Long?)`, not a second map.
+
+**SC19. The per-song history (the Songs route's song detail) shows each event's duration when it
+has one**, and a "timed total" line when any exist. This is the vision's "history shows the
+minutes accumulating on each song".
+(AMENDED 2026-09-24, journal session 11, D85 #1: the song detail has no per-event list, only
+R20's per-instrument summary. SC19 is met by a timed total and a list of **the timed events
+only**, beneath that summary. A full per-event history is not decided.)
+
+**SC20. Verification:**
+- `HabitStats` tests: a mixed day, an all-untimed day (null, not 0), and totals;
+- a repository test showing that a voided timed event contributes neither count nor minutes;
+- the real-data cross-check again. The workbook has no durations, so it must show "timed" is
+  absent;
+- instrumented tests: the day line and the song history with and without durations.
+
 ## 4. Deferred
 
 - **P12 (after the timer):** shade by minutes where timed data exists, and add "minutes this
