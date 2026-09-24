@@ -35,11 +35,13 @@ import dev.repertosaurus.android.theme.RepertosaurusWindow
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.SuggestCandidate
 import dev.repertosaurus.session.SuggestSpoke
 import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.SuggestionDeck
 import dev.repertosaurus.session.lockOf
+import dev.repertosaurus.session.part
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -273,17 +275,21 @@ class SuggestFlowTest {
     }
 
     /**
-     * SG11: priority, confidence and skips are drawn, disabled, and a drag on them changes nothing —
-     * F26 N7: with a non-zero Hotness beside them, which a press on a locked handle must not take.
+     * SG11, SG14: with no performer to resolve, priority, confidence and skips are drawn, disabled, and a
+     * drag on them changes nothing — F26 N7: with a non-zero Hotness beside them, which a press on a locked
+     * handle must not take.
      */
     @Test
     fun theLockedSpokesCannotBeDragged() {
         val hot = SuggestTuning.of(SuggestSpoke.HOTNESS to 0.5)
         val screen = fixture.open("locked", device = InMemoryDevicePreferences(suggestTuning = hot))
+        compose.awaitUntil("the performers' read") { screen.session.state.value.part == PartResolution.None }
         suggest()
         openTune()
 
-        for (spoke in SuggestSpoke.entries.filter { lockOf(it) != null }) {
+        val locked = SuggestSpoke.entries.filter { lockOf(it, hot.countSkips, PartResolution.None) != null }
+        assertEquals(listOf(SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE, SuggestSpoke.SKIPS), locked)
+        for (spoke in locked) {
             handle(spoke).assertIsNotEnabled()
             dragOutward(spoke, distance = 120f)
             assertEquals(hot, screen.settings.suggestTuning.value, "${spoke.name} took a drag")

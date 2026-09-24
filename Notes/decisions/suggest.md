@@ -29,8 +29,9 @@ local convention):
 - `SuggestCandidate`: `songId`, `daysSince`, `priority: RatingLevel?`, `confidence: RatingLevel?`,
   `skips: Int`.
 - `Suggester`: pure weighting and drawing, with the random source injected.
-- `SuggestionDeck`: the state of one open suggestion sheet, holding what has been shown, the
-  current suggestion and the pending skip.
+- `SuggestionDeck`: the state of one open suggestion sheet, holding what has been shown and the
+  current suggestion. ~~and the pending skip~~ **AMENDED 2026-09-24 (journal session 11, D79
+  #3): the staged skip and its 5 s window live in `SuggestionHolder`, beside the deck.**
 
 **Kotlin core, changed**
 - ~~`SessionPreferences`~~ **`DevicePreferences`** (AMENDED 2026-09-23, journal session 11,

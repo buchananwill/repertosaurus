@@ -1,5 +1,8 @@
 package dev.repertosaurus.session
 
+import dev.repertosaurus.core.RatingLevel
+import dev.repertosaurus.data.PartRatings
+import dev.repertosaurus.data.RepertosaurusRepository.Performer
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -70,6 +73,113 @@ class SuggesterTest {
         val difference = Suggester.weights(mixed, tuned(cold = 0.5))
         val ratios = both.zip(difference) { a, b -> a / b }
         for (ratio in ratios) assertEquals(ratios.first(), ratio, 1e-12, "a constant factor: $ratios")
+    }
+
+    // ---- SG9 [v2]: priority, confidence and skips ----------------------------------------------
+    //
+    // Every expected weight below is worked by hand from SG8 (`16^Σ rₖ·fₖ`) and SG9's rows, never read
+    // back from the code. All candidates share one staleness, so the coldness term is zero throughout.
+
+    private fun rated(id: String, priority: RatingLevel? = null, confidence: RatingLevel? = null, skips: Int = 0) =
+        SuggestCandidate(id, daysSince = 5L, priority = priority, confidence = confidence, skips = skips)
+
+    private val levels = RatingLevel.entries.map { rated(it.name, priority = it, confidence = it) } + rated("unrated")
+
+    /** SG9 priority, `level / 3`, at radius 0.75: `16^(0.75·k/3) = 2^k`, so 1, 2, 4, 8; unrated is 1. */
+    @Test
+    fun priorityWeighsLevelOverThree() {
+        val weights = Suggester.weights(levels, SuggestTuning.of(SuggestSpoke.PRIORITY to 0.75))
+        assertClose(listOf(1.0, 2.0, 4.0, 8.0, 1.0), weights)
+    }
+
+    /** SG9 confidence, `(3 − level) / 3`, at radius 0.75: `2^(3−k)`, so 8, 4, 2, 1; unrated is 1. */
+    @Test
+    fun confidenceWeighsLowerConfidenceAsMoreNeed() {
+        val weights = Suggester.weights(levels, SuggestTuning.of(SuggestSpoke.CONFIDENCE to 0.75))
+        assertClose(listOf(8.0, 4.0, 2.0, 1.0, 1.0), weights)
+    }
+
+    /** SG9: **unrated contributes 0 on every rating spoke**, even at full radius, never an assumed level. */
+    @Test
+    fun unratedIsZeroOnEveryRatingSpoke() {
+        val pool = listOf(rated("unrated"), rated("not-at-all", priority = RatingLevel.NOT_AT_ALL, confidence = RatingLevel.EXCEPTIONALLY))
+        val weights = Suggester.weights(pool, SuggestTuning.of(SuggestSpoke.PRIORITY to 1.0, SuggestSpoke.CONFIDENCE to 1.0))
+        assertEquals(listOf(1.0, 1.0), weights, "unrated weighs as priority 0 and confidence 3: nothing")
+        assertEquals(0.0, Suggester.priorityNeed(null))
+        assertEquals(0.0, Suggester.confidenceNeed(null))
+    }
+
+    /** SG9 skips, `min(skips, 10) / 10`, at radius 1: 0 → 1, 5 → 16^0.5 = 4, 10 → 16, 25 → 16 (capped). */
+    @Test
+    fun skipsWeighUpToTenAndNoFurther() {
+        val pool = listOf(rated("none"), rated("five", skips = 5), rated("ten", skips = 10), rated("many", skips = 25))
+        assertClose(listOf(1.0, 4.0, 16.0, 16.0), Suggester.weights(pool, SuggestTuning.of(SuggestSpoke.SKIPS to 1.0)))
+        assertClose(listOf(1.0, 2.0, 4.0, 4.0), Suggester.weights(pool, SuggestTuning.of(SuggestSpoke.SKIPS to 0.5)))
+    }
+
+    /**
+     * SG8 sums the spokes. X is never practised (coldness 1), priority 3, confidence 0 and ten skips, so
+     * every f is 1; Y is the hottest, unrated and unskipped, so every f is 0 but hotness's. At 0.25 on all
+     * five: X is `16^(0 + 0.25 + 0.25 + 0.25 + 0.25) = 16`, Y is `16^0.25 = 2`.
+     */
+    @Test
+    fun theFiveSpokesSum() {
+        val x = SuggestCandidate("x", null, RatingLevel.EXCEPTIONALLY, RatingLevel.NOT_AT_ALL, skips = 10)
+        val y = SuggestCandidate("y", 1L)
+        val tuning = SuggestTuning.of(*SuggestSpoke.entries.map { it to 0.25 }.toTypedArray())
+        assertClose(listOf(16.0, 2.0), Suggester.weights(listOf(x, y), tuning))
+
+        // Priority 0.5 at "certainly" (2/3) and skips 0.5 at five (1/2): 16^(1/3 + 1/4) = 2^(7/3) = 4·∛2.
+        val z = rated("z", priority = RatingLevel.CERTAINLY, skips = 5)
+        val mixedSpokes = SuggestTuning.of(SuggestSpoke.PRIORITY to 0.5, SuggestSpoke.SKIPS to 0.5)
+        assertClose(listOf(5.0396842), Suggester.weights(listOf(z), mixedSpokes), tolerance = 1e-6)
+    }
+
+    /**
+     * **Journal F35 N3, the freshness rule:** the rows carry Will's ratings. While Will is the resolved part
+     * they weigh; once the owner is Coralie and her ratings have not landed, they weigh nothing.
+     */
+    @Test
+    fun staleRatingsWeighNothing() {
+        val will = Performer("will", "Will")
+        val coralie = Performer("coralie", "Coralie")
+        val view = SessionView("v", "Mine", ViewFilter.NONE, "vocal", SessionOrder.COLDEST_FIRST, position = 0L)
+        val rows = listOf(SessionRow("a", "Autumn Leaves", "Kosma", 5L, 3L), SessionRow("b", "Blue Bossa", "Dorham", 5L, 1L))
+        val willsPart = ResolvedPart("will", "Will", "vocal")
+        val ratedForWill = SessionState(view = view, performers = listOf(will, coralie), ownerPerformerId = "will", loading = false)
+            .withRows(rows)
+            .withRatings(willsPart, mapOf("a" to PartRatings(RatingLevel.EXCEPTIONALLY, RatingLevel.NOT_AT_ALL)))
+        val priority = SuggestTuning.of(SuggestSpoke.PRIORITY to 1.0, SuggestSpoke.CONFIDENCE to 1.0)
+
+        assertEquals(willsPart, ratedForWill.resolvedPart)
+        assertEquals(listOf(256.0, 1.0), Suggester.weights(ratedForWill.suggestionPool(emptyMap()), priority), "fresh: 16 × 16")
+
+        val ownerIsCoralie = ratedForWill.withOwnerPerformer("coralie")
+        assertEquals(willsPart, ownerIsCoralie.ratedFor, "Coralie's ratings have not landed")
+        val stale = ownerIsCoralie.suggestionPool(emptyMap())
+        assertEquals(listOf(null, null), stale.map { it.priority })
+        assertEquals(listOf(null, null), stale.map { it.confidence })
+        assertEquals(listOf(1.0, 1.0), Suggester.weights(stale, priority), "stale ratings weigh as unrated")
+
+        val landed = ownerIsCoralie.withRatings(ResolvedPart("coralie", "Coralie", "vocal"), emptyMap())
+        assertEquals(listOf(1.0, 1.0), Suggester.weights(landed.suggestionPool(emptyMap()), priority), "Coralie rated nothing")
+    }
+
+    /** SG13, SG14: the pool carries each song's count, and the card the dealt one's. */
+    @Test
+    fun thePoolAndTheCardCarryTheSkipCounts() {
+        val rows = listOf(SessionRow("a", "Autumn Leaves", "Kosma", 12L, 3L), SessionRow("b", "Blue Bossa", "Dorham", null, 0L))
+        val state = SessionState(rows = rows, loading = false)
+        val pool = state.suggestionPool(mapOf("a" to 4))
+        assertEquals(listOf(4, 0), pool.map { it.skips })
+
+        val dealt = SuggestionDeck.Showing(pool.first(), setOf("a"))
+        assertEquals(SuggestionCard.Showing(rows.first(), skips = 4), state.suggestionCard(dealt))
+    }
+
+    private fun assertClose(expected: List<Double>, actual: List<Double>, tolerance: Double = 1e-9) {
+        assertEquals(expected.size, actual.size, "$actual")
+        for ((e, a) in expected.zip(actual)) assertEquals(e, a, tolerance, "expected $expected, got $actual")
     }
 
     // ---- SG9: the percentile -----------------------------------------------------------------

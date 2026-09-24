@@ -273,18 +273,25 @@ public fun SessionScreen(
     }
 
     // Suggest SG2-SG4. "Log it" is the plain tap's log through the same departure, so a visible row
-    // leaves the list as it does for a tap; dismissing writes nothing (SG3).
+    // leaves the list as it does for a tap; dismissing writes nothing (SG3). SG12's skip window is the holder's.
     // SG11: "Tune" is collapsed on every opening, and kept across a rotation while open.
     var tuneOpen by rememberSaveable(suggestion != null) { mutableStateOf(false) }
+    val skipStaged by suggestions.staged.collectAsState()
     suggestion?.let { deck ->
         SuggestSheet(
             card = state.suggestionCard(deck),
             tuning = suggestTuning,
+            part = state.part,
+            skipStaged = skipStaged != null,
             tuneOpen = tuneOpen,
             onTuneOpen = { tuneOpen = it },
             onLog = { row -> logAndDepart(row) { if (suggestions.take(row.songId)) viewModel.log(row.songId) } },
             onAnother = { suggestions.another(suggestTuning) },
-            onTune = onTune,
+            onUndoSkip = suggestions::undo,
+            onTune = { tuning ->
+                onTune(tuning)
+                suggestions.retune(tuning)
+            },
             onDismiss = suggestions::close,
         )
     }

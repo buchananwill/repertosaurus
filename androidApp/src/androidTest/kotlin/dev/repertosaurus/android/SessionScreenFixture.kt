@@ -32,14 +32,19 @@ internal class SessionScreenFixture(private val compose: ComposeContentTestRule,
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val names = mutableListOf<String>()
 
-    /** The database and ViewModels, uncomposed. [device] backs the suggester's tuning (suggest SG15). */
+    /**
+     * The database and ViewModels, uncomposed. [device] backs the suggester's tuning (suggest SG15).
+     * [prepare] runs on the sample database before the ViewModels read it.
+     */
     fun build(
         suffix: String,
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
+        prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
         val name = "$prefix-$suffix.db".also { names += it }
         val holder = EditingFixtures.holder(context, name)
+        prepare(holder)
         lateinit var session: SessionViewModel
         lateinit var settings: DeviceSettings
         EditingFixtures.onMain {
@@ -55,8 +60,9 @@ internal class SessionScreenFixture(private val compose: ComposeContentTestRule,
         fontScale: Float? = null,
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
+        prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
-        val screen = build(suffix, device, io)
+        val screen = build(suffix, device, io, prepare)
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale ?: density.fontScale)) {

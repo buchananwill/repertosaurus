@@ -521,9 +521,26 @@ public object Messages {
     public const val SUGGEST_TUNED_HINT: String =
         "Drag a handle out to give that input more say. Shuffle puts every one back to zero."
 
-    /** SG11: why a spoke is locked in v1 (journal session 11, D67 #8). */
+    /** SG11, SG12, SG14: why a spoke is locked (journal session 11, D67 #8). */
     public const val SUGGEST_LOCKED_RATINGS: String = "Ratings not read yet"
     public const val SUGGEST_LOCKED_SKIPS: String = "Skips not counted"
+    public const val SUGGEST_LOCKED_SKIPS_PENDING: String = "Skips not read yet"
+    public const val SUGGEST_LOCKED_NO_PERFORMER: String = "No performer chosen"
+
+    /** SG12, SG13: the two settings under "Tune". */
+    public const val SUGGEST_COUNT_SKIPS: String = "Count skips"
+    public const val SUGGEST_COUNT_SKIPS_HINT: String = "Another counts as a skip, with a moment to take it back."
+    public const val SUGGEST_SHOW_SKIP_COUNT: String = "Show the count"
+
+    /** SG12: the inline line while a skip can still be taken back. */
+    public const val SUGGEST_SKIPPED: String = "Skipped"
+    public const val SUGGEST_UNDO_SKIP: String = "Undo"
+
+    /** SG13: information, not a scolding. No exclamation mark. */
+    public fun suggestSkipCount(skips: Int): String = "Skipped ${nounCount(skips.toLong(), "time")} since you last played it"
+
+    /** SG12: a skip's write or the skip counts' read threw (S11: said, never swallowed). */
+    public fun suggestSkipsFailed(failure: Throwable): String = couldNot("count skips", failure)
 
     // ---- First-run onboarding (onboarding OB1-OB7) -----------------------------------------------
 

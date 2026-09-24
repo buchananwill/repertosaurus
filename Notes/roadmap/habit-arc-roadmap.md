@@ -258,7 +258,8 @@ over what P13b did not restyle.** Collected notes (journal session 11):
 - the grain-layer profiling A/B (F18 N4);
 - the scorecards' empty band under the grid (F29);
 - the stock Material leftovers (D56 #7, plus the Views sheet's rounded "Make the first view"
-  button);
+  button, **and the rounded `Switch`es in Tune and the drawer**, per D79);
+- "Confidence" breaking mid-word at font scale 2.0 (D78 #6);
 - the Songs, Artists, Repertoire toggle and lookup screens;
 - dark theme (VI17). A Material theme and tokens, the brand palette and
 typography, applied across screens that have stopped moving. Depends on: P13a ruled, P8, P9, P11.

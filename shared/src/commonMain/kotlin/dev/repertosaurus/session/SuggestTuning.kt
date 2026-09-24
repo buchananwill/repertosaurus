@@ -25,18 +25,32 @@ public enum class SuggestSpoke(public val label: String, public val angleDegrees
 }
 
 /**
- * suggest SG11: why [spoke] is locked at zero, or null when it takes a drag. **The one place the lock
- * is decided**: P9 widens it (SG12, SG14).
+ * suggest SG11, SG12, SG14: why [spoke] is locked at zero, or null when it takes a drag. **The one place
+ * the lock is decided.** [countSkips] is the tuning's (SG12); [part] is triage T9's resolution for the
+ * active View. The rating and skip spokes need a part (SG14), and the skip spoke needs counting on.
  */
-public fun lockOf(spoke: SuggestSpoke): String? = when (spoke) {
+public fun lockOf(spoke: SuggestSpoke, countSkips: Boolean, part: PartResolution): String? = when (spoke) {
     SuggestSpoke.COLDNESS, SuggestSpoke.HOTNESS -> null
-    SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE -> Messages.SUGGEST_LOCKED_RATINGS
-    SuggestSpoke.SKIPS -> Messages.SUGGEST_LOCKED_SKIPS
+    SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE -> when (part) {
+        is PartResolution.Resolved -> null
+        PartResolution.Pending -> Messages.SUGGEST_LOCKED_RATINGS
+        PartResolution.None -> Messages.SUGGEST_LOCKED_NO_PERFORMER
+    }
+    SuggestSpoke.SKIPS -> when {
+        !countSkips -> Messages.SUGGEST_LOCKED_SKIPS
+        part is PartResolution.Resolved -> null
+        part == PartResolution.Pending -> Messages.SUGGEST_LOCKED_SKIPS_PENDING
+        else -> Messages.SUGGEST_LOCKED_NO_PERFORMER
+    }
 }
 
 /**
  * suggest SG8, SG11, SG15, SG16: one radius per spoke in `[0, 1]`, snapped to [STEP], plus the two skip
- * settings (SG12, SG13 [v2]: stored, unread in v1).
+ * settings (SG12, SG13).
+ *
+ * The radii are what the musician set. A spoke's lock ([lockOf]) depends on the View, so it is applied
+ * where the tuning is used ([effective]), not stored: a View with no performer does not wipe the rating
+ * radii.
  */
 public data class SuggestTuning(
     val radii: Map<SuggestSpoke, Double> = ZERO,
@@ -50,9 +64,13 @@ public data class SuggestTuning(
 
     public fun radius(spoke: SuggestSpoke): Double = radii.getValue(spoke)
 
-    /** SG11: one spoke, snapped. A locked spoke stays at zero. */
+    /** SG11: one spoke, snapped. */
     public fun withRadius(spoke: SuggestSpoke, radius: Double): SuggestTuning =
-        copy(radii = radii + (spoke to if (lockOf(spoke) != null) 0.0 else snap(radius)))
+        copy(radii = radii + (spoke to snap(radius)))
+
+    /** SG11: what the suggester weighs and the radar draws for [part]: each locked spoke at zero. */
+    public fun effective(part: PartResolution): SuggestTuning =
+        copy(radii = radii.mapValues { (spoke, r) -> if (lockOf(spoke, countSkips, part) != null) 0.0 else r })
 
     /** SG11's "Shuffle": every radius to zero; the skip settings are kept. */
     public fun shuffled(): SuggestTuning = copy(radii = ZERO)
@@ -88,7 +106,7 @@ public data class SuggestTuning(
         /**
          * SG15: **unreadable reads as the default, and this never throws.** A pair without `=`, a radius
          * outside `[0, 1]` or a flag that is not a boolean makes the whole value unreadable. A pair splits
-         * on its first `=`. Stored radii are snapped, and a locked spoke's is zero. An unknown key is
+         * on its first `=`. Stored radii are snapped. An unknown key is
          * ignored and a missing one keeps its default.
          */
         public fun fromStored(stored: String?): SuggestTuning =

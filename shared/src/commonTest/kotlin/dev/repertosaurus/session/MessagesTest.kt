@@ -10,6 +10,7 @@ import dev.repertosaurus.data.SongResolution
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The one core [Messages] (style review F17 B2, F19) — the words, and above all **the channel**
@@ -163,5 +164,13 @@ class MessagesTest {
         assertEquals("1 practice event carried", Messages.eventsCarried(1, 0))
         assertEquals("3 practice events carried, 2 dropped", Messages.eventsCarried(3, 2))
         assertEquals("0 practice events carried, 1 dropped", Messages.eventsCarried(0, 1))
+    }
+
+    /** suggest SG13: the skip count is information, not a scolding: no exclamation mark. */
+    @Test
+    fun theSkipCountIsInformation() {
+        assertEquals("Skipped 20 times since you last played it", Messages.suggestSkipCount(20))
+        assertEquals("Skipped 1 time since you last played it", Messages.suggestSkipCount(1))
+        assertTrue('!' !in Messages.suggestSkipCount(3))
     }
 }

@@ -49,6 +49,7 @@ import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.android.theme.hardShadow
 import dev.repertosaurus.android.theme.inkBorder
+import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.SuggestSpoke
 import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.lockOf
@@ -96,40 +97,46 @@ private class Held(val spoke: SuggestSpoke, val radius: Float)
  *   takes nothing. A press away from every handle is left to the sheet.
  * - The labels are measured first and the rings sized to leave them room (F31 B1), so a large font
  *   shrinks the radar rather than pushing a label off it.
+ * - [tuning] is the stored one, which a drag writes to; what is drawn is its [SuggestTuning.effective]
+ *   for [part], each locked spoke at zero with [lockOf]'s reason (SG11, SG12, SG14).
  */
 @Composable
-internal fun SuggestRadar(tuning: SuggestTuning, onTune: (SuggestTuning) -> Unit, modifier: Modifier = Modifier) {
+internal fun SuggestRadar(tuning: SuggestTuning, part: PartResolution, onTune: (SuggestTuning) -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
-    val settled = remember { SuggestSpoke.entries.associateWith { Animatable(tuning.radius(it).toFloat()) } }
+    val shown = tuning.effective(part)
+    val reasons = SuggestSpoke.entries.associateWith { lockOf(it, tuning.countSkips, part) }
+    val settled = remember { SuggestSpoke.entries.associateWith { Animatable(shown.radius(it).toFloat()) } }
     var held by remember { mutableStateOf<Held?>(null) }
     var geometry by remember { mutableStateOf<RadarGeometry?>(null) }
     val tune by rememberUpdatedState(onTune)
     val persisted by rememberUpdatedState(tuning)
+    val locks by rememberUpdatedState(reasons)
+    val locked = { spoke: SuggestSpoke -> locks[spoke] != null }
     val drawn = { spoke: SuggestSpoke -> held?.takeIf { it.spoke == spoke }?.radius ?: settled.getValue(spoke).value }
 
-    LaunchedEffect(tuning) {
+    LaunchedEffect(shown) {
         for ((spoke, radius) in settled) {
-            if (held?.spoke != spoke) launch { radius.animateTo(tuning.radius(spoke).toFloat(), Motion.spring()) }
+            if (held?.spoke != spoke) launch { radius.animateTo(shown.radius(spoke).toFloat(), Motion.spring()) }
         }
     }
 
     Layout(
         contents = listOf(
-            { for (spoke in SuggestSpoke.entries) SpokeLabel(spoke) },
+            { for (spoke in SuggestSpoke.entries) SpokeLabel(spoke, reasons[spoke]) },
             {
                 for (spoke in SuggestSpoke.entries) {
-                    SpokeHandle(spoke, tuning.radius(spoke), onSet = { tune(persisted.withRadius(spoke, it)) })
+                    SpokeHandle(spoke, shown.radius(spoke), reasons[spoke], onSet = { tune(persisted.withRadius(spoke, it)) })
                 }
             },
         ),
         modifier = modifier
             .testTag(SuggestTags.RADAR)
-            .drawBehind { geometry?.let { drawRadar(it, drawn) } }
+            .drawBehind { geometry?.let { drawRadar(it, drawn, locked) } }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val at = geometry ?: return@awaitEachGesture
-                    val spoke = at.nearestHandle(down.position, drawn, HandleReach.toPx()) ?: return@awaitEachGesture
+                    val spoke = at.nearestHandle(down.position, drawn, HandleReach.toPx(), locked) ?: return@awaitEachGesture
                     val start = drawn(spoke)
                     val slop = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                         ?: return@awaitEachGesture
@@ -170,10 +177,9 @@ internal fun SuggestRadar(tuning: SuggestTuning, onTune: (SuggestTuning) -> Unit
     }
 }
 
-/** A spoke's name and, locked, its reason (SG11), greyed. */
+/** A spoke's name and, locked, its [reason] (SG11), greyed. */
 @Composable
-private fun SpokeLabel(spoke: SuggestSpoke) {
-    val reason = lockOf(spoke)
+private fun SpokeLabel(spoke: SuggestSpoke, reason: String?) {
     Column(modifier = Modifier.testTag(SuggestTags.label(spoke)), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             spoke.label,
@@ -190,8 +196,7 @@ private fun SpokeLabel(spoke: SuggestSpoke) {
  * radar's. A locked handle is disabled and has no action.
  */
 @Composable
-private fun SpokeHandle(spoke: SuggestSpoke, radius: Double, onSet: (Double) -> Unit) {
-    val reason = lockOf(spoke)
+private fun SpokeHandle(spoke: SuggestSpoke, radius: Double, reason: String?, onSet: (Double) -> Unit) {
     Box(
         modifier = Modifier
             .size(Tokens.TouchMin)
@@ -239,14 +244,14 @@ private data class RadarGeometry(val centre: Offset, val hub: Float, val outer: 
         return (delta.x * d.x + delta.y * d.y) / (outer - hub)
     }
 
-    /** The nearest handle as drawn within [reach] of [at], or null; a locked one takes nothing. */
-    fun nearestHandle(at: Offset, drawn: (SuggestSpoke) -> Float, reach: Float): SuggestSpoke? =
+    /** The nearest handle as drawn within [reach] of [at], or null; a [locked] one takes nothing. */
+    fun nearestHandle(at: Offset, drawn: (SuggestSpoke) -> Float, reach: Float, locked: (SuggestSpoke) -> Boolean): SuggestSpoke? =
         SuggestSpoke.entries
             .map { it to (point(it, drawn(it)) - at).getDistance() }
             .filter { (_, distance) -> distance <= reach }
             .minByOrNull { (_, distance) -> distance }
             ?.first
-            ?.takeIf { lockOf(it) == null }
+            ?.takeIf { !locked(it) }
 
     companion object {
         /**
@@ -277,7 +282,7 @@ private data class RadarGeometry(val centre: Offset, val hub: Float, val outer: 
 }
 
 /** The rings, the spokes and the tuned polygon: square joins, `Ink` lines, a translucent `Indigo` fill. */
-private fun DrawScope.drawRadar(geometry: RadarGeometry, drawn: (SuggestSpoke) -> Float) {
+private fun DrawScope.drawRadar(geometry: RadarGeometry, drawn: (SuggestSpoke) -> Float, locked: (SuggestSpoke) -> Boolean) {
     val rule = Tokens.StrokeRule.toPx()
     for (level in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
         val rim = level == 1f
@@ -289,7 +294,7 @@ private fun DrawScope.drawRadar(geometry: RadarGeometry, drawn: (SuggestSpoke) -
     }
     for (spoke in SuggestSpoke.entries) {
         drawLine(
-            color = if (lockOf(spoke) != null) Tokens.Ink.copy(alpha = RING_ALPHA) else Tokens.Ink,
+            color = if (locked(spoke)) Tokens.Ink.copy(alpha = RING_ALPHA) else Tokens.Ink,
             start = geometry.point(spoke, 0f),
             end = geometry.point(spoke, 1f),
             strokeWidth = rule,
