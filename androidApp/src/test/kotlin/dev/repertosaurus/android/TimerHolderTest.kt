@@ -1,14 +1,15 @@
 package dev.repertosaurus.android
 
 import dev.repertosaurus.session.InstrumentChip
+import dev.repertosaurus.session.LoggedTime
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PracticeTimer
-import dev.repertosaurus.session.PracticeTimer.State.Running
+import dev.repertosaurus.session.PracticeTimer.Running
 import dev.repertosaurus.session.SessionOrder
 import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SessionState
+import dev.repertosaurus.session.SessionTap
 import dev.repertosaurus.session.SessionView
-import dev.repertosaurus.session.StopOutcome
 import dev.repertosaurus.session.TimedSong
 import dev.repertosaurus.session.TimerQuestion
 import dev.repertosaurus.session.ViewFilter
@@ -19,7 +20,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Clock
@@ -27,10 +27,13 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
- * timer TM1-TM11 on [TimerHolder], with no device. Every test asserts the whole sequence the running timer took
+ * timer TM1-TM12 on [TimerHolder], with no device. Every test asserts the whole sequence the running timer took
  * and every store write, with values worked by hand.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,6 +57,16 @@ class TimerHolderTest {
 
     private fun timer(song: String, instrument: String, at: Long) = Running(song, instrument, at)
     private fun jolene(at: Long = t0) = TimedSong(timer("jolene", "vocal", at), "Jolene")
+    private fun wagon(at: Long = t0) = TimedSong(timer("wagon", "vocal", at), "Wagon Wheel")
+
+    /** A log as expected, with the random tap id set aside. */
+    private fun log(song: String, instrument: String, title: String, on: String, time: LoggedTime?) = TimerLog(
+        SessionTap("-", song, instrument, feel = null, note = null, loggedOn = on, durationSeconds = (time as? LoggedTime.Timed)?.seconds),
+        title,
+        time,
+    )
+
+    private fun TimerLog?.ignoringId(): TimerLog? = this?.copy(tap = tap.copy(tapId = "-"))
 
     // ---- TM10: the store at launch ----------------------------------------------------------------
 
@@ -84,6 +97,35 @@ class TimerHolderTest {
         assertEquals(listOf<String?>(Messages.TIMER_SONG_REMOVED), rig.messages)
     }
 
+    /** TM11: a stored start later than now is corrupt, and is dropped and cleared, not restored. */
+    @Test
+    fun aStartInTheFutureIsDropped() = runTest {
+        val rig = Rig(this, session(), stored = timer("jolene", "vocal", t0 + 1_000L))
+        runCurrent()
+        assertEquals(listOf<TimedSong?>(null), rig.running)
+        assertEquals(listOf<Running?>(null), rig.written)
+    }
+
+    /** A first load whose song read fails does not lose the restore: the next load restores it. */
+    @Test
+    fun aFailedFirstRestoreIsTriedAgain() = runTest {
+        val session = session()
+        val rig = Rig(this, session, stored = timer("jolene", "vocal", t0))
+        rig.failTitles = true
+        runCurrent()
+        assertEquals(listOf<TimedSong?>(null), rig.running)
+        assertEquals(listOf<String?>(Messages.timerReadFailed(IllegalStateException("disk gone"))), rig.messages)
+
+        rig.failTitles = false
+        session.update { it.copy(loading = true) }
+        runCurrent()
+        session.update { it.copy(loading = false) }
+        runCurrent()
+
+        assertEquals(listOf(null, jolene()), rig.running)
+        assertEquals(2, rig.reads)
+    }
+
     /** A song removed while its timer runs is found at the next load, as a route's return reloads. */
     @Test
     fun aSongRemovedWhileRunningIsDroppedAtTheNextLoad() = runTest {
@@ -98,9 +140,8 @@ class TimerHolderTest {
         session.update { it.copy(loading = false) }
         runCurrent()
 
-        val wagon = TimedSong(timer("wagon", "vocal", t0), "Wagon Wheel")
-        assertEquals(listOf(null, wagon, null), rig.running)
-        assertEquals(listOf(wagon.timer, null), rig.written)
+        assertEquals(listOf(null, wagon(), null), rig.running)
+        assertEquals(listOf(wagon().timer, null), rig.written)
         assertEquals(listOf<String?>(Messages.TIMER_SONG_REMOVED), rig.messages)
     }
 
@@ -114,7 +155,56 @@ class TimerHolderTest {
         rig.gate!!.complete(Unit)
         runCurrent()
         assertEquals(listOf(null, jolene()), rig.running)
-        assertEquals<List<Running?>>(listOf(jolene().timer), rig.written)
+        assertEquals(listOf<Running?>(jolene().timer), rig.written)
+    }
+
+    /**
+     * A clear that fails twice keeps its start instant from ever being restored, so a stopped timer cannot come
+     * back and log twice. The store still holds it, and the next load, which reads the store because the first
+     * read failed, does not bring it back.
+     */
+    @Test
+    fun aFailedClearIsNeverRestored() = runTest {
+        val session = session()
+        val rig = Rig(this, session)
+        rig.failReads = true
+        runCurrent()
+        rig.failReads = false
+        rig.holder.start("jolene", "Jolene")
+        runCurrent()
+        rig.failClears = true
+        rig.now = t0 + 60_000L
+        assertNotNull(rig.holder.stop())
+        runCurrent()
+        assertEquals(jolene().timer, rig.store, "the clear never landed")
+        assertEquals(2, rig.clearAttempts, "tried twice")
+
+        session.update { it.copy(loading = true) }
+        runCurrent()
+        session.update { it.copy(loading = false) }
+        runCurrent()
+
+        assertEquals(2, rig.reads, "the store was read again")
+        assertEquals(listOf(null, jolene(), null), rig.running)
+        assertEquals(
+            listOf(Messages.timerReadFailed(IllegalStateException("disk gone")), Messages.timerWriteFailed(IllegalStateException("disk full"))),
+            rig.messages.filterNotNull(),
+        )
+    }
+
+    /** A clear that fails once and lands on the retry is not pending. */
+    @Test
+    fun aClearIsRetriedOnce() = runTest {
+        val rig = Rig(this, session())
+        runCurrent()
+        rig.holder.start("jolene", "Jolene")
+        runCurrent()
+        rig.failClearsOnce = true
+        rig.holder.stop()
+        runCurrent()
+        assertEquals(2, rig.clearAttempts)
+        assertNull(rig.store)
+        assertEquals(emptyList(), rig.messages.filterNotNull())
     }
 
     // ---- TM1-TM3, TM7, TM8: start and stop ----------------------------------------------------------
@@ -127,7 +217,7 @@ class TimerHolderTest {
         assertNull(rig.holder.start("jolene", "Jolene"))
         runCurrent()
         assertEquals(listOf(null, jolene()), rig.running)
-        assertEquals<List<Running?>>(listOf(jolene().timer), rig.written)
+        assertEquals(listOf<Running?>(jolene().timer), rig.written)
     }
 
     /** With no View there is no practice instrument, and nothing starts. */
@@ -148,12 +238,23 @@ class TimerHolderTest {
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         rig.now = t0 + 24L * 60_000L
-        val log = rig.holder.stop()
+        val stopped = rig.holder.stop()
         runCurrent()
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", 1_440L, StopOutcome.Timed(1_440L)), log)
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.Timed(1_440L)), stopped.ignoringId())
         assertEquals(listOf(null, jolene(), null), rig.running)
         assertEquals(listOf(jolene().timer, null), rig.written)
         assertNull(rig.holder.stop(), "nothing left to stop")
+    }
+
+    /** TM12: the zone is the one current at Stop. 20:00 UTC is the 25th in Auckland. */
+    @Test
+    fun theLogIsDatedInTheZoneAtStop() = runTest {
+        val rig = Rig(this, session())
+        runCurrent()
+        rig.holder.start("jolene", "Jolene")
+        rig.now = t0 + 600_000L
+        rig.zone = TimeZone.of("Pacific/Auckland")
+        assertEquals("2026-09-25", rig.holder.stop()?.tap?.loggedOn)
     }
 
     /** TM8: 9 s logs untimed; 10 s is timed. */
@@ -163,22 +264,22 @@ class TimerHolderTest {
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         rig.now = t0 + 9_999L
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", null, StopOutcome.Untimed), rig.holder.stop())
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.TooShort), rig.holder.stop().ignoringId())
 
         rig.now = t0
         rig.holder.start("jolene", "Jolene")
         rig.now = t0 + 10_000L
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", 10L, StopOutcome.Timed(10L)), rig.holder.stop())
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.Timed(10L)), rig.holder.stop().ignoringId())
     }
 
-    /** TM11: a clock gone backwards stops as under 10 s. */
+    /** TM11: a clock gone backwards stops as under 10 s, dated today. */
     @Test
-    fun aClockGoneBackwardsLogsUntimed() = runTest {
+    fun aClockGoneBackwardsLogsUntimedToday() = runTest {
         val rig = Rig(this, session())
         runCurrent()
         rig.holder.start("jolene", "Jolene")
-        rig.now = t0 - 86_400_000L
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", null, StopOutcome.Untimed), rig.holder.stop())
+        rig.now = t0 - 3L * 86_400_000L
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-21", LoggedTime.TooShort), rig.holder.stop().ignoringId())
     }
 
     /** TM3: the log lands on the instrument at start, though the View has moved to guitar since. */
@@ -190,7 +291,7 @@ class TimerHolderTest {
         rig.holder.start("jolene", "Jolene")
         session.update { it.copy(view = view("guitar")) }
         rig.now = t0 + 60_000L
-        assertEquals("vocal", rig.holder.stop()?.instrumentId)
+        assertEquals("vocal", rig.holder.stop()?.tap?.instrumentId)
     }
 
     /** TM10, views V20a: an instrument removed meanwhile falls back to the first live chip. */
@@ -202,7 +303,39 @@ class TimerHolderTest {
         rig.holder.start("jolene", "Jolene")
         session.update { it.withInstruments(listOf(vocal)).copy(view = view("vocal")) }
         rig.now = t0 + 60_000L
-        assertEquals("vocal", rig.holder.stop()?.instrumentId)
+        assertEquals("vocal", rig.holder.stop()?.tap?.instrumentId)
+    }
+
+    /** With no live instrument at all, Stop cannot run yet: nothing is logged and the timer runs on. */
+    @Test
+    fun noInstrumentMeansStopWaits() = runTest {
+        val session = session()
+        val rig = Rig(this, session)
+        runCurrent()
+        rig.holder.start("jolene", "Jolene")
+        session.update { it.withInstruments(emptyList()) }
+        rig.now = t0 + 60_000L
+        assertFalse(rig.holder.canStop(jolene(), emptyList()))
+        assertNull(rig.holder.stop())
+        runCurrent()
+        assertEquals(listOf(null, jolene()), rig.running)
+
+        session.update { it.withInstruments(listOf(vocal)) }
+        assertTrue(rig.holder.canStop(jolene(), listOf(vocal)))
+        assertEquals("vocal", rig.holder.stop()?.tap?.instrumentId)
+    }
+
+    /** An import or a fresh database clears the timer without a word. */
+    @Test
+    fun clearDropsTheTimerQuietly() = runTest {
+        val rig = Rig(this, session())
+        runCurrent()
+        rig.holder.start("jolene", "Jolene")
+        rig.holder.clear()
+        runCurrent()
+        assertEquals(listOf(null, jolene(), null), rig.running)
+        assertEquals(listOf(jolene().timer, null), rig.written)
+        assertEquals(emptyList(), rig.messages)
     }
 
     /** TM8: over 3 h, Stop asks and the timer runs on; "with a time" logs the time asked about. */
@@ -217,10 +350,10 @@ class TimerHolderTest {
         assertNull(rig.holder.stop(), "one question at a time")
 
         rig.now += 30_000L
-        val log = rig.holder.answer(withTime = true)
+        val answered = rig.holder.answer(withTime = true)
         runCurrent()
 
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", 10_801L, StopOutcome.Timed(10_801L)), log)
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.Timed(10_801L)), answered.ignoringId())
         assertEquals(listOf(null, TimerQuestion(jolene(), 10_801L), null), rig.questions)
         assertEquals(listOf(null, jolene(), null), rig.running)
         assertEquals(listOf(jolene().timer, null), rig.written)
@@ -235,7 +368,7 @@ class TimerHolderTest {
         rig.now = t0 + 5L * 86_400_000L
         rig.holder.stop()
         assertEquals(TimerQuestion(jolene(), 86_400L), rig.holder.question.value, "capped at a day")
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", null, null), rig.holder.answer(withTime = false))
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", null), rig.holder.answer(withTime = false).ignoringId())
     }
 
     /** TM8: the question put away stops nothing. */
@@ -249,7 +382,7 @@ class TimerHolderTest {
         rig.holder.dismissQuestion()
         runCurrent()
         assertEquals(listOf(null, jolene()), rig.running)
-        assertEquals<List<Running?>>(listOf(jolene().timer), rig.written)
+        assertEquals(listOf<Running?>(jolene().timer), rig.written)
         assertNull(rig.holder.answer(withTime = true))
     }
 
@@ -262,12 +395,11 @@ class TimerHolderTest {
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         rig.now = t0 + 600_000L
-        val log = rig.holder.start("wagon", "Wagon Wheel")
+        val stopped = rig.holder.start("wagon", "Wagon Wheel")
         runCurrent()
-        val wagon = TimedSong(timer("wagon", "vocal", t0 + 600_000L), "Wagon Wheel")
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", 600L, StopOutcome.Timed(600L)), log)
-        assertEquals(listOf(null, jolene(), wagon), rig.running)
-        assertEquals<List<Running?>>(listOf(jolene().timer, wagon.timer), rig.written)
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.Timed(600L)), stopped.ignoringId())
+        assertEquals(listOf(null, jolene(), wagon(t0 + 600_000L)), rig.running)
+        assertEquals<List<Running?>>(listOf(jolene().timer, wagon(t0 + 600_000L).timer), rig.written)
     }
 
     /** A switch from a timer over 3 h asks first; the new timer starts on the answer, from the switch's tap. */
@@ -279,10 +411,10 @@ class TimerHolderTest {
         rig.now = t0 + 4L * 3_600_000L
         assertNull(rig.holder.start("wagon", "Wagon Wheel"))
         rig.now += 20_000L
-        val log = rig.holder.answer(withTime = true)
+        val answered = rig.holder.answer(withTime = true)
         runCurrent()
-        val wagon = TimedSong(timer("wagon", "vocal", t0 + 4L * 3_600_000L), "Wagon Wheel")
-        assertEquals(TimerLog("jolene", "vocal", "Jolene", "2026-09-24", 14_400L, StopOutcome.Timed(14_400L)), log)
+        val wagon = wagon(t0 + 4L * 3_600_000L)
+        assertEquals(log("jolene", "vocal", "Jolene", "2026-09-24", LoggedTime.Timed(14_400L)), answered.ignoringId())
         assertEquals(listOf(null, jolene(), wagon), rig.running)
         assertEquals<List<Running?>>(listOf(jolene().timer, wagon.timer), rig.written)
         assertEquals(20L, rig.holder.elapsed(wagon))
@@ -290,7 +422,7 @@ class TimerHolderTest {
 
     // ---- TM9: cancel ------------------------------------------------------------------------------
 
-    /** Cancel writes no log; Undo inside the window restores the same timer, start instant and all. */
+    /** Cancel writes no log; Undo restores the same timer, start instant and all, however late it comes. */
     @Test
     fun cancelThenUndoRestoresTheSameTimer() = runTest {
         val rig = Rig(this, session())
@@ -299,45 +431,61 @@ class TimerHolderTest {
         rig.now = t0 + 90_000L
         rig.holder.cancel()
         runCurrent()
-        advanceTimeBy(TimerHolder.UNDO_WINDOW_MS - 1)
-        rig.holder.undoCancel()
+        val offered = assertNotNull(rig.holder.cancelled.value)
+        rig.now = t0 + 600_000L
+        rig.holder.undoCancel(offered)
         runCurrent()
 
         assertEquals(listOf(null, jolene(), null, jolene()), rig.running)
         assertEquals(listOf(null, jolene(), null), rig.cancelled)
         assertEquals(listOf(jolene().timer, null, jolene().timer), rig.written)
-        assertEquals(90L, rig.holder.elapsed(rig.holder.running.value!!))
+        assertEquals(600L, rig.holder.elapsed(rig.holder.running.value!!))
     }
 
-    /** After the window Undo restores nothing. */
+    /** The snackbar going unanswered ends the offer, and Undo afterwards restores nothing. */
     @Test
-    fun cancelsWindowCloses() = runTest {
+    fun anUnansweredCancelIsGone() = runTest {
         val rig = Rig(this, session())
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         rig.holder.cancel()
-        advanceTimeBy(TimerHolder.UNDO_WINDOW_MS)
-        runCurrent()
-        rig.holder.undoCancel()
+        val offered = assertNotNull(rig.holder.cancelled.value)
+        rig.holder.dismissCancel(offered)
+        rig.holder.undoCancel(offered)
         runCurrent()
         assertEquals(listOf(null, jolene(), null), rig.running)
         assertEquals(listOf(null, jolene(), null), rig.cancelled)
         assertEquals(listOf(jolene().timer, null), rig.written)
     }
 
-    /** A timer started inside the window closes it: Undo never replaces the new timer. */
+    /** A timer started while Undo is offered ends the offer: Undo never replaces the new timer. */
     @Test
-    fun aNewTimerClosesTheCancelWindow() = runTest {
+    fun aNewTimerEndsTheCancelOffer() = runTest {
         val rig = Rig(this, session())
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         rig.holder.cancel()
+        val offered = assertNotNull(rig.holder.cancelled.value)
         rig.holder.start("wagon", "Wagon Wheel")
-        rig.holder.undoCancel()
+        rig.holder.undoCancel(offered)
         runCurrent()
-        val wagon = TimedSong(timer("wagon", "vocal", t0), "Wagon Wheel")
-        assertEquals(listOf(null, jolene(), null, wagon), rig.running)
+        assertEquals(listOf(null, jolene(), null, wagon()), rig.running)
         assertEquals(listOf(null, jolene(), null), rig.cancelled)
+    }
+
+    /** A stale snackbar's dismissal never ends a newer offer. */
+    @Test
+    fun anOlderOfferNeverEndsANewerOne() = runTest {
+        val rig = Rig(this, session())
+        runCurrent()
+        rig.holder.start("jolene", "Jolene")
+        rig.holder.cancel()
+        val first = assertNotNull(rig.holder.cancelled.value)
+        rig.holder.undoCancel(first)
+        rig.holder.cancel()
+        val second = assertNotNull(rig.holder.cancelled.value)
+        rig.holder.dismissCancel(first)
+        assertEquals(second, rig.holder.cancelled.value)
     }
 
     // ---- S11 --------------------------------------------------------------------------------------
@@ -345,7 +493,8 @@ class TimerHolderTest {
     /** A failed store write is said, and the timer in memory runs on. */
     @Test
     fun aFailedWriteIsSaid() = runTest {
-        val rig = Rig(this, session(), failWrites = true)
+        val rig = Rig(this, session())
+        rig.failStarts = true
         runCurrent()
         rig.holder.start("jolene", "Jolene")
         runCurrent()
@@ -354,17 +503,18 @@ class TimerHolderTest {
     }
 
     /**
-     * A holder over [session] with its ports recorded: each store write, each message, and every value the
-     * running timer, the question and the cancelled timer take, collected unconfined and in order. [titles] are
-     * the live songs. A store read waits on [gate] while one is set.
+     * A holder over [session] with its ports recorded: the store, each write that landed, each message, and every
+     * value the running timer, the question and the cancelled timer take, collected unconfined and in order.
+     * [titles] are the live songs. A store read waits on [gate] while one is set.
      */
     private inner class Rig(
         scope: TestScope,
         private val session: MutableStateFlow<SessionState>,
         stored: Running? = null,
-        private val failWrites: Boolean = false,
     ) {
         var now = t0
+        var zone: TimeZone = TimeZone.UTC
+        var store: Running? = stored
         val titles = mutableMapOf("jolene" to "Jolene", "wagon" to "Wagon Wheel")
         val written = mutableListOf<Running?>()
         val messages = mutableListOf<String?>()
@@ -372,6 +522,12 @@ class TimerHolderTest {
         val questions = mutableListOf<TimerQuestion?>()
         val cancelled = mutableListOf<TimedSong?>()
         var reads = 0
+        var clearAttempts = 0
+        var failStarts = false
+        var failClears = false
+        var failClearsOnce = false
+        var failTitles = false
+        var failReads = false
         var gate: CompletableDeferred<Unit>? = null
         private val clock = object : Clock {
             override fun now(): Instant = Instant.fromEpochMilliseconds(this@Rig.now)
@@ -383,25 +539,39 @@ class TimerHolderTest {
             read = {
                 reads++
                 gate?.await()
-                stored
+                if (failReads) error("disk gone")
+                store
             },
             write = { value ->
-                if (failWrites) error("disk full")
+                if (value == null) {
+                    clearAttempts++
+                    if (failClears) error("disk full")
+                    if (failClearsOnce) {
+                        failClearsOnce = false
+                        error("disk full")
+                    }
+                } else if (failStarts) {
+                    error("disk full")
+                }
+                store = value
                 written += value
             },
-            title = { songId -> titles[songId] },
+            title = { songId ->
+                if (failTitles) error("disk gone")
+                titles[songId]
+            },
             apply = { change ->
                 session.update(change)
                 messages += session.value.message
             },
-            timer = PracticeTimer(clock, TimeZone.UTC),
+            timer = PracticeTimer(clock) { zone },
         )
 
         init {
             val unconfined = UnconfinedTestDispatcher(scope.testScheduler)
             scope.backgroundScope.launch(unconfined) { holder.running.collect { running += it } }
             scope.backgroundScope.launch(unconfined) { holder.question.collect { questions += it } }
-            scope.backgroundScope.launch(unconfined) { holder.cancelled.collect { cancelled += it } }
+            scope.backgroundScope.launch(unconfined) { holder.cancelled.collect { cancelled += it?.song } }
         }
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.SongCatalog
@@ -49,7 +50,7 @@ internal class SongsRouteHarness(private val compose: ComposeContentTestRule, pr
         lateinit var settings: DeviceSettings
         onMain {
             songs = SongsViewModel(holder)
-            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE)
+            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, InMemoryTimerStore())
             settings = DeviceSettings(InMemoryDevicePreferences())
         }
         compose.awaitUntil("the logger") { !session.state.value.loading }

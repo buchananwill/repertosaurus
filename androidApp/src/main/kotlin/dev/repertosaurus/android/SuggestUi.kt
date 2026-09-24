@@ -10,12 +10,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -38,12 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.ActionPair
 import dev.repertosaurus.android.theme.Departure
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.MutedLine
-import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.SwitchRow
 import dev.repertosaurus.android.theme.TextAction
@@ -86,7 +83,7 @@ internal fun SuggestSheet(
     tuneOpen: Boolean,
     onTuneOpen: (Boolean) -> Unit,
     onLog: (SessionRow) -> Unit,
-    /** Timer TM1: "Time it" on the card's song. */
+    /** timer TM1: "Time it" on the card's song. */
     onTime: (SessionRow) -> Unit,
     onAnother: () -> Unit,
     onUndoSkip: () -> Unit,
@@ -119,24 +116,14 @@ internal fun SuggestSheet(
                 }
             } else {
                 SuggestCard(row = shown.row, skipCount = tuning.shownSkipCount(shown.skips), dealer = dealer)
-                // VI12: the sheet's one primary action. Timer TM1: "Time it" beside it, as on the feel sheet.
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    PrimaryButton(
-                        text = Messages.SUGGEST_LOG,
-                        onClick = { onLog(shown.row) },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        enabled = !dealer.swapping,
-                    )
-                    SecondaryButton(
-                        text = Messages.TIMER_TIME_IT,
-                        onClick = { onTime(shown.row) },
-                        modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = Tokens.ShadowLarge),
-                        enabled = !dealer.swapping,
-                    )
-                }
+                // VI12: the sheet's one primary action. timer TM1: "Time it" beside it, as on the feel sheet.
+                ActionPair(
+                    primary = Messages.LOG_IT,
+                    onPrimary = { onLog(shown.row) },
+                    secondary = Messages.TIMER_TIME_IT,
+                    onSecondary = { onTime(shown.row) },
+                    enabled = !dealer.swapping,
+                )
             }
             if (card != SuggestionCard.EmptyPool) {
                 SecondaryButton(
@@ -187,7 +174,7 @@ private fun ColumnScope.SkippedLine(visible: Boolean, onUndo: () -> Unit, enable
     ) {
         Row(modifier = Modifier.fillMaxWidth().testTag(SuggestTags.SKIPPED), verticalAlignment = Alignment.CenterVertically) {
             MutedLine(Messages.SUGGEST_SKIPPED)
-            TextAction(Messages.SUGGEST_UNDO_SKIP, onClick = onUndo, enabled = enabled, modifier = Modifier.testTag(SuggestTags.UNDO_SKIP))
+            TextAction(Messages.UNDO, onClick = onUndo, enabled = enabled, modifier = Modifier.testTag(SuggestTags.UNDO_SKIP))
         }
     }
 }

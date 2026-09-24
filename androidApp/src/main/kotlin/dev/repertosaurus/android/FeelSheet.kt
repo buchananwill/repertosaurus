@@ -3,9 +3,7 @@ package dev.repertosaurus.android
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -28,10 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.ActionPair
 import dev.repertosaurus.android.theme.MutedLine
-import dev.repertosaurus.android.theme.PrimaryButton
-import dev.repertosaurus.android.theme.SecondaryButton
-import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.session.Messages
@@ -66,12 +62,13 @@ internal fun FeelSheet(
     onDismiss: () -> Unit,
     onLog: (RatingLevel?, String?, String) -> Unit,
     onEditLineUp: () -> Unit,
-    /** Timer TM2: a timer is running, so the button switches it here. */
+    /** timer TM2: a timer is running, so the button switches it here. */
     timerRunning: Boolean,
-    /** Timer TM1: the timer, on this row's song. Never the plain tap's. */
+    /** timer TM1: the timer, on this row's song. Never the plain tap's. */
     onStartTimer: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    // Fully expanded: half open, Log and the timer sit below the fold.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var feel by remember { mutableStateOf<RatingLevel?>(null) }
     var note by remember { mutableStateOf("") }
     var daysAgo by remember { mutableStateOf(0) }
@@ -118,24 +115,13 @@ internal fun FeelSheet(
                 }
             }
 
-            // visual-identity VI12: the sheet's one primary action. A stock button is a pill, and the
-            // theme cannot square it (VI3). Timer TM1, TM2: the timer beside it, secondary.
-            Row(
-                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                PrimaryButton(
-                    text = "Log it",
-                    onClick = { onLog(feel, note, loggedOn) },
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                )
-                SecondaryButton(
-                    text = if (timerRunning) Messages.TIMER_SWITCH else Messages.TIMER_START,
-                    onClick = onStartTimer,
-                    // The primary's face ends above its shadow; this one's ends level with it.
-                    modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = Tokens.ShadowLarge),
-                )
-            }
+            // visual-identity VI12: the sheet's one primary action. timer TM1, TM2: the timer beside it.
+            ActionPair(
+                primary = Messages.LOG_IT,
+                onPrimary = { onLog(feel, note, loggedOn) },
+                secondary = if (timerRunning) Messages.TIMER_SWITCH else Messages.TIMER_START,
+                onSecondary = onStartTimer,
+            )
 
             // E2's other half. It is below the Log button on purpose: the rating is what a
             // long-press is for, and this must not sit between the user and it.

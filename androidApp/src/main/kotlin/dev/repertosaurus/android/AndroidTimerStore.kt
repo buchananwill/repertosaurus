@@ -18,14 +18,14 @@ internal class AndroidTimerStore(
     private val preferences = context.getSharedPreferences(fileName, Context.MODE_PRIVATE)
 
     /** S8: a missing, partial or mistyped value reads as no timer, never a throw. */
-    override fun read(): PracticeTimer.State.Running? = runCatching {
+    override fun read(): PracticeTimer.Running? = runCatching {
         val songId = preferences.getString(KEY_SONG, null) ?: return null
         val instrumentId = preferences.getString(KEY_INSTRUMENT, null) ?: return null
         if (!preferences.contains(KEY_STARTED_AT)) return null
-        PracticeTimer.State.Running(songId, instrumentId, preferences.getLong(KEY_STARTED_AT, 0L))
+        PracticeTimer.Running(songId, instrumentId, preferences.getLong(KEY_STARTED_AT, 0L))
     }.getOrNull()
 
-    override fun write(running: PracticeTimer.State.Running?) {
+    override fun write(running: PracticeTimer.Running?) {
         val edit = preferences.edit()
         if (running == null) {
             edit.remove(KEY_SONG).remove(KEY_INSTRUMENT).remove(KEY_STARTED_AT)

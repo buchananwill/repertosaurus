@@ -6,7 +6,7 @@ import dev.repertosaurus.core.Ids
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog.LookupChoice
 import dev.repertosaurus.db.RepertosaurusDatabase
-import dev.repertosaurus.session.PracticeTimer.State.Running
+import dev.repertosaurus.session.PracticeTimer.Running
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
@@ -27,7 +27,7 @@ class TimerPersistenceTest {
     private lateinit var repository: RepertosaurusRepository
     private lateinit var coordinator: SessionCoordinator
     private val clock = TestClock("2026-09-24T20:00:00Z")
-    private val timer = PracticeTimer(clock, TimeZone.UTC)
+    private val timer = PracticeTimer(clock) { TimeZone.UTC }
     private val vocal = Ids.derived("instrument", "vocal")
 
     @BeforeTest
@@ -52,15 +52,26 @@ class TimerPersistenceTest {
         clock.instant = Instant.parse("2026-09-24T23:50:00Z")
         val running = timer.start(jolene, vocal)
         clock.instant = Instant.parse("2026-09-25T00:14:00Z")
-        val stop = timer.stop(running)
-        val tap = SessionTap("tap", jolene, vocal, feel = null, note = null, loggedOn = stop.loggedOn,
-            durationSeconds = (stop.outcome as StopOutcome.Timed).seconds)
+        val seconds = (timer.stop(running) as StopOutcome.Timed).seconds
+        val tap = SessionTap("tap", jolene, vocal, feel = null, note = null, loggedOn = timer.loggedOn(running), durationSeconds = seconds)
 
         coordinator.persist(tap)
 
         val history = repository.practiceHistory(jolene)
         assertEquals(1, history.size)
         assertEquals(Triple("2026-09-24", 1_440L, null), history.single().let { Triple(it.loggedOn, it.durationSeconds, it.feel) })
+    }
+
+    /** TM7: undo of a timed log is a void, as a tap's is; the event is not deleted. */
+    @Test
+    fun undoOfATimedLogIsAVoid() {
+        val jolene = song("Jolene")
+        val eventId = coordinator.persist(SessionTap("tap", jolene, vocal, null, null, "2026-09-24", durationSeconds = 600L))
+
+        coordinator.voidEvent(eventId)
+
+        assertEquals(emptyList(), repository.practiceHistory(jolene))
+        assertEquals(true, database.practice_event_voidQueries.isVoided(eventId).executeAsOne())
     }
 
     /** TM8: an untimed stop writes a null duration, as a tap does. */
@@ -73,20 +84,16 @@ class TimerPersistenceTest {
 
     /** TM10: a soft-deleted song has no title, so its stored timer is dropped. */
     @Test
-    fun aRemovedSongsTimerIsDropped() {
+    fun aRemovedSongHasNoTitle() {
         val jolene = song("Jolene")
-        val stored = Running(jolene, vocal, 0L)
-        assertEquals(stored, timer.restore(stored, coordinator.songTitle(jolene) != null))
-
+        assertEquals("Jolene", coordinator.songTitle(jolene))
         repository.catalog.removeSong(jolene)
-
         assertNull(coordinator.songTitle(jolene))
-        assertEquals(PracticeTimer.State.Idle, timer.restore(stored, coordinator.songTitle(jolene) != null))
     }
 
     /** TM10: a song merged away is removed, so its stored timer is dropped too; the survivor's runs on. */
     @Test
-    fun aMergedAwaySongsTimerIsDropped() {
+    fun aMergedAwaySongHasNoTitle() {
         val survivor = song("Jolene")
         val loser = song("Jolen")
         val plan = MergePlan.of(assertNotNull(repository.merge.side(survivor)), assertNotNull(repository.merge.side(loser)))

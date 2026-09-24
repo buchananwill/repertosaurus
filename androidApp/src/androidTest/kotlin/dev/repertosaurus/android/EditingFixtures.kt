@@ -3,6 +3,7 @@ package dev.repertosaurus.android
 import android.content.Context
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.android.theme.RepertosaurusWindow
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
@@ -69,7 +70,7 @@ internal object EditingFixtures {
      */
     fun session(holder: DatabaseHolder): SessionViewModel {
         lateinit var model: SessionViewModel
-        onMain { model = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE) }
+        onMain { model = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, InMemoryTimerStore()) }
         awaitSession(model)
         return model
     }
@@ -105,7 +106,7 @@ internal object EditingFixtures {
         lateinit var app: AppModels
         onMain {
             app = AppModels(
-                session = SessionViewModel(holder, preferences, TEST_DEVICE, io),
+                session = SessionViewModel(holder, preferences, TEST_DEVICE, InMemoryTimerStore(), io),
                 // The editing routes' ViewModels read nothing until their screen is entered.
                 repertoire = RepertoireViewModel(holder),
                 songs = SongsViewModel(holder),

@@ -4,7 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,8 +34,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -137,7 +141,7 @@ internal object DrawerTags {
     /** Onboarding OB6: opens the owner performer picker. */
     const val WHO_YOU_ARE: String = "drawer-who-you-are"
 
-    /** Timer TM4: "Timer running: <title>". */
+    /** timer TM4: "Timer running: <title>". */
     const val TIMER: String = "drawer-timer"
 }
 
@@ -270,7 +274,7 @@ private fun AppShell(
     val noteSpelling by settings.noteSpelling.collectAsState()
     val ownerPerformer by settings.ownerPerformer.collectAsState()
     val performers by viewModel.performers.collectAsState()
-    // Timer TM4: named in the drawer, so it is hard to forget from anywhere in the app.
+    // timer TM4: named in the drawer, so it is hard to forget from anywhere in the app.
     val timer by viewModel.timer.running.collectAsState()
     var sheet by remember { mutableStateOf<DrawerSheet?>(null) }
 
@@ -456,15 +460,8 @@ private fun AppDrawerContent(
                 )
             }
 
-            // Timer TM4: above everything, while a timer runs. It leads back to the logger and its bar.
-            timer?.let { running ->
-                DrawerItem(
-                    Messages.timerRunning(running.title),
-                    onClick = onTimer,
-                    modifier = Modifier.testTag(DrawerTags.TIMER),
-                    selected = true,
-                )
-            }
+            // timer TM4: above everything, while a timer runs. It leads back to the logger and its bar.
+            timer?.let { running -> DrawerTimerLine(title = running.title, onClick = onTimer) }
 
             // First item, and still in the top bar: until sync exists, the exported file is the
             // only backup that exists anywhere.
@@ -536,6 +533,27 @@ private fun AppDrawerContent(
 
             DrawerItem(Messages.DRAWER_IMPORT, onClick = onImport)
         }
+    }
+}
+
+/**
+ * timer TM4: "Timer running: <title>". Not a [DrawerItem], whose fixed height clips a long title: this one
+ * wraps, and is at least as tall as one.
+ */
+@Composable
+internal fun DrawerTimerLine(title: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag(DrawerTags.TIMER),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(Messages.timerRunning(title), style = MaterialTheme.typography.labelLarge)
     }
 }
 

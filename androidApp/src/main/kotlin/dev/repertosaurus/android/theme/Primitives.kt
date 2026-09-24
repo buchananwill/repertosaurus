@@ -6,10 +6,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -133,6 +139,33 @@ internal fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifi
             style = DisplayType.Button,
             color = if (pressed) Tokens.Paper else Tokens.Ink,
             textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * VI12: a sheet's one primary action and a secondary beside it, sharing the width. The primary's face ends
+ * above its shadow, so the secondary is inset by the shadow to end level with it.
+ */
+@Composable
+internal fun ActionPair(
+    primary: String,
+    onPrimary: () -> Unit,
+    secondary: String,
+    onSecondary: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PrimaryButton(primary, onClick = onPrimary, modifier = Modifier.weight(1f).fillMaxHeight(), enabled = enabled)
+        SecondaryButton(
+            secondary,
+            onClick = onSecondary,
+            modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = Tokens.ShadowLarge),
+            enabled = enabled,
         )
     }
 }

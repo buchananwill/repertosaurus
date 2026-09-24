@@ -8,17 +8,17 @@ package dev.repertosaurus.session
  * read reads as no timer (schema-compatibility S8).
  */
 public interface TimerStore {
-    public fun read(): PracticeTimer.State.Running?
+    public fun read(): PracticeTimer.Running?
 
     /** Null clears the store. */
-    public fun write(running: PracticeTimer.State.Running?)
+    public fun write(running: PracticeTimer.Running?)
 }
 
 /** For tests and previews. */
-public class InMemoryTimerStore(private var stored: PracticeTimer.State.Running? = null) : TimerStore {
-    override fun read(): PracticeTimer.State.Running? = stored
+public class InMemoryTimerStore(private var stored: PracticeTimer.Running? = null) : TimerStore {
+    override fun read(): PracticeTimer.Running? = stored
 
-    override fun write(running: PracticeTimer.State.Running?) {
+    override fun write(running: PracticeTimer.Running?) {
         stored = running
     }
 }

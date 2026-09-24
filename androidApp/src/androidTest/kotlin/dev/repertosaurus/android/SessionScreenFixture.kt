@@ -13,10 +13,10 @@ import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.InMemoryTimerStore
+import dev.repertosaurus.session.PracticeTimer
 import dev.repertosaurus.session.TimerStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.datetime.Clock
 
 /**
  * **The one Session-screen harness** (style review F17 B14): a fresh database of the sample songs, its
@@ -44,9 +44,8 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         suffix: String,
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
-        // Timer TM10, TM11: the timer's store and its wall clock.
         timerStore: TimerStore = InMemoryTimerStore(),
-        clock: Clock = Clock.System,
+        timer: PracticeTimer = PracticeTimer(),
         prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
         val name = "$prefix-$suffix.db".also { names += it }
@@ -55,7 +54,7 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         lateinit var session: SessionViewModel
         lateinit var settings: DeviceSettings
         EditingFixtures.onMain {
-            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, io, timerStore = timerStore, clock = clock)
+            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, timerStore, io, timer = timer)
             settings = DeviceSettings(device)
         }
         EditingFixtures.awaitSession(session)
@@ -68,10 +67,10 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
         timerStore: TimerStore = InMemoryTimerStore(),
-        clock: Clock = Clock.System,
+        timer: PracticeTimer = PracticeTimer(),
         prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
-        val screen = build(suffix, device, io, timerStore, clock, prepare)
+        val screen = build(suffix, device, io, timerStore, timer, prepare)
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale ?: density.fontScale)) {

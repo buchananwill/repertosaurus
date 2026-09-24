@@ -19,6 +19,9 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
+import kotlin.math.abs
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 
 /** The device id every instrumented test writes with. */
 internal const val TEST_DEVICE: String = "instrumented-test-device"
@@ -102,19 +105,56 @@ class SystemFontScale(private val scale: Float) : ExternalResource() {
         apply(prior.toFloat())
     }
 
+    /**
+     * The setting, then the configuration it drives. A change made while WindowManager is frozen between tests
+     * can be lost, and writing the same value again delivers nothing, so a retry moves the setting off the value
+     * and back: that is a change, and it is delivered.
+     */
     private fun apply(value: Float) {
-        shell("settings put system font_scale $value")
-        val deadline = System.currentTimeMillis() + BOOT_TIMEOUT_MS
-        while (Resources.getSystem().configuration.fontScale != value) {
-            check(System.currentTimeMillis() < deadline) { "the system font scale never reached $value" }
-            Thread.sleep(50)
+        repeat(ATTEMPTS) { attempt ->
+            if (attempt > 0) {
+                shell("settings put system font_scale ${value + NUDGE}")
+                reaches(value + NUDGE, NUDGE_WAIT_MS)
+            }
+            shell("settings put system font_scale $value")
+            if (reaches(value, ATTEMPT_WAIT_MS)) return
         }
+        error("the system font scale never reached $value in $ATTEMPTS attempts")
     }
 
-    private fun shell(command: String): String =
-        ParcelFileDescriptor.AutoCloseInputStream(InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command))
-            .bufferedReader()
-            .use { it.readText() }
+    private fun reaches(value: Float, withinMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + withinMs
+        while (abs(Resources.getSystem().configuration.fontScale - value) > TOLERANCE) {
+            if (System.currentTimeMillis() >= deadline) return false
+            Thread.sleep(50)
+        }
+        return true
+    }
+
+    private fun shell(command: String): String = shellOutput(command)
+
+    private companion object {
+        const val ATTEMPTS = 4
+        const val ATTEMPT_WAIT_MS = 8_000L
+        const val NUDGE_WAIT_MS = 3_000L
+        const val NUDGE = 0.05f
+        const val TOLERANCE = 0.001f
+    }
+}
+
+/** One shell command through the instrumentation, and what it printed. */
+internal fun shellOutput(command: String): String =
+    ParcelFileDescriptor.AutoCloseInputStream(InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command))
+        .bufferedReader()
+        .use { it.readText() }
+
+/** A wall clock the test moves (timer TM11). */
+internal class MovableClock(@Volatile var instant: Instant) : Clock {
+    override fun now(): Instant = instant
+
+    fun forward(seconds: Long) {
+        instant = Instant.fromEpochMilliseconds(instant.toEpochMilliseconds() + seconds * 1_000L)
+    }
 }
 
 /**
@@ -157,3 +197,15 @@ internal fun ComposeTestRule.screenshot(dir: String, name: String) {
     val folder = File(context.getExternalFilesDir(null), dir).apply { mkdirs() }
     File(folder, "$name$suffix.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
 }
+
+/**
+ * [screenshot] once the display has caught up. A sheet's expansion, a spring and a dialog's window are drawn on
+ * real frames, which the test clock does not wait for; the sheets that hold an action open fully expanded.
+ */
+internal fun ComposeTestRule.expandAndShoot(dir: String, name: String) {
+    waitForIdle()
+    Thread.sleep(SETTLE_MS)
+    screenshot(dir, name)
+}
+
+private const val SETTLE_MS = 1_000L

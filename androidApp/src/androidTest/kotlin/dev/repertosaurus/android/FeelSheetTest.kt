@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.android.DatabaseFixtures.count
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.data.DatabaseHolder
@@ -108,6 +109,6 @@ class FeelSheetTest {
 
     private companion object {
         /** The primary button sets its label in upper case (visual-identity VI6); matched without case. */
-        const val LOG_IT = "Log it"
+        const val LOG_IT = Messages.LOG_IT
     }
 }

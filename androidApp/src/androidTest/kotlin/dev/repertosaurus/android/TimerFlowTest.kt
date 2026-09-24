@@ -6,29 +6,19 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.swipe
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.DatabaseFixtures.count
-import dev.repertosaurus.android.theme.RepertosaurusWindow
-import dev.repertosaurus.session.InMemorySessionPreferences
-import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.PracticeTimer
 import dev.repertosaurus.session.SessionRow
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
@@ -40,84 +30,84 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-/** A wall clock the test moves (timer TM11). */
-internal class MovableClock(@Volatile var instant: Instant) : Clock {
-    override fun now(): Instant = instant
+/** The timer's instrumented harness: a Session screen on a clock the test moves. */
+internal class TimerKit(val compose: androidx.compose.ui.test.junit4.ComposeContentTestRule, prefix: String) {
+    val fixture = SessionScreenFixture(compose, prefix)
 
-    fun forward(seconds: Long) {
-        instant = Instant.fromEpochMilliseconds(instant.toEpochMilliseconds() + seconds * 1_000L)
+    /** 23:50 local on 2026-09-20: every stop past ten minutes crosses midnight (TM7). */
+    val start = LocalDateTime(2026, 9, 20, 23, 50).toInstant(TimeZone.currentSystemDefault())
+    val clock = MovableClock(start)
+    val timer = PracticeTimer(clock)
+
+    fun SessionScreenFixture.Screen.row(index: Int): SessionRow = session.state.value.pending[index]
+
+    /** A row in the list, not the bar's title. */
+    fun inTheList(title: String): SemanticsMatcher = hasText(title) and hasAnyAncestor(hasTestTag(SessionTags.LIST))
+
+    fun inTheBar(title: String): SemanticsMatcher = hasText(title) and hasAnyAncestor(hasTestTag(TimerTags.BAR))
+
+    /** timer TM1: long-press, then the sheet's "Start timer"; [shot] names a screenshot of the open sheet. */
+    fun startFromTheSheet(screen: SessionScreenFixture.Screen, row: SessionRow, shot: String? = null) {
+        compose.onNode(inTheList(row.title)).performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).performScrollTo()
+        shot?.let { compose.expandAndShoot("p11", it) }
+        compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).performClick()
+        compose.awaitUntil("${row.title}'s timer") { screen.session.timer.running.value?.timer?.songId == row.songId }
+        compose.waitForIdle()
+    }
+
+    fun events(screen: SessionScreenFixture.Screen, where: String): Long = count(screen.holder, "practice_event WHERE $where")
+
+    /** With the test clock held, frames until [shown] holds: a snackbar arrives in a frame or two. */
+    @OptIn(ExperimentalTestApi::class)
+    fun framesUntil(what: String, frames: Int = FRAMES, shown: () -> Boolean) {
+        repeat(frames) {
+            if (shown()) return
+            compose.mainClock.advanceTimeByFrame()
+        }
+        kotlin.test.assertTrue(shown(), "$what took more than $frames frames")
+    }
+
+    fun shows(text: String): Boolean = compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+
+    /** A test body with the kit in scope. */
+    fun test(body: TimerKit.() -> Unit) = body()
+
+    companion object {
+        const val FRAMES = 10
+
+        /** About a second of frames: the snackbars' crossfade, and far inside a snackbar's four seconds. */
+        const val CROSSFADE_FRAMES = 60
     }
 }
 
-/**
- * timer TM1-TM10 end to end on the Session screen: every write is read back from the database.
- *
- * The clock starts at 23:50 local on 2026-09-20, so every stop past ten minutes crosses midnight and TM7's
- * start-date rule is tested by every timed log below.
- */
-@OptIn(ExperimentalTestApi::class)
+/** timer TM1-TM12 end to end on the Session screen: every write is read back from the database. */
 @RunWith(AndroidJUnit4::class)
 class TimerFlowTest {
 
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val fixture = SessionScreenFixture(compose, "timer-flow-test")
-    private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val start = LocalDateTime(2026, 9, 20, 23, 50).toInstant(TimeZone.currentSystemDefault())
-    private val clock = MovableClock(start)
+    private val kit = TimerKit(compose, "timer-flow-test")
 
     @After
-    fun cleanUp() {
-        fixture.cleanUp()
-        context.deleteSharedPreferences(STORE_FILE)
-    }
-
-    private fun SessionScreenFixture.Screen.row(index: Int): SessionRow = session.state.value.pending[index]
-
-    /** A row in the list, not the bar's title. */
-    private fun inTheList(title: String): SemanticsMatcher = hasText(title) and hasAnyAncestor(hasTestTag(SessionTags.LIST))
-
-    /** TM1: long-press, then the sheet's "Start timer"; [shot] names a screenshot of the open sheet. */
-    private fun startFromTheSheet(screen: SessionScreenFixture.Screen, row: SessionRow, shot: String? = null) {
-        compose.onNode(inTheList(row.title)).performTouchInput { longClick() }
-        compose.waitForIdle()
-        val button = compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).performScrollTo()
-        shot?.let { expandTheSheetAndShoot(it) }
-        button.performClick()
-        compose.awaitUntil("${row.title}'s timer") { screen.session.timer.running.value?.timer?.songId == row.songId }
-        compose.waitForIdle()
-    }
+    fun cleanUp() = kit.fixture.cleanUp()
 
     /**
-     * The package's screenshot, once the display has caught up: a sheet's scroll, the bar's spring and the
-     * dialog's window are drawn on real frames, which the test clock does not wait for.
+     * TM1, TM4, TM7: start from the sheet, stop, and exactly one event with its duration on the start's date.
+     * VI12: while it runs, Add song is secondary.
      */
-    private fun shot(name: String) {
-        compose.waitForIdle()
-        Thread.sleep(SETTLE_MS)
-        compose.screenshot("p11", name)
-    }
-
-    /** The feel sheet opens half-expanded, with Log and the timer below the fold: drawn fully for the shot. */
-    private fun expandTheSheetAndShoot(name: String) {
-        compose.onNodeWithText("Feel").performTouchInput { swipe(center, center - Offset(0f, 900f), durationMillis = 400) }
-        shot(name)
-    }
-
-    private fun events(screen: SessionScreenFixture.Screen, where: String): Long = count(screen.holder, "practice_event WHERE $where")
-
-    /** TM1, TM4, TM7: start from the sheet, stop, and exactly one event with its duration on the start's date. */
     @Test
-    fun startFromTheSheetThenStop() {
-        val screen = fixture.open("stop", clock = clock)
+    fun startFromTheSheetThenStop() = kit.test {
+        val screen = fixture.open("stop", timer = timer)
         val row = screen.row(0)
         val before = events(screen, "1")
 
         startFromTheSheet(screen, row, shot = "feel-sheet-start")
         compose.onNodeWithTag(TimerTags.BAR).assertExists()
-        compose.onNode(hasText(row.title) and hasAnyAncestor(hasTestTag(TimerTags.BAR))).assertExists()
-        shot("running-bar")
+        compose.onNode(inTheBar(row.title)).assertExists()
+        compose.expandAndShoot("p11", "running-bar")
 
         clock.forward(24L * 60L)
         compose.onNodeWithText(Messages.TIMER_STOP, ignoreCase = true).performClick()
@@ -131,10 +121,36 @@ class TimerFlowTest {
         compose.onNodeWithTag(TimerTags.BAR).assertDoesNotExist()
     }
 
-    /** TM9: Cancel writes nothing, and Undo restores the same timer, start instant and all. */
+    /** TM7: Undo on a timed log voids it, as a tap's undo does. */
+    @OptIn(ExperimentalTestApi::class)
     @Test
-    fun cancelThenUndoRestoresTheSameStart() {
-        val screen = fixture.open("cancel", clock = clock)
+    fun undoOfATimedLogIsAVoid() = kit.test {
+        val screen = fixture.open("undo", timer = timer)
+        val row = screen.row(0)
+        val voids = count(screen.holder, "practice_event_void")
+        startFromTheSheet(screen, row)
+        clock.forward(600L)
+
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText(Messages.TIMER_STOP, ignoreCase = true).performClick()
+        framesUntil("the log's snackbar") { shows("Logged ${row.title} · 10 min") }
+        compose.onNodeWithText(Messages.UNDO).performClick()
+        compose.mainClock.autoAdvance = true
+
+        compose.awaitUntil("the void") { count(screen.holder, "practice_event_void") == voids + 1 }
+        val timed = "song_id = '${row.songId}' AND duration_seconds = 600"
+        assertEquals(1L, events(screen, timed), "the event stays, voided")
+        assertEquals(
+            1L,
+            count(screen.holder, "practice_event_void v JOIN practice_event e ON e.id = v.practice_event_id WHERE e.duration_seconds = 600"),
+        )
+    }
+
+    /** TM9: Cancel writes nothing, and Undo restores the same timer, start instant and all. */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun cancelThenUndoRestoresTheSameStart() = kit.test {
+        val screen = fixture.open("cancel", timer = timer)
         val row = screen.row(0)
         val before = events(screen, "1")
         startFromTheSheet(screen, row)
@@ -143,12 +159,9 @@ class TimerFlowTest {
 
         compose.mainClock.autoAdvance = false
         compose.onNodeWithText(Messages.TIMER_CANCEL, ignoreCase = true).performClick()
-        repeat(FRAMES) {
-            if (compose.onAllNodesWithText(Messages.TIMER_UNDO).fetchSemanticsNodes().isEmpty()) compose.mainClock.advanceTimeByFrame()
-        }
-        compose.onNodeWithText(Messages.TIMER_CANCELLED).assertExists()
+        framesUntil("the cancel's snackbar") { shows(Messages.TIMER_CANCELLED) }
         assertNull(screen.session.timer.running.value)
-        compose.onNodeWithText(Messages.TIMER_UNDO).performClick()
+        compose.onNodeWithText(Messages.UNDO).performClick()
         compose.mainClock.autoAdvance = true
         compose.awaitUntil("the restored timer") { screen.session.timer.running.value != null }
 
@@ -157,10 +170,36 @@ class TimerFlowTest {
         assertEquals(before, events(screen, "1"), "nothing written")
     }
 
+    /**
+     * TM9: a tap's snackbar never hides the cancel's. Cancel within the tap's window takes the snackbar at once,
+     * and its Undo still restores the timer.
+     */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun cancelInsideATapsWindowStillOffersUndo() = kit.test {
+        val screen = fixture.open("contention", timer = timer)
+        val timed = screen.row(0)
+        val tapped = screen.row(1)
+        startFromTheSheet(screen, timed)
+        val started = assertNotNull(screen.session.timer.running.value)
+
+        compose.mainClock.autoAdvance = false
+        compose.onNode(inTheList(tapped.title)).performClick()
+        framesUntil("the tap's snackbar") { shows("Logged ${tapped.title}") }
+        compose.onNodeWithText(Messages.TIMER_CANCEL, ignoreCase = true).performClick()
+        framesUntil("the cancel's snackbar, at once") { shows(Messages.TIMER_CANCELLED) }
+        framesUntil("the tap's snackbar making way", frames = TimerKit.CROSSFADE_FRAMES) { !shows("Logged ${tapped.title}") }
+        compose.onNodeWithText(Messages.UNDO).performClick()
+        compose.mainClock.autoAdvance = true
+
+        compose.awaitUntil("the restored timer") { screen.session.timer.running.value != null }
+        assertEquals(started, screen.session.timer.running.value)
+    }
+
     /** TM2: the sheet's button reads "Switch timer here", and one tap logs the first and times the second. */
     @Test
-    fun switch() {
-        val screen = fixture.open("switch", clock = clock)
+    fun switch() = kit.test {
+        val screen = fixture.open("switch", timer = timer)
         val first = screen.row(0)
         val second = screen.row(1)
         startFromTheSheet(screen, first)
@@ -169,7 +208,7 @@ class TimerFlowTest {
         compose.onNode(inTheList(second.title)).performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).assertDoesNotExist()
-        expandTheSheetAndShoot("feel-sheet-switch")
+        compose.expandAndShoot("p11", "feel-sheet-switch")
         compose.onNodeWithText(Messages.TIMER_SWITCH, ignoreCase = true).performScrollTo().performClick()
 
         compose.awaitUntil("the first's timed insert") {
@@ -177,13 +216,30 @@ class TimerFlowTest {
         }
         val running = assertNotNull(screen.session.timer.running.value)
         assertEquals(second.songId to clock.instant.toEpochMilliseconds(), running.timer.songId to running.timer.startedAtEpochMs)
-        compose.onNode(hasText(second.title) and hasAnyAncestor(hasTestTag(TimerTags.BAR))).assertExists()
+        compose.onNode(inTheBar(second.title)).assertExists()
+    }
+
+    /** TM1: "Time it" on the suggestion card starts the card's timer and logs nothing. */
+    @Test
+    fun timeItStartsTheCardsTimer() = kit.test {
+        val screen = fixture.open("time-it", timer = timer)
+        val before = events(screen, "1")
+        compose.suggest(screen)
+        val dealt = assertNotNull(screen.current())
+
+        compose.onNodeWithText(Messages.TIMER_TIME_IT, ignoreCase = true).performClick()
+        compose.awaitUntil("the card's timer") { screen.session.timer.running.value?.timer?.songId == dealt }
+        compose.waitForIdle()
+
+        assertNull(screen.session.suggestions.deck.value, "the sheet closed")
+        assertEquals(before, events(screen, "1"), "nothing logged")
+        compose.onNode(inTheBar(screen.titleOf(dealt))).assertExists()
     }
 
     /** TM5: a plain tap on the timed song logs one untimed event at once, and the timer runs on untouched. */
     @Test
-    fun aPlainTapDuringATimerLogsUntimed() {
-        val screen = fixture.open("tap", clock = clock)
+    fun aPlainTapDuringATimerLogsUntimed() = kit.test {
+        val screen = fixture.open("tap", timer = timer)
         val row = screen.row(0)
         startFromTheSheet(screen, row)
         val started = assertNotNull(screen.session.timer.running.value)
@@ -200,36 +256,10 @@ class TimerFlowTest {
         compose.onNodeWithTag(TimerTags.BAR).assertExists()
     }
 
-    /** TM4: the clock opens the full-screen clock; back returns, and so does a tap on its digits. */
-    @Test
-    fun theFullScreenClockOpensAndCloses() {
-        val screen = fixture.open("full-screen", clock = clock)
-        startFromTheSheet(screen, screen.row(0))
-        clock.forward(754L)
-
-        compose.onNodeWithContentDescription(Messages.TIMER_OPEN_CLOCK).performClick()
-        compose.onNodeWithTag(TimerTags.FULL_SCREEN).assertExists()
-        compose.awaitUntil("the clock at 12:34") {
-            compose.onAllNodesWithText("12:34").fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onNodeWithTag(TimerTags.FULL_SCREEN_CLOCK, useUnmergedTree = true).assertExists()
-        shot("full-screen-clock")
-
-        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.waitForIdle()
-        compose.onNodeWithTag(TimerTags.FULL_SCREEN).assertDoesNotExist()
-        compose.onNodeWithTag(TimerTags.BAR).assertExists()
-
-        compose.onNodeWithContentDescription(Messages.TIMER_OPEN_CLOCK).performClick()
-        compose.onNodeWithContentDescription(Messages.TIMER_CLOSE_CLOCK).performClick()
-        compose.onNodeWithTag(TimerTags.FULL_SCREEN).assertDoesNotExist()
-        assertNotNull(screen.session.timer.running.value, "closing is not stopping")
-    }
-
     /** TM8: over 3 h, Stop asks the one question; "with a time" logs it. */
     @Test
-    fun overThreeHoursWithTheTime() {
-        val screen = fixture.open("with-time", clock = clock)
+    fun overThreeHoursWithTheTime() = kit.test {
+        val screen = fixture.open("with-time", timer = timer)
         val row = screen.row(0)
         startFromTheSheet(screen, row)
         clock.forward(5L * 3_600L + 12L * 60L)
@@ -238,7 +268,7 @@ class TimerFlowTest {
         compose.onNodeWithTag(TimerTags.QUESTION).assertExists()
         compose.onNodeWithText("Log 5 h 12 min, or log without a time?").assertExists()
         assertNotNull(screen.session.timer.running.value, "still running while asked")
-        shot("over-three-hours")
+        compose.expandAndShoot("p11", "over-three-hours")
 
         compose.onNodeWithText("Log 5 h 12 min", ignoreCase = true).performClick()
         compose.awaitUntil("the timed insert") {
@@ -250,8 +280,8 @@ class TimerFlowTest {
 
     /** TM8: "without a time" logs one untimed event. */
     @Test
-    fun overThreeHoursWithoutATime() {
-        val screen = fixture.open("without-time", clock = clock)
+    fun overThreeHoursWithoutATime() = kit.test {
+        val screen = fixture.open("without-time", timer = timer)
         val row = screen.row(0)
         val untimed = "song_id = '${row.songId}' AND duration_seconds IS NULL AND logged_on = '2026-09-20'"
         val before = events(screen, untimed)
@@ -263,112 +293,5 @@ class TimerFlowTest {
         compose.awaitUntil("the untimed insert") { events(screen, untimed) == before + 1 }
         assertEquals(0L, events(screen, "duration_seconds IS NOT NULL"))
         assertNull(screen.session.timer.running.value)
-    }
-
-    /** TM4, TM10: a recreation keeps the timer and the open full-screen clock. */
-    @Test
-    fun theTimerSurvivesARecreation() {
-        val screen = fixture.build("recreation", clock = clock)
-        val restoration = StateRestorationTester(compose)
-        restoration.setContent { RepertosaurusWindow { SessionContent(screen) } }
-        compose.waitForIdle()
-        startFromTheSheet(screen, screen.row(0))
-        val started = screen.session.timer.running.value
-        compose.onNodeWithContentDescription(Messages.TIMER_OPEN_CLOCK).performClick()
-
-        restoration.emulateSavedInstanceStateRestore()
-        compose.waitForIdle()
-
-        assertEquals(started, screen.session.timer.running.value)
-        compose.onNodeWithTag(TimerTags.FULL_SCREEN).assertExists()
-    }
-
-    /** TM10: a new ViewModel over the same store, as after a process death, restores the timer and its bar. */
-    @Test
-    fun theTimerSurvivesAProcessRestart() {
-        val first = fixture.build("restart", timerStore = AndroidTimerStore(context, STORE_FILE), clock = clock)
-        val row = first.row(0)
-        EditingFixtures.onMain { first.session.startTimer(row.songId, row.title) }
-        val started = assertNotNull(first.session.timer.running.value)
-        EditingFixtures.await("the store's write") { AndroidTimerStore(context, STORE_FILE).read() == started.timer }
-
-        lateinit var restarted: SessionViewModel
-        EditingFixtures.onMain {
-            restarted = SessionViewModel(first.holder, InMemorySessionPreferences(), TEST_DEVICE, timerStore = AndroidTimerStore(context, STORE_FILE), clock = clock)
-        }
-        EditingFixtures.await("the restore") { restarted.timer.running.value != null }
-        assertEquals(started, restarted.timer.running.value)
-
-        val screen = SessionScreenFixture.Screen(first.holder, restarted, DeviceSettings(InMemoryDevicePreferences()))
-        compose.setContent { RepertosaurusWindow { SessionContent(screen) } }
-        compose.waitForIdle()
-        compose.onNode(hasText(row.title) and hasAnyAncestor(hasTestTag(TimerTags.BAR))).assertExists()
-    }
-
-    /** VI8: the bar at a font scale of 1.3, with the widest clock, `h:mm:ss`, clips nothing. */
-    @Test
-    fun theBarFitsAtALargeFont() {
-        val screen = fixture.open("font", fontScale = LARGE_FONT, clock = clock)
-        val row = screen.row(0)
-        EditingFixtures.onMain { screen.session.startTimer(row.songId, row.title) }
-        clock.forward(2L * 3_600L + 34L * 60L + 56L)
-        compose.awaitUntil("the clock at 2:34:56") {
-            compose.onAllNodesWithText("2:34:56").fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.assertNoTextClipped("the bar", hasAnyAncestor(hasTestTag(TimerTags.BAR)))
-        shot("running-bar-fs1.3")
-    }
-
-    private companion object {
-        const val STORE_FILE = "timer-flow-test"
-        const val FRAMES = 10
-        const val LARGE_FONT = 1.3f
-        const val SETTLE_MS = 1_000L
-    }
-}
-
-/** **visual-identity VI22 for the bar**: with the animator duration scale at 0 it arrives and leaves at once. */
-@OptIn(ExperimentalTestApi::class)
-@RunWith(AndroidJUnit4::class)
-class TimerReducedMotionTest {
-
-    @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>(NoMotion)
-
-    private val fixture = SessionScreenFixture(compose, "timer-reduced-motion-test")
-
-    @After
-    fun cleanUp() = fixture.cleanUp()
-
-    @Test
-    fun theBarArrivesAndLeavesAtOnce() {
-        val screen = fixture.open("no-motion")
-        val row = screen.session.state.value.pending.first()
-        EditingFixtures.onMain { screen.session.startTimer(row.songId, row.title) }
-        compose.waitForIdle()
-        val settled = compose.onNodeWithTag(TimerTags.BAR).fetchSemanticsNode().size.height
-        EditingFixtures.onMain { screen.session.timer.cancel() }
-        compose.waitForIdle()
-
-        compose.mainClock.autoAdvance = false
-        EditingFixtures.onMain { screen.session.startTimer(row.songId, row.title) }
-        assertWithinFrames("the bar's arrival") {
-            compose.onAllNodesWithTag(TimerTags.BAR).fetchSemanticsNodes().singleOrNull()?.size?.height == settled
-        }
-        EditingFixtures.onMain { screen.session.stopTimer() }
-        assertWithinFrames("the bar's exit") { compose.onAllNodesWithTag(TimerTags.BAR).fetchSemanticsNodes().isEmpty() }
-        compose.mainClock.autoAdvance = true
-    }
-
-    private fun assertWithinFrames(what: String, settled: () -> Boolean) {
-        repeat(INSTANT_FRAMES) {
-            if (settled()) return
-            compose.mainClock.advanceTimeByFrame()
-        }
-        kotlin.test.assertTrue(settled(), "$what took more than $INSTANT_FRAMES frames")
-    }
-
-    private companion object {
-        const val INSTANT_FRAMES = 5
     }
 }

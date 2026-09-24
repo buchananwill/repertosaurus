@@ -2,6 +2,7 @@ package dev.repertosaurus.android
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.android.EditingFixtures.await
 import dev.repertosaurus.android.EditingFixtures.onMain
 import dev.repertosaurus.data.SampleData
@@ -57,7 +58,7 @@ class ReloadAfterWritesTest {
         lateinit var session: SessionViewModel
         lateinit var repertoire: RepertoireViewModel
         onMain {
-            session = SessionViewModel(holder, preferences, TEST_DEVICE)
+            session = SessionViewModel(holder, preferences, TEST_DEVICE, InMemoryTimerStore())
             repertoire = RepertoireViewModel(holder, gate)
         }
         await("the logger") { !session.state.value.loading && session.state.value.view != null }

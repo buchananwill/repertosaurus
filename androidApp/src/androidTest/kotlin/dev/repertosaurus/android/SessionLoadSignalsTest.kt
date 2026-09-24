@@ -2,6 +2,7 @@ package dev.repertosaurus.android
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.InMemorySessionPreferences
@@ -61,7 +62,7 @@ class SessionLoadSignalsTest {
 
     private fun boot(holder: DatabaseHolder, io: Gate): SessionViewModel {
         lateinit var model: SessionViewModel
-        EditingFixtures.onMain { model = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, io) }
+        EditingFixtures.onMain { model = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, InMemoryTimerStore(), io) }
         return model
     }
 

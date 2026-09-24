@@ -262,7 +262,7 @@ class SuggestSkipsFlowTest {
         compose.another()
         val second = screen.current()
 
-        compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).performClick()
         compose.awaitUntil("the skip and the log") {
             count(screen.holder, "suggestion_skip") == skipsBefore + 1 && count(screen.holder, "practice_event") == eventsBefore + 1
         }
@@ -334,7 +334,7 @@ class SuggestSkipReducedMotionTest {
         assertEquals(first, screen.current())
         assertEquals(1, compose.onAllNodesWithTag(SuggestTags.CARD).fetchSemanticsNodes().size, "one card, settled")
         compose.onNode(hasText(screen.titleOf(first)) and hasAnyAncestor(hasTestTag(SuggestTags.CARD))).assertExists()
-        compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).assertIsEnabled()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).assertIsEnabled()
         compose.onNodeWithText(Messages.SUGGEST_ANOTHER, ignoreCase = true).assertIsEnabled()
     }
 

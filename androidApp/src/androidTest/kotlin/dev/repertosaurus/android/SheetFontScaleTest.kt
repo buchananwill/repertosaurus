@@ -12,8 +12,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -107,11 +105,11 @@ class SheetFontScaleTest {
         compose.assertNoTextClipped("the feel sheet")
 
         compose.onNodeWithTag(RatingTags.segment(FeelSheetTags.FEEL, RatingLevel.EXCEPTIONALLY)).performClick()
-        compose.onNodeWithText("Log it", ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).performClick()
         compose.awaitUntil("the feel-3 insert") { count(screen.holder, "practice_event WHERE feel = 3") == feelThreeBefore + 1 }
     }
 
-    /** Timer TM1, TM2: the feel sheet's timer button beside Log, at its longer label, "Switch timer here". */
+    /** timer TM1, TM2: the feel sheet's timer button beside Log, at its longer label, "Switch timer here". */
     @Test
     fun theFeelSheetsTimerButtonFits() {
         val screen = fixture.open("feel-timer")
@@ -122,12 +120,7 @@ class SheetFontScaleTest {
         compose.waitForIdle()
         compose.onNodeWithText(Messages.TIMER_SWITCH, ignoreCase = true).performScrollTo().assertHeightIsAtLeast(48.dp)
         compose.assertNoTextClipped("the feel sheet with a timer running")
-        // Half-expanded, the sheet keeps its Log row below the fold; and it is drawn on real frames, which
-        // the test clock does not wait for.
-        compose.onNodeWithText("Feel").performTouchInput { swipe(center, center - Offset(0f, 900f), durationMillis = 400) }
-        compose.waitForIdle()
-        Thread.sleep(1_000L)
-        compose.screenshot("p11", "feel-sheet-switch")
+        compose.expandAndShoot("p11", "feel-sheet-switch")
     }
 
     private companion object {

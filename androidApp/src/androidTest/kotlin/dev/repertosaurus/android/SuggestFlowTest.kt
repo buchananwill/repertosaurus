@@ -101,7 +101,7 @@ class SuggestFlowTest {
         val plainLogs = "practice_event WHERE song_id = '$songId' AND feel IS NULL AND note IS NULL"
         val plainBefore = count(screen.holder, plainLogs)
 
-        compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).performClick()
         compose.awaitUntil("the suggestion's insert") { count(screen.holder, "practice_event") == before + 1 }
         compose.waitForIdle()
 
@@ -127,7 +127,7 @@ class SuggestFlowTest {
         val songId = screen.current()!!
         val before = count(screen.holder, "practice_event")
 
-        compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).performClick()
         compose.awaitUntil("the hidden card's insert") { count(screen.holder, "practice_event") == before + 1 }
         compose.waitForIdle()
         assertEquals(songId, screen.session.state.value.taps.single().songId)
@@ -333,7 +333,7 @@ class SuggestReducedMotionTest {
         assertNotEquals(first, second)
         assertEquals(1, compose.onAllNodesWithTag(SuggestTags.CARD).fetchSemanticsNodes().size, "one card, settled")
         compose.onNode(hasText(screen.titleOf(second)) and hasAnyAncestor(hasTestTag(SuggestTags.CARD))).assertExists()
-        compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).assertIsEnabled()
+        compose.onNodeWithText(Messages.LOG_IT, ignoreCase = true).assertIsEnabled()
         compose.onNodeWithText(Messages.SUGGEST_ANOTHER, ignoreCase = true).assertIsEnabled()
 
         compose.openTune()
