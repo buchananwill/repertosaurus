@@ -1,9 +1,15 @@
 package dev.repertosaurus.android
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +27,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,13 +36,13 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.Segment
 import dev.repertosaurus.android.theme.SegmentLabel
@@ -104,8 +111,11 @@ public fun HabitScreen(
         ) {
             ScopeStrip(instrumentScoped = instrumentId != null, practiceInstrument = practiceInstrument, onScope = onScope)
             if (card != null) {
-                HabitGrid(card = card, selected = selected, onSelect = { selected = it })
-                DayLine(card = card, selected = selected)
+                // One child of the spaced column, so an absent day line leaves no gap.
+                Column {
+                    HabitGrid(card = card, selected = selected, onSelect = { selected = it })
+                    DayLine(card = card, selected = selected)
+                }
                 if (!card.empty) Summaries(card)
             }
         }
@@ -134,19 +144,34 @@ private fun ScopeStrip(instrumentScoped: Boolean, practiceInstrument: Instrument
     }
 }
 
-/**
- * SC7's line for the tapped day, or SC14's when there is nothing yet. With neither it is absent, so no
- * empty band sits under the grid (journal session 11, F29); the first tap moves what is below it down.
- */
+/** SC7, SC14; absent otherwise (F29). */
 @Composable
-private fun DayLine(card: HabitCard, selected: String?) {
+private fun ColumnScope.DayLine(card: HabitCard, selected: String?) {
     val day = selected?.let(card::day)
     val text = when {
         day != null -> Messages.habitDay(day)
         card.empty -> Messages.HABIT_EMPTY
-        else -> return
+        else -> null
     }
-    Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.fillMaxWidth().testTag(HabitTags.LINE))
+    // D93, VI18: the line springs open, so the first tap pushes what is below it with motion, not a jump.
+    val last = remember { LastLine() }
+    if (text != null) last.text = text
+    AnimatedVisibility(
+        visible = text != null,
+        enter = expandVertically(Motion.spring()) + fadeIn(Motion.spring()),
+        exit = shrinkVertically(Motion.spring()) + fadeOut(Motion.spring()),
+    ) {
+        Text(
+            last.text,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp).testTag(HabitTags.LINE),
+        )
+    }
+}
+
+/** The line last shown, so a closing day line keeps its words. A cache, not state. */
+private class LastLine {
+    var text: String = ""
 }
 
 /** SC9-SC11; not shown in the empty state (SC14). */

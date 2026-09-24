@@ -24,21 +24,21 @@ import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.session.CapabilityCoordinator
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
-import dev.repertosaurus.session.PageFilter
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupStores
 import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.PageFilter
 import dev.repertosaurus.session.RatingsSource
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
-import org.junit.After
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.After
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
 
 /**
  * **The ratings editor on the composed app** — triage T1-T5a, T9 and rating-scale RS9: both entry
@@ -351,18 +351,11 @@ class RatingsEditorFlowTest {
 
     /** The Repertoire route, then Coralie's vocal role (style review F21 B15). */
     private fun openToggleList(fixture: Fixture) {
-        openRoute("Repertoire")
+        compose.openFromDrawer("Repertoire")
         compose.awaitUntil("the performers") { fixture.app.repertoire.state.value.performers.isNotEmpty() }
         compose.waitForIdle()
         compose.onNodeWithText("Vocal").performClick()
         compose.awaitUntil("the toggle list") { fixture.app.repertoire.state.value.list?.loading == false }
-        compose.waitForIdle()
-    }
-
-    private fun openRoute(label: String) {
-        compose.onNodeWithContentDescription(LOGGER_MENU).performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(label).performClick()
         compose.waitForIdle()
     }
 
@@ -399,9 +392,5 @@ class RatingsEditorFlowTest {
     private fun back() {
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
-    }
-
-    private companion object {
-        const val LOGGER_MENU = "Menu"
     }
 }

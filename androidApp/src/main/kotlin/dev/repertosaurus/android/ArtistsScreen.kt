@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
 import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.InkTextField
@@ -35,6 +34,7 @@ import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.ArtistSearch
@@ -85,7 +85,7 @@ public fun ArtistsScreen(viewModel: ArtistsViewModel, onBack: () -> Unit) {
             query = state.query,
             onQuery = viewModel::setQuery,
             placeholder = "Search artists",
-            modifier = Modifier.testTag(ArtistTags.SEARCH),
+            fieldModifier = Modifier.testTag(ArtistTags.SEARCH),
         )
         if (state.query.isNotEmpty()) {
             CountLine(Messages.shownOf(shown.size, Messages.artistCount(state.artists.size.toLong())))
@@ -127,14 +127,14 @@ public fun ArtistsScreen(viewModel: ArtistsViewModel, onBack: () -> Unit) {
     removing?.let { artist ->
         InkDialog(onDismiss = { removingId = null }, title = "Remove ${artist.name}?") {
             DialogText("It stops being offered. An artist with songs is refused, and the screen says how many.")
-            DialogActions(
-                confirm = "Remove",
-                onConfirm = {
+            StackedActions(
+                primary = Messages.REMOVE,
+                onPrimary = {
                     removingId = null
                     viewModel.remove(artist.id, artist.name)
                 },
-                onDismiss = { removingId = null },
-                confirmModifier = Modifier.testTag(ArtistTags.CONFIRM_REMOVE),
+                onSecondary = { removingId = null },
+                primaryModifier = Modifier.testTag(ArtistTags.CONFIRM_REMOVE),
             )
         }
     }
@@ -160,8 +160,8 @@ private fun ArtistRow(
             if (artist.sortName != artist.name) MutedLine("Sorted as ${artist.sortName}")
             MutedLine(Messages.songCount(artist.liveSongs))
         }
-        TextAction("Rename", onClick = onRename, enabled = enabled, modifier = Modifier.testTag(ArtistTags.rename(artist.id)))
-        TextAction("Remove", onClick = onRemove, enabled = enabled, modifier = Modifier.testTag(ArtistTags.remove(artist.id)))
+        TextAction(Messages.RENAME, onClick = onRename, enabled = enabled, modifier = Modifier.testTag(ArtistTags.rename(artist.id)))
+        TextAction(Messages.REMOVE, onClick = onRemove, enabled = enabled, modifier = Modifier.testTag(ArtistTags.remove(artist.id)))
     }
 }
 
@@ -182,7 +182,6 @@ private fun RenameArtistDialog(
             isError = name.isBlank(),
             supportingText = if (name.isBlank()) Messages.ARTIST_NEEDS_NAME else null,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth(),
         )
         InkTextField(
             value = sortName,
@@ -190,16 +189,15 @@ private fun RenameArtistDialog(
             label = "Sort name",
             supportingText = "Leave blank to derive it from the name.",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth(),
         )
         // R22: renaming never re-derives the id, so every song stays attached.
         MutedLine("Every song by this artist stays attached to it.")
-        DialogActions(
-            confirm = "Save",
-            onConfirm = { onRename(name, sortName) },
-            onDismiss = onDismiss,
-            confirmEnabled = name.isNotBlank(),
-            confirmModifier = Modifier.testTag(ArtistTags.SAVE_RENAME),
+        StackedActions(
+            primary = Messages.SAVE,
+            onPrimary = { onRename(name, sortName) },
+            onSecondary = onDismiss,
+            primaryEnabled = name.isNotBlank(),
+            primaryModifier = Modifier.testTag(ArtistTags.SAVE_RENAME),
         )
     }
 }

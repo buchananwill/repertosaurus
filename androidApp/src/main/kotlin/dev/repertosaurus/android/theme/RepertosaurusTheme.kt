@@ -58,6 +58,9 @@ private val RepertosaurusColours: ColorScheme = lightColorScheme(
     surfaceContainer = Tokens.Paper,
     surfaceContainerHigh = Tokens.Paper,
     surfaceContainerHighest = Tokens.Paper,
+    // D97: the error mark, never an error text colour. No stock Material red remains.
+    error = Tokens.Madder,
+    onError = Tokens.Paper,
 )
 
 /** VI3: every theme shape is square. A zero-radius corner shape is `RectangleShape` in every way that draws. */

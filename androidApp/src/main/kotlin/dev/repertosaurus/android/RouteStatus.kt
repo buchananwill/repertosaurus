@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.ErrorLine
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.Messages
@@ -26,8 +27,8 @@ internal object StatusTags {
 }
 
 /**
- * **E43 / R29: success and failure are separate channels, rendered differently.** The error is
- * in the error colour and sits above the confirmation; a route never paints both in one field.
+ * **E43 / R29: success and failure are separate channels, rendered differently.** The error is an
+ * [ErrorLine], with its Madder mark (D97), and sits above the confirmation; a route never paints both in one field.
  *
  * Inline rather than a snackbar, as the capability sheet does it: an error that times out is an
  * error the user may never read, and every write on these routes can be refused.
@@ -40,12 +41,7 @@ internal fun StatusLines(message: String?, error: String?, modifier: Modifier = 
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         if (error != null) {
-            Text(
-                text = error,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag(StatusTags.ERROR),
-            )
+            ErrorLine(error, modifier = Modifier.testTag(StatusTags.ERROR))
         }
         if (message != null) {
             Text(

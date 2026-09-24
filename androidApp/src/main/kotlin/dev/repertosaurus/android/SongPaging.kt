@@ -3,12 +3,9 @@ package dev.repertosaurus.android
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.DisplayText
@@ -49,7 +46,7 @@ internal fun LazyListScope.pagingControls(
     tagPrefix: String,
 ) {
     item(key = "paging-search") {
-        SongSearchField(query = paging.query, onQuery = onQuery, modifier = Modifier.testTag(PagingTags.search(tagPrefix)))
+        SongSearchField(query = paging.query, onQuery = onQuery, fieldModifier = Modifier.testTag(PagingTags.search(tagPrefix)))
     }
     item(key = "paging-filter") {
         SegmentStrip(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {

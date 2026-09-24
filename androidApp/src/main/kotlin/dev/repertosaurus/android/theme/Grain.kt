@@ -19,12 +19,7 @@ import kotlin.random.Random
  * of its own.
  *
  * **No per-frame work on the UI thread:** the tile is built once per process and the brush once per size.
- * The blend runs on the GPU over the whole window every frame the window redraws.
- *
- * **`Modulate`, not `Multiply`, and no layer of its own** (journal session 11, F18 N4, measured in P13 with
- * `gfxinfo` framestats on the emulator). Over an opaque window an opaque tile gives the same pixel either
- * way, `destination × source`, but `Multiply` is an advanced blend mode and `Modulate` a plain coefficient
- * blend, and it measured cheaper. A trailing `graphicsLayer` measured dearer than none.
+ * VI10 (amended, D93): Modulate, no layer.
  */
 public fun Modifier.paperGrain(): Modifier = drawWithCache {
     val brush = ShaderBrush(ImageShader(GrainTile.bitmap, TileMode.Repeated, TileMode.Repeated))

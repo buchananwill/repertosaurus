@@ -59,6 +59,19 @@ class TokenContrastTest {
         }
     }
 
+    /**
+     * D97: an error line is `Ink` text, read at full contrast, and its state is a `Madder` mark (a rule, a
+     * field's border), which as a non-text element needs 3:1 (WCAG 1.4.11).
+     */
+    @Test
+    fun theErrorLineAndItsMark() {
+        assertAa("Ink error text on Ground", Tokens.Ink.toArgb(), Tokens.Ground.toArgb())
+        for ((name, ground) in listOf("Ground" to Tokens.Ground, "Paper" to Tokens.Paper, "Field" to Tokens.Field)) {
+            val ratio = contrast(Tokens.Madder.toArgb(), ground.toArgb())
+            assertTrue(ratio >= NON_TEXT, "the Madder error mark on $name is ${"%.2f".format(ratio)}:1, below $NON_TEXT:1")
+        }
+    }
+
     private fun assertAa(what: String, text: Int, ground: Int) {
         val ratio = contrast(text, ground)
         assertTrue(ratio >= AA_NORMAL, "$what is ${"%.2f".format(ratio)}:1, below AA's $AA_NORMAL:1")
@@ -66,6 +79,7 @@ class TokenContrastTest {
 
     private companion object {
         const val AA_NORMAL = 4.5
+        const val NON_TEXT = 3.0
 
         fun contrast(a: Int, b: Int): Double {
             val (hi, lo) = listOf(luminance(a), luminance(b)).sortedDescending()

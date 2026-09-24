@@ -119,7 +119,12 @@ E12 and E40.
 ### The Songs route: every editable field
 
 **R11.** **The Songs route lists every live song**, searchable by title and artist, filtering an
-in-memory list rather than querying per keystroke (E36). A row shows `Title — Artist`. Tapping a row
+in-memory list rather than querying per keystroke (E36). ~~A row shows `Title — Artist`.~~ **A row
+shows the title with the artist beneath it (`SongTitleArtist`), as the session list's rows do.
+`songLabel`'s one-line `Title — Artist` remains the form wherever a song is named inside a
+sentence or a single line: snackbars, dialogs and messages.** (AMENDED 2026-09-24, journal session
+11, D94: the P13 restyle moved list rows to the two-line form of the approved look. Both forms name
+the song by title and artist together, which is the rule's purpose.) Tapping a row
 opens that song's detail; the detail is the route's own state with its own back handler (E24).
 
 **R12.** **The song detail exposes every user-meaningful `song` column**: title, artist,

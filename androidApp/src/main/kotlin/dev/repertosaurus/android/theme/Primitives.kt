@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,23 +39,29 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
+import dev.repertosaurus.session.Messages
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * visual-identity VI5: a solid `Ink` rectangle, no blur, down and right by [offset]. The modifier pads
@@ -69,8 +74,8 @@ internal fun Modifier.hardShadow(offset: Dp): Modifier =
         drawRect(Tokens.Ink, topLeft = Offset(shift, shift), size = size)
     }
 
-/** VI4: an `Ink` stroke, square, inside the element's bounds. */
-internal fun Modifier.inkBorder(width: Dp = Tokens.StrokeHeavy): Modifier = border(width, Tokens.Ink, RectangleShape)
+/** VI4: an `Ink` stroke, square, inside the element's bounds; D97's `Madder` where it marks an error. */
+internal fun Modifier.inkBorder(width: Dp = Tokens.StrokeHeavy, colour: Color = Tokens.Ink): Modifier = border(width, colour, RectangleShape)
 
 /** Which side of an element an [inkRule] closes. */
 internal enum class InkEdge { Top, Bottom }
@@ -169,6 +174,28 @@ internal fun ActionPair(
             modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = Tokens.ShadowLarge),
             enabled = enabled,
         )
+    }
+}
+
+/**
+ * VI12: [primary] over [secondary], stacked full width so neither is squeezed at a large font: a dialog's two
+ * answers, and the timer's Stop over Cancel. The secondary is inset by the primary's shadow, so the two faces
+ * end level.
+ */
+@Composable
+internal fun StackedActions(
+    primary: String,
+    onPrimary: () -> Unit,
+    secondary: String = Messages.CANCEL,
+    onSecondary: () -> Unit,
+    modifier: Modifier = Modifier,
+    primaryEnabled: Boolean = true,
+    primaryModifier: Modifier = Modifier,
+    secondaryModifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PrimaryButton(primary, onClick = onPrimary, modifier = primaryModifier.fillMaxWidth(), enabled = primaryEnabled)
+        SecondaryButton(secondary, onClick = onSecondary, modifier = secondaryModifier.fillMaxWidth().padding(end = Tokens.ShadowLarge))
     }
 }
 
@@ -301,9 +328,32 @@ internal fun MutedLine(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * D97: **the one error line.** Bold `Ink` text, at full contrast on any ground, beside a `Madder` rule at
+ * its start: the colour marks the state and never carries the words. [style] is the line's size.
+ */
+@Composable
+internal fun ErrorLine(text: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+    Text(
+        text,
+        style = style.copy(fontWeight = FontWeight.Bold),
+        color = Tokens.Ink,
+        modifier = modifier.madderMark(),
+    )
+}
+
+/** D97: a `Madder` rule down an error's leading edge, with the room for it reserved. */
+private fun Modifier.madderMark(): Modifier =
+    drawBehind { drawRect(Tokens.Madder, size = Size(ErrorMarkWidth.toPx(), size.height)) }
+        .padding(start = ErrorMarkWidth + ErrorMarkGap)
+
+private val ErrorMarkWidth = 4.dp
+private val ErrorMarkGap = 8.dp
+
+/**
  * VI1, VI4: **the one input**, `Field` white inside a 3 dp `Ink` outline. A filled field with its indicator
  * hidden, because the outlined one's stroke is fixed at 1-2 dp. The [label] rides inside the box; the
- * [supportingText] sits under it, outside the outline, in the error colour when [isError].
+ * [supportingText] sits under it, outside the outline. When [isError] the outline is `Madder` and the words
+ * are an [ErrorLine] (D97).
  *
  * [modifier] places and sizes the whole (a weight, a width, padding); the input fills its width.
  * [fieldModifier] is the input's own, where a test tag goes, because the input is the node that holds the text.
@@ -349,24 +399,32 @@ internal fun InkTextField(
                 unfocusedIndicatorColor = Color.Transparent,
                 errorIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
+                // D97: no text in the error colour; the outline carries the state.
+                errorLabelColor = Tokens.Ink,
+                errorCursorColor = Tokens.Ink,
             ),
-            modifier = fieldModifier.fillMaxWidth().inkBorder(),
+            // D94: the words under the box are read with the field, as its error or its state.
+            modifier = fieldModifier
+                .semantics {
+                    if (supportingText != null) {
+                        if (isError) error(supportingText) else stateDescription = supportingText
+                    }
+                }
+                .fillMaxWidth()
+                .inkBorder(colour = if (isError) Tokens.Madder else Tokens.Ink),
         )
+        // D98 #9: the field already carries these words, so they are drawn here and read there, once.
         supportingText?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isError) MaterialTheme.colorScheme.error else Tokens.InkMuted,
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp),
-            )
+            val words = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp).clearAndSetSemantics {}
+            if (isError) ErrorLine(it, modifier = words, style = MaterialTheme.typography.bodySmall) else MutedLine(it, modifier = words)
         }
     }
 }
 
-/** VI4: a list-row rule. */
+/** VI4: a list-row rule, the full width. */
 @Composable
 internal fun RowRule(modifier: Modifier = Modifier) {
-    HorizontalDivider(modifier = modifier, thickness = Tokens.StrokeRule, color = Tokens.Ink)
+    Box(modifier = modifier.fillMaxWidth().height(Tokens.StrokeRule).background(Tokens.Ink))
 }
 
 /** VI15: one list item and the rule under it, so the two always move together. */

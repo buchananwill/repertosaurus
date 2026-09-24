@@ -242,7 +242,9 @@ spring.
 **VI21. The same physics everywhere else, kept small:**
 - buttons sink onto their shadow on press and spring back on release (VI12);
 - a selected segment's fill springs in (RS9 and VI13);
-- a sheet opening keeps the platform's own motion.
+- a sheet opening keeps the platform's own motion;
+- **a dialog's panel springs in** (scale 0.96 → 1 with a fade, `Motion.spring()`). The
+  platform carve-out is for sheets only. (AMENDED 2026-09-24, journal session 11, D96.)
 
 **No idle animation. Nothing moves unless touched or changed.**
 

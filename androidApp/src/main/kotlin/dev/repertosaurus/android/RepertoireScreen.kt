@@ -36,7 +36,6 @@ import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.RuledItem
-import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.SwitchRow
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PageFilter
@@ -191,13 +190,7 @@ private fun PerformerListScreen(
                 RuledItem { PerformerRow(performer = performer, onOpen = onOpen) }
             }
             if (performers.isEmpty() && !loading) {
-                item(key = "empty") {
-                    Text(
-                        "No performers yet. Add one from Performers in the menu.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(32.dp),
-                    )
-                }
+                emptyListLine(query = "", whenEmpty = "No performers yet. Add one from Performers in the menu.")
             }
         }
     }
@@ -221,7 +214,7 @@ private fun PerformerRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (role in performer.roles) {
-                InkChip(label = role.label, selected = false, onClick = { onOpen(performer.performerId, role.id) })
+                InkChip(label = role.label, onClick = { onOpen(performer.performerId, role.id) })
             }
             // R2: the only way to give a performer their first song on an instrument, so it is
             // always on the row, never behind a further menu.
@@ -229,7 +222,6 @@ private fun PerformerRow(
                 Box {
                     InkChip(
                         label = "+ role",
-                        selected = false,
                         onClick = { picking = true },
                         modifier = Modifier.testTag(RepertoireTags.addRole(performer.performerId)),
                     )
@@ -278,18 +270,17 @@ private fun ToggleListScreen(
     val rowsKey = if (paging.filter == PageFilter.ALL) list.ticket to list.rows.size else list.rows
     val letters = remember(rowsKey, paging.filter) { paging.letters(list.paged()) }
     Column(modifier = Modifier.fillMaxSize()) {
-        // Triage T1: the role's two panes share one header, each naming itself and offering the other.
-        RouteHeader(
+        RolePaneHeader(
+            pane = Messages.DRAWER_SONGS,
             title = title,
-            kicker = "Songs",
             onDone = onClose,
-            actions = {
-                SecondaryButton(text = "Ratings", onClick = onRatings, modifier = Modifier.testTag(RepertoireTags.RATINGS))
-            },
+            other = Messages.RATINGS_PANE,
+            onOther = onRatings,
+            otherModifier = Modifier.testTag(RepertoireTags.RATINGS),
         )
         Column(modifier = Modifier.fillMaxWidth().weight(1f).testTag(RepertoireTags.TOGGLE_LIST)) {
             CountLine(
-                Messages.shownOf(list.heldCount, Messages.songCount(list.rows.size.toLong())) + " held",
+                Messages.heldOf(list.heldCount, list.rows.size.toLong()),
                 modifier = Modifier.padding(top = 4.dp).testTag(RepertoireTags.HELD_COUNT),
             )
             StatusLines(message = message, error = error)
@@ -357,7 +348,6 @@ private fun ToggleRow(
             enabled = enabled,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            // The title over its artist, as every song row has it (VI15).
             SongTitleArtist(title = title, artistName = artistName, modifier = Modifier.weight(1f))
         }
     }

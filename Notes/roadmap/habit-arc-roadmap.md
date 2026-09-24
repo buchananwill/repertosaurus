@@ -291,7 +291,7 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); **committed `2d7836e`**, fix round in flight |
 | P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |
 | P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |
-| P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard (closed for the look, D49) | **in flight** (journal session 11, D90/D92); dark theme is split out |
+| P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard (closed for the look, D49) | **done**: `562b559` + fix round (journal session 11, D99); dark theme is split out (D90) |
 
 **Critical path (amended 2026-09-23):** P1 → P2 ✓ → P13b → P5 → P9 → P11 → P13. After
 P13b, P6, P8 and P14 run in parallel with P5, because none of them owns the hot files.
@@ -310,3 +310,6 @@ the path.
 - **A Desktop-arc prerequisite** (journal session 11, F44 B4): the holders (`TimerHolder`,
   `SuggestionHolder`, `RatingsSync`, `SkipCounts`) have no Android imports, but they live in
   `androidApp`. Move them to `shared` together when a second UI exists, never one at a time.
+- **A second Desktop-arc prerequisite** (journal session 11, D95 N8): single-use UI copy still
+  lives as literals in the Android screens. Move all of it into `Messages` before Desktop copies
+  any screen.

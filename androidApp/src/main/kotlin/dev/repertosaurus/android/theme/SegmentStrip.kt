@@ -34,14 +34,14 @@ import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
-import androidx.compose.ui.text.rememberTextMeasurer
-import kotlin.math.ceil
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.ceil
 
 /** How a [SegmentStrip] shares out its width (VI13). */
 @Immutable
@@ -150,11 +150,42 @@ internal fun Segment(
     enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val grown = animateFloatAsState(if (selected) 1f else 0f, Motion.spring(), label = "segment fill")
-    val filled by remember { derivedStateOf { grown.value > 0.5f } }
+    SegmentFace(
+        filled = selected,
+        control = Modifier.selectable(
+            selected = selected,
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            enabled = enabled,
+            role = Role.Tab,
+            onClick = onClick,
+        ),
+        modifier = modifier,
+        selectedFill = selectedFill,
+        enabled = enabled,
+        content = content,
+    )
+}
+
+/**
+ * A [Segment]'s face without its semantics: the fill that springs in when [filled], and the content in
+ * whichever of `Paper` or `Ink` reads on it. [control] is the touch and the semantics, so a segment, a
+ * toggle chip and an action chip share one face.
+ */
+@Composable
+internal fun SegmentFace(
+    filled: Boolean,
+    control: Modifier,
+    modifier: Modifier = Modifier,
+    selectedFill: Color = Tokens.Ink,
+    enabled: Boolean = true,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val grown = animateFloatAsState(if (filled) 1f else 0f, Motion.spring(), label = "segment fill")
+    val inked by remember { derivedStateOf { grown.value > 0.5f } }
     val contentColour = when {
         !enabled -> Tokens.InkMuted.copy(alpha = Tokens.DisabledAlpha)
-        filled && selectedFill.luminance() < 0.5f -> Tokens.Paper
+        inked && selectedFill.luminance() < 0.5f -> Tokens.Paper
         else -> Tokens.Ink
     }
     Box(
@@ -172,14 +203,7 @@ internal fun Segment(
                     )
                 }
             }
-            .selectable(
-                selected = selected,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = enabled,
-                role = Role.Tab,
-                onClick = onClick,
-            )
+            .then(control)
             .heightIn(min = Tokens.TouchMin)
             // Narrow, so a quarter-width rating segment keeps its label (VI8); a segment with room to
             // spare pads its own content.
@@ -259,21 +283,4 @@ private class WholeWords(private val widestWord: Int) : MeasurePolicy {
 
     private inline fun scaledHeight(width: Int, height: (Int) -> Int): Int =
         if (width >= widestWord) height(width) else ceil(height(widestWord) * scale(width)).toInt()
-}
-
-/**
- * VI13: one [Segment] standing alone, inside its own 2 dp `Ink` border: a choice among many that do not
- * share a strip (a picker row that scrolls, a tag, a near-match to pick).
- */
-@Composable
-internal fun InkChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-) {
-    Segment(selected = selected, onClick = onClick, modifier = modifier.inkBorder(Tokens.StrokeRule), enabled = enabled) {
-        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 3, modifier = Modifier.padding(horizontal = 8.dp))
-    }
 }

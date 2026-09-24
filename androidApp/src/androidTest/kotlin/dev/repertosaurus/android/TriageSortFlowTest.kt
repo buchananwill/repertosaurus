@@ -53,15 +53,15 @@ import dev.repertosaurus.session.SortMode
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.part
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 /**
  * **The triage sort on the composed app** (triage T6-T9): the mode sorts the list, a mode, direction or
@@ -435,11 +435,7 @@ class TriageSortFlowTest {
         useUnmergedTree = true,
     ).fetchSemanticsNode()
 
-    private fun layoutOf(mode: SortMode): TextLayoutResult {
-        val layouts = mutableListOf<TextLayoutResult>()
-        labelOf(mode).config[SemanticsActions.GetTextLayoutResult].action!!.invoke(layouts)
-        return layouts.single()
-    }
+    private fun layoutOf(mode: SortMode): TextLayoutResult = labelOf(mode).textLayouts().single()
 
     /** Every word of the mode's label begins and ends on the same line. */
     private fun assertNoWordSplit(mode: SortMode) {

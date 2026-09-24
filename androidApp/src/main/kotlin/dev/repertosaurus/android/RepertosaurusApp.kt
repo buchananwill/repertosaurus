@@ -6,17 +6,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -36,11 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.InkSwitch
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.SwitchRow
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
@@ -133,7 +135,6 @@ internal enum class Route(private val title: String? = null, val lookup: LookupK
 internal object DrawerTags {
     /** Repertoire-editing R40-R42: the note spelling toggle. */
     const val NOTE_SPELLING: String = "drawer-note-spelling"
-    const val NOTE_SPELLING_SWITCH: String = "drawer-note-spelling-switch"
 
     /** Rating-scale RS16: opens the colour ramp picker. */
     const val COLOUR_RAMP: String = "drawer-colour-ramp"
@@ -453,11 +454,8 @@ private fun AppDrawerContent(
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(Messages.DRAWER_APP_NAME, style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    Messages.DRAWER_OFFLINE,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                MutedLine(Messages.DRAWER_OFFLINE)
+
             }
 
             // timer TM4: above everything, while a timer runs. It leads back to the logger and its bar.
@@ -480,18 +478,13 @@ private fun AppDrawerContent(
             val flipSpelling = {
                 onNoteSpelling(if (simplified) NoteSpelling.AS_WRITTEN else NoteSpelling.SIMPLIFIED)
             }
+            // D95 N2: the row is the one target, a switch; the square switch in it only shows the state.
             DrawerItem(
                 // One line: the drawer item is a fixed 56dp, and a second line is clipped.
                 Messages.DRAWER_SIMPLIFY_SPELLING,
                 onClick = flipSpelling,
                 modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING),
-                badge = {
-                    InkSwitch(
-                        checked = simplified,
-                        onCheckedChange = { flipSpelling() },
-                        modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING_SWITCH),
-                    )
-                },
+                checked = simplified,
             )
 
             // Rating-scale RS16. Three ramps with swatches need more room than a switch, so this
@@ -510,13 +503,8 @@ private fun AppDrawerContent(
             )
 
             Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider()
-            Text(
-                Messages.DRAWER_ADVANCED,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 16.dp),
-            )
+            RowRule()
+            MutedLine(Messages.DRAWER_ADVANCED, modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 16.dp))
 
             // E26: **the drawer is the only menu of routes, and every manageable kind is in it**,
             // so "where do I edit X" has one answer rather than a scavenger hunt through
@@ -559,7 +547,8 @@ internal fun DrawerTimerLine(title: String, onClick: () -> Unit) {
 
 /**
  * One drawer row, inset as every row is. Square (visual-identity VI3): the item's indicator is a
- * full-radius pill that ignores the theme's shapes.
+ * full-radius pill that ignores the theme's shapes. Given [checked], it is an on/off setting instead: the
+ * whole row is the switch ([SwitchRow]), at the drawer item's height and inset.
  */
 @Composable
 private fun DrawerItem(
@@ -567,17 +556,36 @@ private fun DrawerItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    badge: (@Composable () -> Unit)? = null,
+    checked: Boolean? = null,
 ) {
+    if (checked != null) {
+        SwitchRow(
+            checked = checked,
+            onChange = { onClick() },
+            modifier = modifier.padding(horizontal = 12.dp).fillMaxWidth().height(DrawerItemHeight),
+            contentPadding = PaddingValues(start = 16.dp, end = 24.dp),
+        ) {
+            Text(
+                label,
+                // The drawer items' own size, so this row reads as one of them.
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        return
+    }
     NavigationDrawerItem(
         label = { Text(label) },
         selected = selected,
         onClick = onClick,
-        badge = badge,
         shape = RectangleShape,
         modifier = modifier.padding(horizontal = 12.dp),
     )
 }
+
+/** Material's drawer item height, which the setting row matches. */
+private val DrawerItemHeight = 56.dp
 
 /**
  * The View menu's editor as a route. **F20 N3, F19: with no editor open it goes back to the logger**

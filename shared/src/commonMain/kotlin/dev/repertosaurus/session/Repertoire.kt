@@ -133,7 +133,7 @@ public data class RepertoireState(
     val list: ToggleList? = null,
     /** E43: a confirmation, and only ever a confirmation. */
     val message: String? = null,
-    /** E43: a refusal or failure, rendered in the error colour. */
+    /** E43: a refusal or failure, rendered as an error line (D97). */
     val error: String? = null,
 ) {
     /** Apply [change] to the list only if it is still the one [ticket] names. */

@@ -17,7 +17,7 @@ public data class TimedHistory(val events: List<TimedEvent>) {
     /** Journal session 11 D85 #1: the song detail lists the newest [SHOWN] and counts the rest. */
     val latest: List<TimedEvent> get() = events.take(SHOWN)
 
-    val olderCount: Int get() = (events.size - SHOWN).coerceAtLeast(0)
+    val olderCount: Long get() = (events.size - SHOWN).coerceAtLeast(0).toLong()
 
     public companion object {
         public const val SHOWN: Int = 10

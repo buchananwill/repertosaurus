@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LinearProgressIndicator
@@ -21,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
 import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.InkFooter
@@ -29,6 +27,7 @@ import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.session.DetailRequest
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.SongSearch
@@ -231,16 +230,16 @@ public fun SongsScreen(
         val label = detail?.record?.let { songLabel(it.title, it.artistName) }.orEmpty()
         InkDialog(onDismiss = { confirmingDiscard = false }, title = "Discard your changes?") {
             DialogText("Your edits to $label have not been saved.")
-            DialogActions(
-                confirm = "Discard",
-                onConfirm = {
+            StackedActions(
+                primary = "Discard",
+                onPrimary = {
                     confirmingDiscard = false
                     detailId = null
                 },
-                dismiss = "Keep editing",
-                onDismiss = { confirmingDiscard = false },
-                confirmModifier = Modifier.testTag(SongsTags.DISCARD),
-                dismissModifier = Modifier.testTag(SongsTags.KEEP_EDITING),
+                secondary = "Keep editing",
+                onSecondary = { confirmingDiscard = false },
+                primaryModifier = Modifier.testTag(SongsTags.DISCARD),
+                secondaryModifier = Modifier.testTag(SongsTags.KEEP_EDITING),
             )
         }
     }
@@ -258,7 +257,7 @@ private fun SongListScreen(
     val shown = remember(state.songs, state.query) { SongSearch.search(state.songs, state.query) }
     Column(modifier = Modifier.fillMaxSize()) {
         RouteHeader(title = Messages.DRAWER_SONGS, onDone = onBack)
-        SongSearchField(query = state.query, onQuery = onQuery, modifier = Modifier.testTag(SongsTags.SEARCH))
+        SongSearchField(query = state.query, onQuery = onQuery, fieldModifier = Modifier.testTag(SongsTags.SEARCH))
         CountLine(
             if (state.query.isEmpty()) {
                 Messages.songCount(state.songs.size.toLong())
@@ -282,7 +281,6 @@ private fun SongListScreen(
             }
             if (shown.isEmpty() && !state.loading) emptyListLine(state.query, whenEmpty = Messages.NO_SONGS_YET)
         }
-        // VI15's foot, as the logger has it: the route's one primary action, full width, never over a row.
         InkFooter {
             PrimaryButton(text = Messages.ADD_SONG, onClick = onAdd, modifier = Modifier.fillMaxWidth().testTag(SongsTags.ADD))
         }

@@ -29,7 +29,7 @@ public data class SongsState(
     val detailRequest: DetailRequest? = null,
     /** E43: a confirmation, and only ever a confirmation. */
     val message: String? = null,
-    /** E43: a refusal or failure, rendered in the error colour. */
+    /** E43: a refusal or failure, rendered as an error line (D97). */
     val error: String? = null,
 ) {
     /** [change] applied to the detail only if it is still open on [songId]. */
@@ -159,7 +159,7 @@ public class SongDetailRead(
     public companion object {
         /**
          * Read one song's detail. Blocking; the caller keeps it off the main thread. The history is read
-         * once, so the summary and the timed history cannot disagree (F45 N2).
+         * once, so the summary and the timed history cannot disagree.
          */
         public fun of(repository: RepertosaurusRepository, songId: String): SongDetailRead {
             val catalog = repository.catalog

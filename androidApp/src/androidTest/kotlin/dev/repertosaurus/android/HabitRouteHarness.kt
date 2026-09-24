@@ -31,9 +31,8 @@ internal class HabitRoute(val holder: DatabaseHolder, val app: AppModels, val de
 }
 
 /**
- * **The scorecards route's instrumented harness** (style review F46 B6), in the [SongsRouteHarness]
- * form, shared by `HabitScreenTest` and `HabitMinutesTest`: a fresh database per route, the whole
- * [RepertosaurusApp] composed over it, the drawer's way in, and the tap on today's cell.
+ * **The whole-app harness**, first the scorecards': a fresh database per route, the whole [RepertosaurusApp]
+ * composed over it, the drawer's way into any route, and the tap on today's cell.
  */
 internal class HabitRouteHarness(private val compose: ComposeContentTestRule, private val prefix: String) {
 
@@ -67,12 +66,9 @@ internal class HabitRouteHarness(private val compose: ComposeContentTestRule, pr
         return HabitRoute(holder, app, device)
     }
 
-    /** Open the scorecards from the drawer. */
-    fun open() {
-        compose.onNodeWithContentDescription(LOGGER_MENU).performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(Messages.HABIT_TITLE).performClick()
-        compose.waitForIdle()
+    /** Open a route from the drawer: the scorecards unless [label] names another. */
+    fun open(label: String = Messages.HABIT_TITLE) {
+        compose.openFromDrawer(label)
     }
 
     /** Tap today's cell: the last column, today's weekday row, by the composable's own geometry (F24 B11). */
@@ -88,9 +84,5 @@ internal class HabitRouteHarness(private val compose: ComposeContentTestRule, pr
     /** Delete every database this harness created. Call from the test's `@After`. */
     fun cleanUp() {
         for (name in names) DatabaseFixtures.delete(context, name)
-    }
-
-    private companion object {
-        const val LOGGER_MENU = "Menu"
     }
 }

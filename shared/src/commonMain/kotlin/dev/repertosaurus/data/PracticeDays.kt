@@ -22,7 +22,7 @@ public class PracticeDays internal constructor(
         return HabitStats.build(liveTalliesByDay(instrumentId), today, instrumentId)
     }
 
-    /** `countLiveByDay`: each day's live events and timed sum, over all history. */
+    /** SC18. */
     internal fun liveTalliesByDay(instrumentId: String?): Map<String, DayTally> =
         database.practice_eventQueries.countLiveByDay(instrumentId)
             .executeAsList()

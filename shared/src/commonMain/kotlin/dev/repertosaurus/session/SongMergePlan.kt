@@ -179,7 +179,7 @@ public data class MergeState(
     val loading: Boolean = false,
     /** The merge is in flight; every control is dead. */
     val merging: Boolean = false,
-    /** E43: a refusal or failure, in the error colour. */
+    /** E43: a refusal or failure, as an error line (D97). */
     val error: String? = null,
 ) {
     /** The picker's rows: every live song but this one, filtered and ordered by [SongSearch]. */

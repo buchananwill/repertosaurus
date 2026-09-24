@@ -5,23 +5,27 @@ import android.graphics.Bitmap
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
-import org.junit.rules.ExternalResource
-import kotlin.test.assertTrue
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.abs
+import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import org.junit.rules.ExternalResource
 
 /** The device id every instrumented test writes with. */
 internal const val TEST_DEVICE: String = "instrumented-test-device"
@@ -169,11 +173,32 @@ internal fun ComposeTestRule.assertNoTextClipped(where: String, matcher: Semanti
     val scale = InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.fontScale
     for (node in nodes) {
         if (SemanticsActions.GetTextLayoutResult !in node.config) continue
-        val layouts = mutableListOf<TextLayoutResult>()
-        node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
         val text = node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString()
-        for (layout in layouts) assertTrue(!clipped(layout), "$where: \"$text\" is clipped at font scale $scale")
+        for (layout in node.textLayouts()) assertTrue(!clipped(layout), "$where: \"$text\" is clipped at font scale $scale")
     }
+}
+
+/** A text node's laid-out paragraphs, through its semantics action. */
+internal fun SemanticsNode.textLayouts(): List<TextLayoutResult> {
+    val layouts = mutableListOf<TextLayoutResult>()
+    config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+    return layouts
+}
+
+/** The logger header's menu button, which opens the drawer. */
+internal const val LOGGER_MENU: String = "Menu"
+
+/** Open the logger's drawer. */
+internal fun ComposeTestRule.openDrawer() {
+    onNodeWithContentDescription(LOGGER_MENU).performClick()
+    waitForIdle()
+}
+
+/** The drawer's item [label]: open the drawer and tap it. */
+internal fun ComposeTestRule.openFromDrawer(label: String) {
+    openDrawer()
+    onNodeWithText(label).performClick()
+    waitForIdle()
 }
 
 private fun clipped(layout: TextLayoutResult): Boolean {

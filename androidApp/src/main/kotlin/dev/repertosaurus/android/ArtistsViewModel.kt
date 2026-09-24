@@ -131,6 +131,6 @@ public data class ArtistsState(
     val busy: Boolean = false,
     /** E43: a confirmation, and only ever a confirmation. */
     val message: String? = null,
-    /** E43: a refusal or failure, rendered in the error colour. */
+    /** E43: a refusal or failure, rendered as an error line (D97). */
     val error: String? = null,
 )

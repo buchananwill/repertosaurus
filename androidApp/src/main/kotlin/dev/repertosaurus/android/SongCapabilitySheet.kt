@@ -5,18 +5,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -30,14 +26,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.ErrorLine
+import dev.repertosaurus.android.theme.InkChip
 import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkTextField
 import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PerformerLineUp
 import dev.repertosaurus.session.PerformerSuggestions
 import dev.repertosaurus.session.SongCapability
@@ -137,16 +138,9 @@ internal fun SongCapabilitySheet(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            // E43: two channels, two colours. A refused write must not be able to look like a
-            // confirmation, and the error is the one that gets the loud colour and stays put.
-            if (error != null) {
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.testTag(CapabilityTags.ERROR),
-                )
-            }
+            // E43: two channels, rendered differently. A refused write must not be able to look like a
+            // confirmation: the error carries the Madder mark (D97) and stays put.
+            if (error != null) ErrorLine(error, modifier = Modifier.testTag(CapabilityTags.ERROR))
 
             if (message != null) {
                 Text(
@@ -157,7 +151,7 @@ internal fun SongCapabilitySheet(
                 )
             }
 
-            HorizontalDivider()
+            RowRule()
 
             if (lineUp.isEmpty()) {
                 Text(
@@ -180,7 +174,7 @@ internal fun SongCapabilitySheet(
                 }
             }
 
-            HorizontalDivider()
+            RowRule()
 
             AddCapability(
                 songId = song.songId,
@@ -240,16 +234,8 @@ private fun PerformerEntry(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             for (capability in entry.capabilities) {
-                FilterChip(
-                    selected = capability.isLead,
-                    enabled = enabled,
-                    onClick = { onEdit(capability) },
-                    // E46: `Backing Vocal · lead · high`, assembled in the shared core. This
-                    // used to be built here beside a character-for-character copy of the
-                    // core's title-case helper.
-                    label = { Text(capability.label) },
-                    modifier = Modifier.height(44.dp),
-                )
+                // E46: `Backing Vocal · lead · high`, assembled in the shared core. An action: it opens the row.
+                InkChip(label = capability.label, enabled = enabled, onClick = { onEdit(capability) })
             }
         }
     }
@@ -288,44 +274,26 @@ private fun CapabilityDialog(
     InkDialog(onDismiss = onDismiss, title = capability.heading) {
         // E4: offered on every instrument and defaulting off. `backing vocal` gets no
         // special case — a featured backing vocalist is a real thing.
-        FilterChip(
-            selected = isLead,
-            enabled = !busy,
-            onClick = { isLead = !isLead },
-            label = { Text(capability.leadLabel) },
-            modifier = Modifier.height(44.dp),
-        )
+        InkChip(label = capability.leadLabel, checked = isLead, enabled = !busy, onCheckedChange = { isLead = it })
 
         if (capability.rangeApplies) {
             Text("Range", style = MaterialTheme.typography.labelLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = range == null,
-                    enabled = !busy,
-                    onClick = { range = null },
-                    label = { Text("Unset") },
-                    modifier = Modifier.height(44.dp),
-                )
+                InkChip(label = "Unset", selected = range == null, enabled = !busy, onSelect = { range = null })
                 for (option in VocalRange.entries) {
-                    FilterChip(
-                        selected = range == option,
-                        enabled = !busy,
-                        onClick = { range = option },
-                        label = { Text(option.label) },
-                        modifier = Modifier.height(44.dp),
-                    )
+                    InkChip(label = option.label, selected = range == option, enabled = !busy, onSelect = { range = option })
                 }
             }
         }
 
-        OutlinedTextField(
+        InkTextField(
             value = notes,
             onValueChange = { notes = it },
             enabled = !busy,
-            label = { Text("Notes (optional)") },
+            label = "Notes (optional)",
+            singleLine = false,
             minLines = 2,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            modifier = Modifier.fillMaxWidth(),
         )
 
         // E7: the removal is a tombstone, and E6's revive path depends on it still
@@ -338,9 +306,9 @@ private fun CapabilityDialog(
             modifier = Modifier.fillMaxWidth().testTag(CapabilityTags.REMOVE),
         )
 
-        DialogActions(
-            confirm = "Save",
-            onConfirm = {
+        StackedActions(
+            primary = Messages.SAVE,
+            onPrimary = {
                 onSave(
                     capability.copy(
                         isLead = isLead,
@@ -349,9 +317,9 @@ private fun CapabilityDialog(
                     ),
                 )
             },
-            onDismiss = onDismiss,
-            confirmEnabled = !busy,
-            confirmModifier = Modifier.testTag(CapabilityTags.SAVE),
+            onSecondary = onDismiss,
+            primaryEnabled = !busy,
+            primaryModifier = Modifier.testTag(CapabilityTags.SAVE),
         )
     }
 }
@@ -416,38 +384,32 @@ private fun AddCapability(
     ) {
         Text("Add someone", style = MaterialTheme.typography.titleSmall)
 
-        OutlinedTextField(
+        InkTextField(
             value = performer,
             onValueChange = { performer = it },
             enabled = enabled,
-            label = { Text("Performer") },
-            supportingText = { Text("A name that is not here yet is created.") },
-            singleLine = true,
+            label = "Performer",
+            supportingText = "A name that is not here yet is created.",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            modifier = Modifier.fillMaxWidth(),
         )
         SuggestionRow(
             // A performer's name is theirs as they typed it; only instrument names, which are
             // stored lower case by decision 5, get the core's title case.
             labels = performerMatches.map { it.name },
-            selected = performer,
             enabled = enabled,
             onPick = { performer = it },
         )
 
-        OutlinedTextField(
+        InkTextField(
             value = instrument,
             onValueChange = { instrument = it },
             enabled = enabled,
-            label = { Text("On") },
-            supportingText = { Text("One row per instrument. Add a second for a second part.") },
-            singleLine = true,
+            label = "On",
+            supportingText = "One row per instrument. Add a second for a second part.",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            modifier = Modifier.fillMaxWidth(),
         )
         SuggestionRow(
             labels = instrumentMatches.map { it.label },
-            selected = instrument,
             enabled = enabled,
             onPick = { instrument = it },
         )
@@ -467,7 +429,6 @@ private fun AddCapability(
 @Composable
 private fun SuggestionRow(
     labels: List<String>,
-    selected: String,
     enabled: Boolean,
     onPick: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -478,13 +439,7 @@ private fun SuggestionRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         for (label in labels) {
-            FilterChip(
-                selected = label.equals(selected, ignoreCase = true),
-                enabled = enabled,
-                onClick = { onPick(label) },
-                label = { Text(label) },
-                modifier = Modifier.height(44.dp),
-            )
+            InkChip(label = label, enabled = enabled, onClick = { onPick(label) })
         }
     }
 }

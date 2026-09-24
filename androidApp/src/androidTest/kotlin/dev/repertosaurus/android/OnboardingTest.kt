@@ -30,16 +30,16 @@ import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.OnboardingStep
-import org.junit.After
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.After
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
 
 /**
  * **onboarding §3 on the composed app**: the whole of [RepertosaurusApp] over a real database, with
@@ -81,7 +81,7 @@ class OnboardingTest {
 
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertIsDisplayed()
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.WELCOME)).assertIsDisplayed()
-        compose.onNodeWithContentDescription(MENU).assertDoesNotExist()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertDoesNotExist()
         Thread.sleep(HAND_RENDER_MS) // the hands are sprayed off the main thread, which the clock does not wait on
         compose.screenshot("p14", "welcome")
     }
@@ -96,7 +96,7 @@ class OnboardingTest {
         start(name("done"), device)
 
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertDoesNotExist()
-        compose.onNodeWithContentDescription(MENU).assertIsDisplayed()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertIsDisplayed()
     }
 
     /**
@@ -118,7 +118,7 @@ class OnboardingTest {
         assertFalse(app.session.firstLoadDone.value, "the first load is held")
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertDoesNotExist()
         compose.onNodeWithTag(OnboardingTags.SKIP).assertDoesNotExist()
-        compose.onNodeWithContentDescription(MENU).assertDoesNotExist()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertDoesNotExist()
 
         gate.open()
         compose.awaitUntil("the first load") { app.session.firstLoadDone.value }
@@ -135,7 +135,7 @@ class OnboardingTest {
         skip(device)
 
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertDoesNotExist()
-        compose.onNodeWithContentDescription(MENU).assertIsDisplayed()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertIsDisplayed()
         assertEquals(ColourRamp.DEFAULT, device.colourRamp())
         assertEquals(ColourRamp.DEFAULT, app.settings.colourRamp.value)
         assertNull(device.ownerPerformer())
@@ -184,7 +184,7 @@ class OnboardingTest {
         compose.onNodeWithTag(OwnerPerformerTags.owner(coralie)).assertIsSelected()
         assertFalse(device.onboardingDone(), "done is written last")
 
-        primary(Messages.ONBOARDING_DONE)
+        primary(Messages.DONE)
         compose.awaitUntil("the done mark") { device.onboardingDone() }
         compose.waitForIdle()
 
@@ -203,13 +203,13 @@ class OnboardingTest {
 
         primary(Messages.ONBOARDING_PICK_COLOURS)
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.RAMP)).assertIsDisplayed()
-        primary(Messages.ONBOARDING_DONE)
+        primary(Messages.DONE)
         compose.awaitUntil("the done mark") { device.onboardingDone() }
         compose.waitForIdle()
 
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.PERFORMER)).assertDoesNotExist()
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertDoesNotExist()
-        compose.onNodeWithContentDescription(MENU).assertIsDisplayed()
+        compose.onNodeWithContentDescription(LOGGER_MENU).assertIsDisplayed()
     }
 
     /**
@@ -326,13 +326,8 @@ class OnboardingTest {
         compose.onNodeWithTag(RatingTags.ramp(ColourRamp.PASTEL_RED_BLUE)).assertIsSelected()
     }
 
-    private fun menu() {
-        compose.onNodeWithContentDescription(MENU).performClick()
-        compose.waitForIdle()
-    }
-
     private fun openWhoYouAre() {
-        menu()
+        compose.openDrawer()
         compose.onNodeWithTag(DrawerTags.WHO_YOU_ARE).performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithTag(OwnerPerformerTags.OWNER_PICKER).assertExists()
@@ -360,7 +355,6 @@ class OnboardingTest {
     }
 
     private companion object {
-        const val MENU = "Menu"
         const val HAND_RENDER_MS = 1_000L
     }
 }

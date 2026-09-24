@@ -1,28 +1,20 @@
 package dev.repertosaurus.android
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +24,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.DisplayText
+import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.ErrorLine
+import dev.repertosaurus.android.theme.InkCheckbox
+import dev.repertosaurus.android.theme.InkChip
 import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkHeader
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.StackedActions
+import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.data.SongChildKey
@@ -109,7 +112,6 @@ internal fun SongMergeScreen(
  * search box, row, empty line and matcher ([SongSearchField], [SongListRow], [emptyListLine],
  * `SongSearch`).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MergePicker(
     state: MergeState,
@@ -118,43 +120,44 @@ private fun MergePicker(
 ) {
     val current = remember(songs, state.songId) { songs.firstOrNull { it.id == state.songId } }
     val shown = remember(songs, state.query, state.songId) { state.candidates(songs) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(Messages.mergeWith(current?.let { songLabel(it.title, it.artistName) }.orEmpty()), maxLines = 2) },
-                navigationIcon = {
-                    TextButton(onClick = actions.onBack, modifier = Modifier.testTag(MergeTags.BACK)) { Text("Back") }
-                },
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).testTag(MergeTags.PICKER)) {
-            Text(
-                Messages.MERGE_PICK_HINT,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            SongSearchField(query = state.query, onQuery = actions.onQuery, modifier = Modifier.testTag(MergeTags.SEARCH))
-            StatusLines(message = null, error = state.error)
-            if (state.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            HorizontalDivider()
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f).testTag(MergeTags.PICKER_LIST),
-                contentPadding = PaddingValues(bottom = 48.dp),
-            ) {
-                items(shown, key = { it.id }) { song ->
+    Column(modifier = Modifier.fillMaxSize().testTag(MergeTags.PICKER)) {
+        MergeHeader(
+            title = Messages.mergeWith(current?.let { songLabel(it.title, it.artistName) }.orEmpty()),
+            onBack = actions.onBack,
+        )
+        MutedLine(Messages.MERGE_PICK_HINT, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+        SongSearchField(query = state.query, onQuery = actions.onQuery, fieldModifier = Modifier.testTag(MergeTags.SEARCH))
+        StatusLines(message = null, error = state.error)
+        if (state.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        RowRule(modifier = Modifier.padding(top = 4.dp))
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f).testTag(MergeTags.PICKER_LIST),
+            contentPadding = PaddingValues(bottom = 48.dp),
+        ) {
+            items(shown, key = { it.id }) { song ->
+                RuledItem {
                     SongListRow(
                         song = song,
                         onClick = { actions.onChoose(song.id) },
                         enabled = !state.loading,
                         modifier = Modifier.testTag(MergeTags.candidate(song.id)),
                     )
-                    HorizontalDivider()
                 }
-                if (shown.isEmpty()) emptyListLine(state.query, whenEmpty = Messages.MERGE_NO_OTHER_SONGS)
             }
+            if (shown.isEmpty()) emptyListLine(state.query, whenEmpty = Messages.MERGE_NO_OTHER_SONGS)
         }
     }
+}
+
+/** VI9: the merge overlay's bar, with its way back (E24's overlays ruling) as the bar's secondary button. */
+@Composable
+private fun MergeHeader(title: String, onBack: () -> Unit, enabled: Boolean = true) {
+    InkHeader(
+        navigation = {
+            SecondaryButton(text = "Back", onClick = onBack, enabled = enabled, modifier = Modifier.testTag(MergeTags.BACK))
+        },
+        title = { DisplayText(title, style = DisplayType.Heading, maxLines = 3) },
+    )
 }
 
 // ---- The preview (R33-R35, R38) --------------------------------------------------------------
@@ -166,7 +169,6 @@ private fun MergePicker(
  * says it cannot be undone (R38). Every sentence is the core's ([Messages]); every value is the
  * plan's. Nothing is written until the confirmation's Merge.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MergePreview(
     plan: MergePlan,
@@ -181,21 +183,10 @@ private fun MergePreview(
     val errors = remember(plan) { plan.errors }
     val enabled = !merging
 
-    Scaffold(
-        modifier = Modifier.testTag(MergeTags.PREVIEW),
-        topBar = {
-            TopAppBar(
-                title = { Text("Merge preview") },
-                navigationIcon = {
-                    TextButton(onClick = actions.onBack, enabled = enabled, modifier = Modifier.testTag(MergeTags.BACK)) {
-                        Text("Back")
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Column(modifier = Modifier.fillMaxSize().testTag(MergeTags.PREVIEW)) {
+        MergeHeader(title = "Merge preview", onBack = actions.onBack, enabled = enabled)
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).testTag(MergeTags.PREVIEW_LIST),
+            modifier = Modifier.fillMaxWidth().weight(1f).testTag(MergeTags.PREVIEW_LIST),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -231,15 +222,15 @@ private fun MergePreview(
     if (confirming) {
         InkDialog(onDismiss = { confirming = false }, title = "Merge these two songs?") {
             DialogText(Messages.mergeConfirmation(plan))
-            DialogActions(
-                confirm = "Merge",
-                onConfirm = {
+            StackedActions(
+                primary = "Merge",
+                onPrimary = {
                     confirming = false
                     actions.onConfirm()
                 },
-                onDismiss = { confirming = false },
-                confirmModifier = Modifier.testTag(MergeTags.DO_MERGE),
-                dismissModifier = Modifier.testTag(MergeTags.CANCEL),
+                onSecondary = { confirming = false },
+                primaryModifier = Modifier.testTag(MergeTags.DO_MERGE),
+                secondaryModifier = Modifier.testTag(MergeTags.CANCEL),
             )
         }
     }
@@ -287,16 +278,16 @@ private fun LazyListScope.fieldItems(
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(pick.field.label, style = MaterialTheme.typography.labelLarge)
             for (side in MergeSide.entries) {
-                FilterChip(
+                InkChip(
+                    label = Messages.mergeFieldValue(pick.field, plan.draft(side), spelling),
                     selected = pick.pick == side,
                     enabled = enabled,
-                    onClick = { actions.onPick(pick.field, side) },
-                    label = { Text(Messages.mergeFieldValue(pick.field, plan.draft(side), spelling), maxLines = 3) },
+                    onSelect = { actions.onPick(pick.field, side) },
                     modifier = Modifier.fillMaxWidth().testTag(MergeTags.field(pick.field, side)),
                 )
             }
             errors[pick.field]?.let { text ->
-                Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                ErrorLine(text, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -348,11 +339,11 @@ private fun CheckRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clickable(enabled = enabled, onClick = onToggle),
+            .heightIn(min = Tokens.TouchMin)
+            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() }),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
-        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+        InkCheckbox(checked = checked, enabled = enabled)
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 12.dp))
     }
 }

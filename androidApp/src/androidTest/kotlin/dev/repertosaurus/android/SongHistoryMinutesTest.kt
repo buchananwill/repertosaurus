@@ -8,13 +8,13 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.session.Messages
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
  * **scorecards SC19 on the Songs route**: the song detail's practice section lists each timed event's
@@ -70,12 +70,7 @@ class SongHistoryMinutesTest {
      */
     @Test
     fun theTimedListShowsTheLatestTenAndCountsTheRest() {
-        val route = harness.route("capped") { holder ->
-            val valerie = EditingFixtures.song(holder, "Valerie").id
-            for (day in 1..12) {
-                holder.repository.logPractice(valerie, SampleData.VOCAL, loggedOn = "2026-09-%02d".format(day), durationSeconds = day * 60L)
-            }
-        }
+        val route = harness.route("capped") { holder -> EditingFixtures.timeTwelve(holder, EditingFixtures.song(holder, "Valerie").id) }
         harness.openDetail(route, EditingFixtures.song(route.holder, "Valerie"))
 
         val events = route.songs.state.value.detail!!.timed!!.events
@@ -89,6 +84,29 @@ class SongHistoryMinutesTest {
             compose.onNodeWithTag(SongDetailTags.timedEvent(event.id)).assertDoesNotExist()
         }
         compose.onNodeWithTag(SongDetailTags.TIMED_MORE).performScrollTo().assertTextEquals("and 2 more")
+    }
+
+    /**
+     * D94 (the cap's boundary): eleven timed events, 1 to 11 min on 1 to 11 Sep. Ten are listed (11 Sep back to
+     * 2 Sep), 1 Sep is not, "and 1 more" follows, and the total is all eleven: 60 × 66 = 3 960 s = "1 h 6 min".
+     */
+    @Test
+    fun elevenTimedEventsListTenAndOneMore() {
+        val route = harness.route("eleven") { holder ->
+            EditingFixtures.timeDays(holder, EditingFixtures.song(holder, "Valerie").id, 1..11)
+        }
+        harness.openDetail(route, EditingFixtures.song(route.holder, "Valerie"))
+
+        val timed = route.songs.state.value.detail!!.timed!!
+        assertEquals(1L, timed.olderCount)
+        compose.onNodeWithTag(SongDetailTags.TIMED_TOTAL).performScrollTo().assertTextEquals("Timed total: 1 h 6 min")
+        for (event in timed.events.take(10)) {
+            compose.onNodeWithTag(SongDetailTags.timedEvent(event.id)).performScrollTo().assertTextEquals(Messages.timedEventLine(event))
+        }
+        val oldest = timed.events.last()
+        assertEquals("2026-09-01", oldest.loggedOn)
+        compose.onNodeWithTag(SongDetailTags.timedEvent(oldest.id)).assertDoesNotExist()
+        compose.onNodeWithTag(SongDetailTags.TIMED_MORE).performScrollTo().assertTextEquals("and 1 more")
     }
 
     @Test

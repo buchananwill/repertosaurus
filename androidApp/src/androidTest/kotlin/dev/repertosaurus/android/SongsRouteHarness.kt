@@ -1,18 +1,18 @@
 package dev.repertosaurus.android
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.android.EditingFixtures.onMain
+import dev.repertosaurus.android.theme.RepertosaurusWindow
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
+import dev.repertosaurus.session.InMemoryTimerStore
 
 /** One Songs route under test: its database and the two ViewModels the screen is driven by (R18). */
 internal class SongsRoute(
@@ -57,10 +57,10 @@ internal class SongsRouteHarness(private val compose: ComposeContentTestRule, pr
         return SongsRoute(holder, songs, session, settings)
     }
 
-    /** Compose the Songs screen over [route] and wait for its list. */
+    /** Compose the Songs screen over [route], in the app's own window as `MainActivity` does, and wait for its list. */
     fun show(route: SongsRoute) {
         compose.setContent {
-            MaterialTheme {
+            RepertosaurusWindow {
                 SongsScreen(viewModel = route.songs, session = route.session, settings = route.settings, onBack = {})
             }
         }

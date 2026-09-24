@@ -54,14 +54,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.InkEdge
 import dev.repertosaurus.android.theme.Motion
-import dev.repertosaurus.android.theme.PrimaryButton
-import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.android.theme.inkRule
 import dev.repertosaurus.session.InstrumentChip
@@ -224,10 +222,13 @@ private fun TimerBar(
             Text(song.title, style = MaterialTheme.typography.titleMedium, color = Tokens.Ink, maxLines = 2)
             DisplayText(Messages.timerClock(seconds()), style = DisplayType.ScreenTitle, color = Tokens.Ink, maxLines = 1)
         }
-        Column(modifier = Modifier.width(BarButtonWidth), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(Messages.TIMER_STOP, onClick = onStop, modifier = Modifier.fillMaxWidth(), enabled = stoppable)
-            SecondaryButton(Messages.CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
-        }
+        StackedActions(
+            primary = Messages.TIMER_STOP,
+            onPrimary = onStop,
+            onSecondary = onCancel,
+            modifier = Modifier.width(BarButtonWidth),
+            primaryEnabled = stoppable,
+        )
     }
 }
 
@@ -330,8 +331,13 @@ private fun FullScreenFace(
                 textAlign = TextAlign.Center,
             )
         }
-        PrimaryButton(Messages.TIMER_STOP, onClick = onStop, modifier = Modifier.fillMaxWidth(), enabled = stoppable)
-        SecondaryButton(Messages.CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
+        StackedActions(
+            primary = Messages.TIMER_STOP,
+            onPrimary = onStop,
+            onSecondary = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+            primaryEnabled = stoppable,
+        )
     }
 }
 
@@ -342,11 +348,11 @@ private const val DIGIT_WIDTH_EM = 0.62f
 @Composable
 private fun TimerQuestionDialog(question: TimerQuestion, onAnswer: (withTime: Boolean) -> Unit, onDismiss: () -> Unit) {
     InkDialog(onDismiss = onDismiss, title = Messages.timerQuestion(question.seconds), modifier = Modifier.testTag(TimerTags.QUESTION)) {
-        DialogActions(
-            confirm = Messages.timerLogWith(question.seconds),
-            onConfirm = { onAnswer(true) },
-            dismiss = Messages.TIMER_LOG_WITHOUT,
-            onDismiss = { onAnswer(false) },
+        StackedActions(
+            primary = Messages.timerLogWith(question.seconds),
+            onPrimary = { onAnswer(true) },
+            secondary = Messages.TIMER_LOG_WITHOUT,
+            onSecondary = { onAnswer(false) },
         )
     }
 }

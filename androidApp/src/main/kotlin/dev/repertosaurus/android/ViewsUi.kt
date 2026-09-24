@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,13 +15,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,8 +30,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.InkTextField
 import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
@@ -217,17 +216,16 @@ internal fun ViewSwitcherSheet(
                             onSetHome = { onSetHome(view.id) },
                             onEdit = { onEdit(view) },
                         )
-                        HorizontalDivider()
+                        RowRule()
                     }
                 }
             }
 
             if (rateThese != null) {
                 RateTheseRow(entry = rateThese, onRate = onRate)
-                HorizontalDivider()
+                RowRule()
             }
 
-            // VI3, VI12 (journal session 11, D90): the sheet's one primary, square.
             PrimaryButton(
                 text = if (views.isEmpty()) "Make the first view" else "New view",
                 onClick = onCreate,
@@ -280,10 +278,8 @@ private fun ViewSwitcherRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (!home) {
-            TextButton(onClick = onSetHome) { Text("Home") }
-        }
-        TextButton(onClick = onEdit) { Text("Edit") }
+        if (!home) TextAction("Home", onClick = onSetHome)
+        TextAction("Edit", onClick = onEdit)
     }
 }
 
@@ -385,14 +381,12 @@ internal fun ViewEditorSheet(
                 style = MaterialTheme.typography.headlineSmall,
             )
 
-            OutlinedTextField(
+            InkTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
-                placeholder = { Text("Classical piano") },
-                singleLine = true,
+                label = "Name",
+                placeholder = "Classical piano",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
             )
 
             SectionLabel(
@@ -400,7 +394,7 @@ internal fun ViewEditorSheet(
                 detail = "Leave all three alone and the view shows the whole repertoire.",
             )
 
-            OutlinedTextField(
+            InkTextField(
                 value = performerText,
                 onValueChange = { entered ->
                     typed = entered
@@ -409,40 +403,33 @@ internal fun ViewEditorSheet(
                     // constraint, and the supporting text says so.
                     performerId = NearMatches.exact(entered, performers) { it.name }?.id
                 },
-                label = { Text("Performer") },
-                supportingText = {
-                    Text(
-                        when {
-                            // E42, E47: this sheet is the way out of a View filtering on a
-                            // performer who has been removed, so it has to say so. The id is
-                            // still set and resolves to nothing, which used to render as
-                            // "Songs  is on." — a sentence with a hole in it, on the one
-                            // screen whose job is to explain the problem.
-                            performerId != null && pickedName.isEmpty() ->
-                                "That performer has been removed. Pick one below, or clear it."
-                            performerId != null -> "Songs $pickedName is on."
-                            performerText.isBlank() -> "Anyone. Leave blank for no filter."
-                            else -> "No performer by that name. Pick one below, or leave it blank."
-                        },
-                    )
+                label = "Performer",
+                supportingText = when {
+                    // E42, E47: this sheet is the way out of a View filtering on a
+                    // performer who has been removed, so it has to say so. The id is
+                    // still set and resolves to nothing, which used to render as
+                    // "Songs  is on." — a sentence with a hole in it, on the one
+                    // screen whose job is to explain the problem.
+                    performerId != null && pickedName.isEmpty() ->
+                        "That performer has been removed. Pick one below, or clear it."
+                    performerId != null -> "Songs $pickedName is on."
+                    performerText.isBlank() -> "Anyone. Leave blank for no filter."
+                    else -> "No performer by that name. Pick one below, or leave it blank."
                 },
                 trailingIcon = {
                     // `performerId != null` with an empty field is the removed-performer case:
                     // the filter is still set and Clear is the only way to drop it.
                     if (performerText.isNotEmpty() || performerId != null) {
-                        TextButton(
+                        TextAction(
+                            "Clear",
                             onClick = {
                                 performerId = null
                                 typed = ""
                             },
-                        ) {
-                            Text("Clear")
-                        }
+                        )
                     }
                 },
-                singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                modifier = Modifier.fillMaxWidth(),
             )
 
             if (suggestions.isNotEmpty()) {
@@ -451,14 +438,13 @@ internal fun ViewEditorSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     for (match in suggestions) {
-                        FilterChip(
+                        InkChip(
+                            label = match.name,
                             selected = performerId == match.id,
-                            onClick = {
+                            onSelect = {
                                 performerId = match.id
                                 typed = null
                             },
-                            label = { Text(match.name) },
-                            modifier = Modifier.height(44.dp),
                         )
                     }
                 }
@@ -472,30 +458,15 @@ internal fun ViewEditorSheet(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(
-                    selected = filterInstrumentId == null,
-                    onClick = { filterInstrumentId = null },
-                    label = { Text("Anything") },
-                    modifier = Modifier.height(44.dp),
-                )
+                InkChip(label = "Anything", selected = filterInstrumentId == null, onSelect = { filterInstrumentId = null })
                 for (chip in instruments) {
-                    FilterChip(
-                        selected = filterInstrumentId == chip.id,
-                        onClick = { filterInstrumentId = chip.id },
-                        label = { Text(chip.label) },
-                        modifier = Modifier.height(44.dp),
-                    )
+                    InkChip(label = chip.label, selected = filterInstrumentId == chip.id, onSelect = { filterInstrumentId = chip.id })
                 }
             }
 
             // V6: `is_lead` is scoped to its instrument — lead vocal on a vocal row, lead
             // guitar on a guitar row — so this reads against whatever is selected above.
-            FilterChip(
-                selected = leadOnly,
-                onClick = { leadOnly = !leadOnly },
-                label = { Text("Lead only") },
-                modifier = Modifier.height(44.dp),
-            )
+            InkChip(label = "Lead only", checked = leadOnly, onCheckedChange = { leadOnly = it })
 
             SectionLabel(
                 title = "Practising",
@@ -508,12 +479,7 @@ internal fun ViewEditorSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 for (chip in instruments) {
-                    FilterChip(
-                        selected = practiceInstrumentId == chip.id,
-                        onClick = { practiceInstrumentId = chip.id },
-                        label = { Text(chip.label) },
-                        modifier = Modifier.height(44.dp),
-                    )
+                    InkChip(label = chip.label, selected = practiceInstrumentId == chip.id, onSelect = { practiceInstrumentId = chip.id })
                 }
             }
 
@@ -549,12 +515,7 @@ internal fun ViewEditorSheet(
             if (editing != null && editing.saved) {
                 // V23: a tombstone, not a DELETE — every practice event logged under this
                 // View is untouched, because a View was never what they were attached to.
-                TextButton(
-                    onClick = { onDelete(editing) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Delete this view")
-                }
+                TextAction("Delete this view", onClick = { onDelete(editing) }, modifier = Modifier.fillMaxWidth())
             }
         }
     }

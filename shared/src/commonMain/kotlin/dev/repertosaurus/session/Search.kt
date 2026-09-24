@@ -149,10 +149,11 @@ public object ArtistSearch {
 }
 
 /**
- * **The one song label (repertoire-editing R11): `Title — Artist`.** Every surface that names
- * a song in one line calls this — the Songs list, the Repertoire toggle list, R23's "already
- * in the repertoire as …" — so no screen assembles its own dash. Stored values are shown as
- * stored; a blank artist name leaves the title alone.
+ * **The one-line song label (repertoire-editing R11, amended D94): `Title — Artist`.** Every surface
+ * that names a song inside a sentence or on a single line calls this — snackbars, dialogs, R23's
+ * "already in the repertoire as …" — so no screen assembles its own dash. List rows show the title
+ * over the artist instead (`SongTitleArtist`). Stored values are shown as stored; a blank artist
+ * name leaves the title alone.
  */
 public fun songLabel(title: String, artistName: String?): String =
     if (artistName.isNullOrBlank()) title else title + SONG_LABEL_SEPARATOR + artistName

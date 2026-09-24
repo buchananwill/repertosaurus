@@ -3,7 +3,6 @@ package dev.repertosaurus.android
 import android.content.Context
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.android.theme.RepertosaurusWindow
 import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.DatabaseState
@@ -12,12 +11,13 @@ import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
+import dev.repertosaurus.session.InMemoryTimerStore
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupStores
 import dev.repertosaurus.session.SessionPreferences
+import kotlin.test.assertEquals
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlin.test.assertEquals
 
 /**
  * The repertoire-editing arc's harness: a fresh database per test, holding the app's own eight
@@ -42,6 +42,21 @@ internal object EditingFixtures {
     fun song(holder: DatabaseHolder, title: String): SongCatalog.SongListEntry =
         holder.repository.catalog.songs().firstOrNull { it.title == title }
             ?: error("no live song titled $title")
+
+    /**
+     * scorecards SC19, D85 #1: twelve timed vocal events on [songId], 1 to 12 min on 1 to 12 Sep 2026, logged
+     * oldest first. Their total is 60 × (1 + … + 12) = 4 680 s, "1 h 18 min".
+     */
+    fun timeTwelve(holder: DatabaseHolder, songId: String) {
+        timeDays(holder, songId, 1..12)
+    }
+
+    /** One timed vocal event on [songId] for each day of September 2026 in [days], `day` minutes long. */
+    fun timeDays(holder: DatabaseHolder, songId: String, days: IntRange) {
+        for (day in days) {
+            holder.repository.logPractice(songId, SampleData.VOCAL, loggedOn = "2026-09-%02d".format(day), durationSeconds = day * 60L)
+        }
+    }
 
     fun onMain(block: () -> Unit) {
         instrumentation.runOnMainSync(block)

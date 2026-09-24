@@ -23,16 +23,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
 import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.data.DatabaseState
+import dev.repertosaurus.session.Messages
 
 /** Test tags, so the instrumented test asserting S10 names the same things the screen shows. */
 public object RecoveryTags {
@@ -103,12 +103,9 @@ public fun RecoveryScreen(
             // run its migration. Promising the user their file is untouched when it may not be
             // is the same class of defect as the silent empty list S11 forbids: a statement about
             // their data that they cannot check and that is sometimes false.
-            Text(
+            MutedLine(
                 "Your database is still on this phone, at ${state.file}. Importing replaces " +
                     "it; starting fresh deletes it. Nothing else here changes it.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                overflow = TextOverflow.Ellipsis,
             )
 
             if (transfer.busy) {
@@ -117,7 +114,7 @@ public fun RecoveryScreen(
 
             RowRule()
 
-            // VI12: the recommended fix is the screen's one primary action (S4).
+            // S4.
             PrimaryButton(
                 text = "Import a database",
                 onClick = onImport,
@@ -150,13 +147,13 @@ public fun RecoveryScreen(
                     "place. This cannot be undone, and there is no other copy on this " +
                     "phone.",
             )
-            DialogActions(
-                confirm = "Delete and start fresh",
-                onConfirm = {
+            StackedActions(
+                primary = "Delete and start fresh",
+                onPrimary = {
                     confirmingFresh = false
                     viewModel.startFresh()
                 },
-                onDismiss = { confirmingFresh = false },
+                onSecondary = { confirmingFresh = false },
             )
         }
     }
@@ -166,11 +163,10 @@ public fun RecoveryScreen(
     transfer.pending?.let { preview ->
         InkDialog(onDismiss = { viewModel.cancelImport() }, title = "Use this database?") {
             DialogText(
-                "The file you picked holds ${preview.songs} songs and " +
-                    "${preview.practiceEvents} practice events.\n\n" +
+                Messages.importHolds(preview.songs, preview.practiceEvents) + "\n\n" +
                     "It replaces the database this phone cannot read.",
             )
-            DialogActions(confirm = "Use it", onConfirm = { viewModel.confirmImport() }, onDismiss = { viewModel.cancelImport() })
+            StackedActions(primary = "Use it", onPrimary = { viewModel.confirmImport() }, onSecondary = { viewModel.cancelImport() })
         }
     }
 }

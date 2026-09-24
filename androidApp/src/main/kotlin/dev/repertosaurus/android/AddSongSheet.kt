@@ -84,9 +84,9 @@ internal fun AddSongSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            DisplayText("Add a song", style = DisplayType.Heading)
+            DisplayText(Messages.ADD_SONG, style = DisplayType.Heading)
 
-            // E43: a refusal stays on the sheet, in the error colour, with what was typed — the
+            // E43: a refusal stays on the sheet, as an error line (D97), with what was typed — the
             // routes' own status lines (style review F17 N8), not a third copy of them.
             StatusLines(message = null, error = error)
 
@@ -123,7 +123,7 @@ internal fun AddSongSheet(
                     artist = match.name
                     pickedArtistId = match.id
                 },
-                modifier = Modifier.testTag(AddSongTags.ARTIST),
+                fieldModifier = Modifier.testTag(AddSongTags.ARTIST),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { commit() }),
             )

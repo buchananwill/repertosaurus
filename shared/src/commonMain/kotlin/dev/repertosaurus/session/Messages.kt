@@ -18,7 +18,7 @@ import kotlinx.datetime.LocalDate
 
 /**
  * A sentence for the user **and the channel it belongs on** (E43, R29): a confirmation on the
- * message channel, or a refusal on the error channel, rendered in the error colour. Which channel
+ * message channel, or a refusal on the error channel, rendered as an error line (D97). Which channel
  * a sentence goes on is a rule, so it is decided here with the words rather than by each screen.
  */
 public data class Notice(val text: String, val channel: Channel) {
@@ -72,8 +72,24 @@ public object Messages {
     /** The one "Cancel": every dialog's way out, and the running timer's (timer TM4). */
     public const val CANCEL: String = "Cancel"
 
-    /** The one "Add song": the logger's foot, the Songs route's, and the add sheet's button. */
+    /** The one "Add song": the logger's foot, the Songs route's, and the add sheet's heading and button. */
     public const val ADD_SONG: String = "Add song"
+
+    /** The button words more than one screen says (D95 B7). */
+    public const val DONE: String = "Done"
+    public const val REMOVE: String = "Remove"
+    public const val SAVE: String = "Save"
+    public const val RENAME: String = "Rename"
+
+    /** triage T1: a Repertoire role's other pane, beside [DRAWER_SONGS]. */
+    public const val RATINGS_PANE: String = "Ratings"
+
+    /** An import's confirmation: what the picked file holds. */
+    public fun importHolds(songs: Long, events: Long): String =
+        "The file you picked holds $songs songs and $events practice events."
+
+    /** R3: the toggle list's count, "3 of 12 songs held". */
+    public fun heldOf(held: Int, total: Long): String = "${shownOf(held, songCount(total))} held"
 
     // ---- The practice timer (timer TM1-TM12) ----------------------------------------------------
 
@@ -421,10 +437,9 @@ public object Messages {
     public fun practiceLine(summary: RepertosaurusRepository.PracticeSummary): String =
         "${instrumentLabel(summary.instrumentName)}: ${summary.timesPractised} logged, last on ${summary.lastPractised}"
 
-    /** An event's instrument by name, or [REMOVED_INSTRUMENT] (F46 B2). */
     private fun instrumentLabel(name: String?): String = name?.let(::titleCase) ?: REMOVED_INSTRUMENT
 
-    /** One event by date and instrument: "2026-09-20 · Vocal" (F46 N7). */
+    /** One event by date and instrument: "2026-09-20 · Vocal". */
     private fun eventLabel(loggedOn: String, instrumentName: String?): String = "$loggedOn · ${instrumentLabel(instrumentName)}"
 
     // ---- Merging two songs (R31-R39, R38a) ----------------------------------------------------
@@ -575,7 +590,7 @@ public object Messages {
     public fun timedTotalLine(seconds: Long): String = "Timed total: ${duration(seconds)}"
 
     /** SC19, journal session 11 D85 #1: the timed events beyond [TimedHistory.SHOWN], "and 3 more". */
-    public fun timedMore(count: Int): String = "and $count more"
+    public fun timedMore(count: Long): String = "and $count more"
 
     /** SC8: "19 of 26", or "not yet" for a weekday the clipped window has not reached. */
     public fun habitFraction(weekday: WeekdayReliability): String =
@@ -658,7 +673,6 @@ public object Messages {
     public const val ONBOARDING_CHANGE_LATER: String = "You can change this any time from the menu."
 
     public const val ONBOARDING_NEXT: String = "Next"
-    public const val ONBOARDING_DONE: String = "Done"
 
     /** OB6: the drawer item and its sheet's heading (triage T10). */
     public const val WHO_YOU_ARE: String = "Who you are"

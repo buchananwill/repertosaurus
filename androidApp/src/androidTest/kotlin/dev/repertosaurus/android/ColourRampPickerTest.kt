@@ -15,11 +15,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.session.InMemoryDevicePreferences
+import kotlin.test.assertEquals
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.test.assertEquals
 
 /**
  * **rating-scale RS8 and RS16 on the composed app**: the drawer item opens the picker, one tap
@@ -53,8 +53,7 @@ class ColourRampPickerTest {
         compose.onAllNodesWithText("NEVER").onFirst().assertExists()
         assertEquals(coldest(ColourRamp.DEFAULT), badgeColour(), "the default ramp before any pick")
 
-        compose.onNodeWithContentDescription("Menu").performClick()
-        compose.waitForIdle()
+        compose.openDrawer()
         compose.onNodeWithTag(DrawerTags.COLOUR_RAMP).performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithTag(RatingTags.RAMP_PICKER).assertExists()

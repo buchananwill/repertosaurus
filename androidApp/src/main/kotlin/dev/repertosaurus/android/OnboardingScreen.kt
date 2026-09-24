@@ -135,7 +135,7 @@ internal fun OnboardingScreen(
 
 private fun primaryLabel(step: OnboardingStep, next: OnboardingStep?): String = when {
     step == OnboardingStep.WELCOME -> Messages.ONBOARDING_PICK_COLOURS
-    next == null -> Messages.ONBOARDING_DONE
+    next == null -> Messages.DONE
     else -> Messages.ONBOARDING_NEXT
 }
 

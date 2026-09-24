@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
 import dev.repertosaurus.android.theme.InkChip
 import dev.repertosaurus.android.theme.InkDialog
@@ -42,11 +41,13 @@ import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.session.LookupItem
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupSuggestions
+import dev.repertosaurus.session.Messages
 
 /**
  * Manage one lookup table. **All seven kinds reach it** (E18), `performer` included — E13 is
@@ -142,12 +143,11 @@ public fun ManageLookupScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     for (match in suggestions) {
-                        InkChip(label = match.name, selected = false, onClick = { typed = match.name })
+                        InkChip(label = match.name, onClick = { typed = match.name })
                     }
                 }
             }
 
-            // VI12: the screen's one primary action.
             PrimaryButton(
                 text = if (exact != null) "Keep the existing one" else "Add",
                 onClick = commit,
@@ -177,15 +177,7 @@ public fun ManageLookupScreen(
                     }
                 }
 
-                if (items.isEmpty() && !state.busy) {
-                    item(key = "empty") {
-                        Text(
-                            "Nothing here yet.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(32.dp),
-                        )
-                    }
-                }
+                if (items.isEmpty() && !state.busy) emptyListLine(query = "", whenEmpty = "Nothing here yet.")
             }
         }
     }
@@ -215,13 +207,13 @@ public fun ManageLookupScreen(
                         "and still count — the ${kind.singular} just stops being offered."
                 },
             )
-            DialogActions(
-                confirm = "Remove",
-                onConfirm = {
+            StackedActions(
+                primary = Messages.REMOVE,
+                onPrimary = {
                     viewModel.removeLookup(kind, item.id, item.name)
                     removing = null
                 },
-                onDismiss = { removing = null },
+                onSecondary = { removing = null },
             )
         }
     }
@@ -283,8 +275,8 @@ private fun LookupRowItem(
             if (kind.hasNotes) {
                 TextAction("Notes", onClick = onNotes)
             }
-            TextAction("Rename", onClick = onRename)
-            TextAction("Remove", onClick = onRemove)
+            TextAction(Messages.RENAME, onClick = onRename)
+            TextAction(Messages.REMOVE, onClick = onRemove)
         }
 
         if (kind.hasNotes) {
@@ -317,10 +309,9 @@ private fun NotesDialog(
             label = "Notes",
             singleLine = false,
             minLines = 3,
-            modifier = Modifier.fillMaxWidth(),
         )
         MutedLine("Yours, on this ${kind.singular}. Clearing the field removes them.")
-        DialogActions(confirm = "Save", onConfirm = { onSave(notes) }, onDismiss = onDismiss)
+        StackedActions(primary = Messages.SAVE, onPrimary = { onSave(notes) }, onSecondary = onDismiss)
     }
 }
 
@@ -340,11 +331,10 @@ private fun RenameDialog(
             label = "Name",
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { onRename(name) }),
-            modifier = Modifier.fillMaxWidth(),
         )
         // E21: an id is opaque and immutable once written, and every referencing
         // row points at it. Renaming never re-derives one.
         MutedLine("Everything already recorded against this ${kind.singular} stays attached to it.")
-        DialogActions(confirm = "Rename", onConfirm = { onRename(name) }, onDismiss = onDismiss, confirmEnabled = name.isNotBlank())
+        StackedActions(primary = Messages.RENAME, onPrimary = { onRename(name) }, onSecondary = onDismiss, primaryEnabled = name.isNotBlank())
     }
 }

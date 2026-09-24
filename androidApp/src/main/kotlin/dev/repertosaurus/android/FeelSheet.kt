@@ -5,17 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -27,7 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.ActionPair
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.InkTextField
 import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
 import dev.repertosaurus.session.Messages
@@ -93,12 +92,12 @@ internal fun FeelSheet(
                 tagPrefix = FeelSheetTags.FEEL,
             )
 
-            OutlinedTextField(
+            InkTextField(
                 value = note,
                 onValueChange = { note = it },
-                label = { Text("Note (optional)") },
+                label = "Note (optional)",
+                singleLine = false,
                 minLines = 2,
-                modifier = Modifier.fillMaxWidth(),
             )
 
             Text("Date", style = MaterialTheme.typography.labelLarge)
@@ -106,11 +105,11 @@ internal fun FeelSheet(
                 // Short labels: four chips share the width of a 360dp phone.
                 val labels = listOf("Today", "1d ago", "2d ago", "3d ago")
                 for ((offset, label) in labels.withIndex()) {
-                    FilterChip(
+                    InkChip(
+                        label = label,
                         selected = daysAgo == offset,
-                        onClick = { daysAgo = offset },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        onSelect = { daysAgo = offset },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -125,7 +124,7 @@ internal fun FeelSheet(
 
             // E2's other half. It is below the Log button on purpose: the rating is what a
             // long-press is for, and this must not sit between the user and it.
-            HorizontalDivider()
+            RowRule()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

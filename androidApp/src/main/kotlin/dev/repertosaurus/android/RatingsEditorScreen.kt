@@ -64,7 +64,16 @@ public fun RatingsEditorScreen(
     val editor by viewModel.state.collectAsState()
     val open = editor ?: return
     Column(modifier = Modifier.fillMaxSize().testTag(RatingsEditorTags.SCREEN)) {
-        RatingsHeader(title = open.target.title, onDone = onDone, onSongs = onSongs)
+        RolePaneHeader(
+            pane = Messages.RATINGS_PANE,
+            title = open.target.title,
+            onDone = onDone,
+            other = Messages.DRAWER_SONGS,
+            onOther = onSongs,
+            titleModifier = Modifier.testTag(RatingsEditorTags.TITLE),
+            doneModifier = Modifier.testTag(RatingsEditorTags.DONE),
+            otherModifier = Modifier.testTag(RatingsEditorTags.SONGS),
+        )
         StatusLines(message = null, error = open.error)
         if (open.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         RatingsList(
@@ -78,19 +87,30 @@ public fun RatingsEditorScreen(
     }
 }
 
-/** VI9, VI15's pattern: the indigo bar, the part as the screen title. */
+/**
+ * Triage T1: the header of a role's two panes, the toggle list and this editor. [pane] names the one shown,
+ * the part is the title, and [onOther], when there is another pane (the View menu's editor has none), leads
+ * to it by its name, [other].
+ */
 @Composable
-private fun RatingsHeader(title: String, onDone: () -> Unit, onSongs: (() -> Unit)?) {
+internal fun RolePaneHeader(
+    pane: String,
+    title: String,
+    onDone: () -> Unit,
+    other: String,
+    onOther: (() -> Unit)?,
+    titleModifier: Modifier = Modifier,
+    doneModifier: Modifier = Modifier,
+    otherModifier: Modifier = Modifier,
+) {
     RouteHeader(
         title = title,
-        kicker = "Ratings",
+        kicker = pane,
         onDone = onDone,
-        doneModifier = Modifier.testTag(RatingsEditorTags.DONE),
-        titleModifier = Modifier.testTag(RatingsEditorTags.TITLE),
+        doneModifier = doneModifier,
+        titleModifier = titleModifier,
         actions = {
-            if (onSongs != null) {
-                SecondaryButton(text = "Songs", onClick = onSongs, modifier = Modifier.testTag(RatingsEditorTags.SONGS))
-            }
+            if (onOther != null) SecondaryButton(text = other, onClick = onOther, modifier = otherModifier)
         },
     )
 }

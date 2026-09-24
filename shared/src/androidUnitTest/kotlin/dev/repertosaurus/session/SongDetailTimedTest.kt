@@ -7,17 +7,16 @@ import dev.repertosaurus.data.LookupTableKey
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog.LookupChoice
 import dev.repertosaurus.db.RepertosaurusDatabase
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
 
 /**
- * scorecards SC19 through [SongDetailRead.of] over a real database: the timed history's order (F45 N3,
- * N4) and that a voided timed event is out of both its list and its total (F45 N5).
+ * scorecards SC19 through [SongDetailRead.of]: order, and a voided timed event out of list and total.
  */
 class SongDetailTimedTest {
 

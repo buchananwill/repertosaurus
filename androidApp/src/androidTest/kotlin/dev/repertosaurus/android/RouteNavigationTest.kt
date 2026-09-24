@@ -16,11 +16,11 @@ import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import kotlin.test.assertTrue
 
 /**
  * **E24 and R26 on the composed app**: back from a drill-down closes the drill-down, back from
@@ -49,7 +49,7 @@ class RouteNavigationTest {
         val fixture = fixture("songs")
         val valerie = EditingFixtures.song(fixture.holder, "Valerie")
 
-        openRoute("Songs")
+        compose.openFromDrawer("Songs")
         compose.onNodeWithTag(SongsTags.LIST).assertIsDisplayed()
         await("the list") { fixture.songs.state.value.songs.isNotEmpty() }
         compose.waitForIdle()
@@ -79,7 +79,7 @@ class RouteNavigationTest {
         val shake = EditingFixtures.song(fixture.holder, "Shake It Off")
         assertTrue(fixture.session.state.value.pending.isEmpty(), "the filtered View should start empty")
 
-        openRoute("Repertoire")
+        compose.openFromDrawer("Repertoire")
         await("the performers") { fixture.repertoire.state.value.performers.isNotEmpty() }
         compose.waitForIdle()
         compose.onNodeWithTag(RepertoireTags.addRole(fixture.coralie)).performClick()
@@ -142,23 +142,11 @@ class RouteNavigationTest {
         return fixture
     }
 
-    private fun openRoute(label: String) {
-        compose.onNodeWithContentDescription(LOGGER_MENU).performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText(label).performClick()
-        compose.waitForIdle()
-    }
-
     private fun await(what: String, settled: () -> Boolean) = compose.awaitUntil(what, settled)
 
     /** The system back gesture, through the Activity's own dispatcher. */
     private fun back() {
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
-    }
-
-    private companion object {
-        /** The logger's drawer button's content description — on the logger and nowhere else. */
-        const val LOGGER_MENU = "Menu"
     }
 }

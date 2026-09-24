@@ -20,12 +20,6 @@ import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.Messages
 
 /**
- * **The song lists' shared parts** (style review F17 N1, F27 B3): the search box, the count line,
- * the title over the artist, the tappable song row and the empty-list line. The Songs list, the Repertoire toggle list,
- * the Artists list and the merge picker draw these rather than copies of them.
- */
-
-/**
  * A list's search box: one line, a placeholder, and a Clear that appears once something is
  * typed. The filtering itself is the core's (`SongSearch`, `ArtistSearch`), in memory (E36).
  */
@@ -33,10 +27,9 @@ import dev.repertosaurus.session.Messages
 internal fun SongSearchField(
     query: String,
     onQuery: (String) -> Unit,
-    modifier: Modifier = Modifier,
+    fieldModifier: Modifier = Modifier,
     placeholder: String = "Search title or artist",
 ) {
-    // VI1, VI4: the house input (style review F21 B5).
     InkTextField(
         value = query,
         onValueChange = onQuery,
@@ -47,8 +40,7 @@ internal fun SongSearchField(
             }
         },
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        // The caller's test tag belongs on the input, which holds the text.
-        fieldModifier = modifier,
+        fieldModifier = fieldModifier,
     )
 }
 
@@ -89,7 +81,7 @@ internal fun CountLine(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * **One tappable song row** (style review F27 B3): the Songs list and the merge picker, the title over
+ * **One tappable song row**: the Songs list and the merge picker, the title over
  * its artist as the logger's rows have it (VI15). A tap opens or picks the song — it never logs practice.
  * [modifier] carries the row's test tag.
  */
@@ -112,7 +104,7 @@ internal fun SongListRow(
 }
 
 /**
- * **The one empty-list line** (style review F27 B3), for all four lists: a search that matched
+ * **The one empty-list line**, for all four lists: a search that matched
  * nothing says so; an empty list with no search says [whenEmpty], or nothing when it is null.
  * The caller decides *whether* the list is empty and settled; this decides what it says.
  */

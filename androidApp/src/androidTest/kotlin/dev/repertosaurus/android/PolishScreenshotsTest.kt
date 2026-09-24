@@ -1,19 +1,24 @@
 package dev.repertosaurus.android
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextClearance
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.EditingFixtures.onMain
-import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.data.SampleData
+import dev.repertosaurus.session.CapabilityCoordinator
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.Messages
 import org.junit.After
@@ -22,10 +27,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * **P13's screenshots** (journal session 11, D90): every screen the polish pass restyled, in the app's own
- * window, at a real system font scale, so the dialogs and sheets are at the scale too. The two subclasses
- * run the same shots at 1.0 and 1.3; the file names carry the scale when it is not 1. They assert only
- * what they need to reach each screen: the look is judged by eye.
+ * **P13's screenshots** (journal session 11, D90, D95): every screen the polish pass restyled, at a real
+ * system font scale so the dialogs and sheets are at it too. The two subclasses run the same shots at 1.0
+ * and 1.3; a file's name carries the scale when it is not 1. They assert only what they need to reach each
+ * screen: the look is judged by eye.
  */
 abstract class PolishScreenshots(scale: Float) {
 
@@ -35,75 +40,132 @@ abstract class PolishScreenshots(scale: Float) {
     @get:Rule(order = 1)
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private val names = mutableListOf<String>()
+    private val songs = SongsRouteHarness(compose, "p13-shots-songs")
+    private val app = HabitRouteHarness(compose, "p13-shots-app")
     private val sessions = SessionScreenFixture(compose, "p13-shots-session")
-    private val habits = HabitRouteHarness(compose, "p13-shots-habit")
 
     @After
     fun cleanUp() {
-        for (name in names) DatabaseFixtures.delete(context, name)
+        songs.cleanUp()
+        app.cleanUp()
         sessions.cleanUp()
-        habits.cleanUp()
     }
 
-    /** The drawer and its square switch, on (the default, simplified spelling) and tapped off; then the Songs list, a song's detail, its practice and the remove dialog. */
+    /** The Songs list, a song's detail and its capped practice, the remove dialog, and the line-up's dialog. */
     @Test
-    fun theDrawerAndTheSongsRoute() {
-        val app = app("songs") { holder -> timeValerie(holder) }
-        openDrawer()
-        compose.settleAndShoot(DIR, "drawer-switch-on")
-        compose.onNodeWithTag(DrawerTags.NOTE_SPELLING_SWITCH).performClick()
-        compose.settleAndShoot(DIR, "drawer-switch-off")
-
-        compose.onNodeWithText(Messages.DRAWER_SONGS).performClick()
-        compose.awaitUntil("the list") { app.songs.state.value.songs.isNotEmpty() }
+    fun theSongsRoute() {
+        val route = songs.route("songs") { holder ->
+            val valerie = EditingFixtures.song(holder, "Valerie").id
+            EditingFixtures.timeTwelve(holder, valerie)
+            CapabilityCoordinator(holder.repository).add(valerie, "Coralie", "vocal")
+        }
+        songs.show(route)
         compose.settleAndShoot(DIR, "songs-list")
 
-        val valerie = EditingFixtures.song(app.holder, "Valerie")
-        compose.onNodeWithTag(SongsTags.LIST).performScrollToNode(hasTestTag(SongsTags.row(valerie.id)))
-        compose.onNodeWithTag(SongsTags.row(valerie.id)).performClick()
-        compose.awaitUntil("the detail") { app.songs.state.value.detail?.let { it.record != null && !it.busy } == true }
+        songs.openDetail(route, EditingFixtures.song(route.holder, "Valerie"))
         compose.settleAndShoot(DIR, "song-detail")
-
         compose.onNodeWithTag(SongDetailTags.TIMED_MORE).performScrollTo()
         compose.settleAndShoot(DIR, "song-detail-practice")
 
         compose.onNodeWithTag(SongDetailTags.REMOVE).performScrollTo().performClick()
         compose.settleAndShoot(DIR, "ink-dialog-remove-song")
+        compose.onNodeWithText(Messages.CANCEL, ignoreCase = true).performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(SongDetailTags.EDIT_LINE_UP).performScrollTo().performClick()
+        compose.awaitUntil("the line-up") { route.session.capabilities.value.lineUp.isNotEmpty() }
+        compose.settleAndShoot(DIR, "capability-sheet")
+        // Coralie's line-up chip, the first "Vocal" in the sheet; the second is the instrument near-match.
+        compose.onAllNodes(hasText("Vocal") and hasAnyAncestor(hasTestTag(CapabilityTags.SHEET))).onFirst().performClick()
+        compose.settleAndShoot(DIR, "capability-dialog")
+    }
+
+    /** The merge overlay's two panes: the picker, then the preview. */
+    @Test
+    fun theMergeScreen() {
+        // A logged event on Dakota, so the preview has a row with a checkbox.
+        val route = songs.route("merge") { holder ->
+            holder.repository.logPractice(EditingFixtures.song(holder, "Dakota").id, SampleData.VOCAL, loggedOn = "2026-09-20")
+        }
+        songs.openDetail(route, EditingFixtures.song(route.holder, "Valerie"))
+        compose.onNodeWithTag(SongDetailTags.MERGE).performScrollTo().performClick()
+        compose.awaitUntil("the picker") { route.songs.merge.value != null }
+        compose.settleAndShoot(DIR, "merge-picker")
+
+        val dakota = EditingFixtures.song(route.holder, "Dakota")
+        compose.onNodeWithTag(MergeTags.candidate(dakota.id)).performClick()
+        compose.awaitUntil("the preview") { route.songs.merge.value?.plan != null }
+        compose.settleAndShoot(DIR, "merge-preview")
+        // The foot of the preview: the child rows and events with their square checkboxes.
+        compose.onNodeWithTag(MergeTags.PREVIEW_LIST).performScrollToNode(hasTestTag(MergeTags.CONFIRM))
+        compose.settleAndShoot(DIR, "merge-preview-foot")
+    }
+
+    /** The drawer's square switch, on (the default, simplified spelling) and tapped off. */
+    @Test
+    fun theDrawerSwitch() {
+        app.route("drawer")
+        compose.openDrawer()
+        compose.settleAndShoot(DIR, "drawer-switch-on")
+        compose.onNodeWithTag(DrawerTags.NOTE_SPELLING).performClick()
+        compose.settleAndShoot(DIR, "drawer-switch-off")
     }
 
     @Test
     fun theArtists() {
-        app("artists")
-        openRoute(Messages.DRAWER_ARTISTS)
+        app.route("artists")
+        app.open(Messages.DRAWER_ARTISTS)
         compose.onNodeWithTag(ArtistTags.LIST).assertExists()
         compose.settleAndShoot(DIR, "artists")
+    }
+
+    /** D97: a real error line, the rename dialog with its name cleared: a Madder border and bold Ink words. */
+    @Test
+    fun anErrorLine() {
+        val route = app.route("artists-error")
+        app.open(Messages.DRAWER_ARTISTS)
+        compose.awaitUntil("the artists") { route.app.artists.state.value.artists.isNotEmpty() }
+        val artist = route.app.artists.state.value.artists.first()
+        compose.onNodeWithTag(ArtistTags.rename(artist.id)).performClick()
+        compose.waitForIdle()
+        // The name field is the first of the two that hold the name; the sort name holds it too.
+        compose.onAllNodes(hasSetTextAction() and hasText(artist.name)).onFirst().performTextClearance()
+        compose.onNode(hasSetTextAction() and SemanticsMatcher.expectValue(SemanticsProperties.Error, Messages.ARTIST_NEEDS_NAME)).assertExists()
+        compose.settleAndShoot(DIR, "error-artist-rename")
     }
 
     /** The performers with their role chips, then one role's toggle list with a song switched on. */
     @Test
     fun theRepertoireToggleList() {
-        val app = app("repertoire") { holder -> EditingFixtures.performer(holder, "Coralie") }
-        openRoute(Messages.DRAWER_REPERTOIRE)
-        compose.awaitUntil("the performers") { app.repertoire.state.value.performers.isNotEmpty() }
+        val route = app.route("repertoire") { holder -> EditingFixtures.performer(holder, "Coralie") }
+        val repertoire = route.app.repertoire
+        app.open(Messages.DRAWER_REPERTOIRE)
+        compose.awaitUntil("the performers") { repertoire.state.value.performers.isNotEmpty() }
         compose.settleAndShoot(DIR, "repertoire-performers")
 
-        val coralie = app.repertoire.state.value.performers.first { it.performerName == "Coralie" }.performerId
+        val coralie = repertoire.state.value.performers.first { it.performerName == "Coralie" }.performerId
         compose.onNodeWithTag(RepertoireTags.addRole(coralie)).performClick()
         compose.onNodeWithText("Vocal").performClick()
-        compose.awaitUntil("the toggle list") { app.repertoire.state.value.list?.loading == false }
-        val first = app.repertoire.state.value.list!!.visible().first().songId
-        onMain { app.repertoire.toggle(first) }
-        compose.awaitUntil("the toggle") { app.repertoire.state.value.list?.inFlight?.isEmpty() == true }
+        compose.awaitUntil("the toggle list") { repertoire.state.value.list?.loading == false }
+        val first = repertoire.state.value.list!!.visible().first().songId
+        onMain { repertoire.toggle(first) }
+        compose.awaitUntil("the toggle") { repertoire.state.value.list?.inFlight?.isEmpty() == true }
         compose.settleAndShoot(DIR, "repertoire-toggle-list")
     }
 
     @Test
     fun theLookupManagement() {
-        app("lookups")
-        openRoute(LookupKind.INSTRUMENT.plural)
+        app.route("lookups")
+        app.open(LookupKind.INSTRUMENT.plural)
         compose.settleAndShoot(DIR, "lookup-instruments")
+    }
+
+    /** F29, D93: nothing tapped, and no empty band under the grid. */
+    @Test
+    fun theScorecards() {
+        app.route("scorecards")
+        app.open()
+        compose.settleAndShoot(DIR, "scorecards")
     }
 
     /** suggest SG12, SG13: Tune's two square switches, both on. */
@@ -116,49 +178,28 @@ abstract class PolishScreenshots(scale: Float) {
         compose.settleAndShoot(DIR, "tune-switches")
     }
 
-    /** F29: nothing tapped, and no empty band under the grid. */
+    /** The View menu, then its editor sheet: square chips, fields and switches' kin. */
     @Test
-    fun theScorecards() {
-        habits.route("scorecards")
-        habits.open()
-        compose.settleAndShoot(DIR, "scorecards")
+    fun theViewEditor() {
+        sessions.open("views")
+        compose.onNodeWithText("ALL SONGS ▾").performClick()
+        compose.settleAndShoot(DIR, "view-switcher")
+        compose.onNodeWithText("Make the first view", ignoreCase = true).performClick()
+        compose.settleAndShoot(DIR, "view-editor")
     }
 
-    private fun app(suffix: String, setUp: (DatabaseHolder) -> Unit = {}): Shot {
-        val name = "p13-shots-$suffix.db".also { names += it }
-        val holder = EditingFixtures.holder(context, name)
-        setUp(holder)
-        val app = EditingFixtures.app(holder)
-        compose.awaitUntil("the logger") { !app.session.state.value.loading }
-        compose.setApp(app)
-        compose.waitForIdle()
-        return Shot(holder, app.songs, app.repertoire)
+    /** timer TM4, D95 B6: Stop over Cancel in the running bar, their faces level. */
+    @Test
+    fun theTimerBar() {
+        val screen = sessions.open("timer")
+        val row = screen.session.state.value.pending.first()
+        onMain { screen.session.startTimer(row.songId, row.title) }
+        compose.onNodeWithTag(TimerTags.BAR).assertExists()
+        compose.settleAndShoot(DIR, "timer-bar")
     }
-
-    /** D85 #1 on screen: twelve timed events on Valerie, so the detail lists ten and says "and 2 more". */
-    private fun timeValerie(holder: DatabaseHolder) {
-        val valerie = EditingFixtures.song(holder, "Valerie").id
-        for (day in 1..12) {
-            holder.repository.logPractice(valerie, SampleData.VOCAL, loggedOn = "2026-09-%02d".format(day), durationSeconds = day * 60L)
-        }
-    }
-
-    private fun openDrawer() {
-        compose.onNodeWithContentDescription(LOGGER_MENU).performClick()
-        compose.waitForIdle()
-    }
-
-    private fun openRoute(label: String) {
-        openDrawer()
-        compose.onNodeWithText(label).performClick()
-        compose.waitForIdle()
-    }
-
-    private class Shot(val holder: DatabaseHolder, val songs: SongsViewModel, val repertoire: RepertoireViewModel)
 
     private companion object {
         const val DIR = "p13"
-        const val LOGGER_MENU = "Menu"
     }
 }
 

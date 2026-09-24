@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.session.Messages
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -111,13 +112,11 @@ internal fun RouteHeader(
         navigation = { kicker?.let { DisplayText(it, style = DisplayType.Subline) } },
         actions = {
             actions()
-            SecondaryButton(text = DONE, onClick = onDone, modifier = doneModifier)
+            SecondaryButton(text = Messages.DONE, onClick = onDone, modifier = doneModifier)
         },
         title = { DisplayText(title, style = DisplayType.ScreenTitle, maxLines = 2, modifier = titleModifier) },
     )
 }
-
-private const val DONE = "Done"
 
 /** The bar at a screen's foot, over its content with a 3 dp rule: where the one primary action goes. */
 @Composable

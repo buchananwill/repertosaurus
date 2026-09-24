@@ -14,8 +14,8 @@ import dev.repertosaurus.data.DatabaseUnloadable
 import dev.repertosaurus.data.ImportPreview
 import dev.repertosaurus.data.ImportRejected
 import dev.repertosaurus.data.PartRatings
-import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.RepertosaurusRepository
+import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.CapabilityCoordinator
 import dev.repertosaurus.session.LookupItem
@@ -25,6 +25,7 @@ import dev.repertosaurus.session.LookupStores
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.Notice
 import dev.repertosaurus.session.PerformerLineUp
+import dev.repertosaurus.session.PracticeTimer
 import dev.repertosaurus.session.ResolvedPart
 import dev.repertosaurus.session.SessionCoordinator
 import dev.repertosaurus.session.SessionOrder
@@ -34,14 +35,16 @@ import dev.repertosaurus.session.SessionStart
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionTap
 import dev.repertosaurus.session.SessionView
-import dev.repertosaurus.session.PracticeTimer
 import dev.repertosaurus.session.SongCapability
-import dev.repertosaurus.session.TimerStore
 import dev.repertosaurus.session.SongIdentity
+import dev.repertosaurus.session.TimerStore
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.partOf
 import dev.repertosaurus.session.resolvedOrNull
 import dev.repertosaurus.session.resolvedPart
+import java.io.InputStream
+import java.io.OutputStream
+import kotlin.random.Random
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -52,9 +55,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.InputStream
-import java.io.OutputStream
-import kotlin.random.Random
 
 /**
  * State holder for the Session screen.
@@ -1059,7 +1059,7 @@ public class SessionViewModel(
                                 addsCommitted = revised.addsCommitted + if (isAdd && !said.refused) 1L else 0L,
                             )
                         },
-                        // E43: the error channel, rendered in the error colour. This used to be
+                        // E43: the error channel, rendered as an error line (D97). This used to be
                         // the same field as the confirmation above and painted the same accent
                         // colour, so a refused write read as a success.
                         onFailure = { failure ->
@@ -1088,7 +1088,7 @@ public class SessionViewModel(
         val busy: Boolean = false,
         /** E43: a confirmation, and only ever a confirmation. */
         val message: String? = null,
-        /** E43: a refusal, rendered in the error colour and never where a confirmation goes. */
+        /** E43: a refusal, rendered as an error line (D97) and never where a confirmation goes. */
         val error: String? = null,
         /**
          * E44: adds this sheet has seen **land**. The add form clears when this changes, which

@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,9 +24,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,12 +34,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DialogText
 import dev.repertosaurus.android.theme.InkDialog
-import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.InkFooter
 import dev.repertosaurus.android.theme.Motion
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.android.theme.SecondaryButton
@@ -47,6 +46,7 @@ import dev.repertosaurus.android.theme.Segment
 import dev.repertosaurus.android.theme.SegmentLabel
 import dev.repertosaurus.android.theme.SegmentLayout
 import dev.repertosaurus.android.theme.SegmentStrip
+import dev.repertosaurus.android.theme.StackedActions
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.RatingsTarget
 import dev.repertosaurus.session.SessionRow
@@ -57,8 +57,8 @@ import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.identity
 import dev.repertosaurus.session.part
 import dev.repertosaurus.session.ratingsFresh
-import dev.repertosaurus.session.triageAvailable
 import dev.repertosaurus.session.suggestionCard
+import dev.repertosaurus.session.triageAvailable
 
 /** Stable handles for the instrumented tests and for on-device inspection. */
 internal object SessionTags {
@@ -318,7 +318,7 @@ public fun SessionScreen(
             performers = performers,
             instruments = state.instruments,
             busy = capabilities.busy,
-            // E43: two channels, never one. A refused write renders in the error colour and
+            // E43: two channels, never one. A refused write renders as an error line (D97) and
             // cannot be mistaken for the confirmation that stood in the same place.
             message = capabilities.message,
             error = capabilities.error,
@@ -402,13 +402,13 @@ public fun SessionScreen(
                 "The view goes; nothing you have practised does. Practice is logged " +
                     "against a song and an instrument, never against a view.",
             )
-            DialogActions(
-                confirm = "Delete",
-                onConfirm = {
+            StackedActions(
+                primary = "Delete",
+                onPrimary = {
                     viewModel.deleteView(view.id)
                     deletingView = null
                 },
-                onDismiss = { deletingView = null },
+                onSecondary = { deletingView = null },
             )
         }
     }
@@ -416,12 +416,11 @@ public fun SessionScreen(
     transfer.pending?.let { preview ->
         InkDialog(onDismiss = { viewModel.cancelImport() }, title = "Replace everything on this phone?") {
             DialogText(
-                "The file you picked holds ${preview.songs} songs and " +
-                    "${preview.practiceEvents} practice events.\n\n" +
+                Messages.importHolds(preview.songs, preview.practiceEvents) + "\n\n" +
                     "Importing deletes the database on this phone, including any " +
                     "practice logged since your last export. This cannot be undone.",
             )
-            DialogActions(confirm = "Replace", onConfirm = { viewModel.confirmImport() }, onDismiss = { viewModel.cancelImport() })
+            StackedActions(primary = "Replace", onPrimary = { viewModel.confirmImport() }, onSecondary = { viewModel.cancelImport() })
         }
     }
 }

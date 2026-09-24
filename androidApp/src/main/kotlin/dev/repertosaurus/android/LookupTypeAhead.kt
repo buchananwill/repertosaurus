@@ -57,7 +57,7 @@ internal fun <T> LookupTypeAhead(
     hint: (TypeAheadHint<T>) -> String?,
     onType: (String) -> Unit,
     onPick: (T) -> Unit,
-    modifier: Modifier = Modifier,
+    fieldModifier: Modifier = Modifier,
     enabled: Boolean = true,
     error: String? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
@@ -80,9 +80,7 @@ internal fun <T> LookupTypeAhead(
         supportingText = error ?: hint(state),
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
-        modifier = Modifier.fillMaxWidth(),
-        // The caller's test tag belongs on the input, which holds the text.
-        fieldModifier = modifier,
+        fieldModifier = fieldModifier,
     )
     if (suggestions.isNotEmpty()) {
         Row(
@@ -90,7 +88,7 @@ internal fun <T> LookupTypeAhead(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             for (match in suggestions) {
-                InkChip(label = name(match), selected = false, enabled = enabled, onClick = { onPick(match) })
+                InkChip(label = name(match), enabled = enabled, onClick = { onPick(match) })
             }
         }
     }
