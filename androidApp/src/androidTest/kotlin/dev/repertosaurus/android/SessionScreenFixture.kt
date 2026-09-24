@@ -12,8 +12,11 @@ import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
+import dev.repertosaurus.session.InMemoryTimerStore
+import dev.repertosaurus.session.TimerStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.datetime.Clock
 
 /**
  * **The one Session-screen harness** (style review F17 B14): a fresh database of the sample songs, its
@@ -41,6 +44,9 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         suffix: String,
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
+        // Timer TM10, TM11: the timer's store and its wall clock.
+        timerStore: TimerStore = InMemoryTimerStore(),
+        clock: Clock = Clock.System,
         prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
         val name = "$prefix-$suffix.db".also { names += it }
@@ -49,7 +55,7 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         lateinit var session: SessionViewModel
         lateinit var settings: DeviceSettings
         EditingFixtures.onMain {
-            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, io)
+            session = SessionViewModel(holder, InMemorySessionPreferences(), TEST_DEVICE, io, timerStore = timerStore, clock = clock)
             settings = DeviceSettings(device)
         }
         EditingFixtures.awaitSession(session)
@@ -61,9 +67,11 @@ internal class SessionScreenFixture(val compose: ComposeContentTestRule, private
         fontScale: Float? = null,
         device: DevicePreferences = InMemoryDevicePreferences(),
         io: CoroutineDispatcher = Dispatchers.IO,
+        timerStore: TimerStore = InMemoryTimerStore(),
+        clock: Clock = Clock.System,
         prepare: (DatabaseHolder) -> Unit = {},
     ): Screen {
-        val screen = build(suffix, device, io, prepare)
+        val screen = build(suffix, device, io, timerStore, clock, prepare)
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale ?: density.fontScale)) {

@@ -34,7 +34,10 @@ import dev.repertosaurus.session.SessionStart
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionTap
 import dev.repertosaurus.session.SessionView
+import dev.repertosaurus.session.InMemoryTimerStore
+import dev.repertosaurus.session.PracticeTimer
 import dev.repertosaurus.session.SongCapability
+import dev.repertosaurus.session.TimerStore
 import dev.repertosaurus.session.SongIdentity
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.partOf
@@ -50,6 +53,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Clock
 import java.io.InputStream
 import java.io.OutputStream
 import kotlin.random.Random
@@ -74,6 +78,10 @@ public class SessionViewModel(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     /** Suggest SG7: the draw's random source. */
     private val random: Random = Random.Default,
+    /** timer TM10: where the running timer is kept. */
+    private val timerStore: TimerStore = InMemoryTimerStore(),
+    /** timer TM11: the timer's wall clock. */
+    private val clock: Clock = Clock.System,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SessionState())
@@ -432,7 +440,11 @@ public class SessionViewModel(
             loggedOn = loggedOn,
         )
         _state.update { it.plusTap(tap) }
+        persist(tap)
+    }
 
+    /** The optimistic tap's write, which its undo awaits. */
+    private fun persist(tap: SessionTap) {
         val write = viewModelScope.async(io) { runCatching { coordinator().persist(tap) } }
         writes[tap.tapId] = write
         viewModelScope.launch {
@@ -481,6 +493,52 @@ public class SessionViewModel(
     /** suggest SG2's "Log it": the plain tap's [log], once the holder has taken [songId] from its deck. */
     public fun logSuggestion(songId: String) {
         if (suggestions.take(songId)) log(songId)
+    }
+
+    /** timer TM1-TM11. */
+    public val timer: TimerHolder = TimerHolder(
+        session = state,
+        scope = viewModelScope,
+        read = { withContext(io) { timerStore.read() } },
+        write = { running -> withContext(io) { timerStore.write(running) } },
+        title = { songId -> withContext(io) { coordinator().songTitle(songId) } },
+        apply = { change -> _state.update(change) },
+        timer = PracticeTimer(clock),
+    )
+
+    /** timer TM1, TM2: the feel sheet's "Start timer" and "Switch timer here". */
+    public fun startTimer(songId: String, title: String) {
+        timer.start(songId, title)?.let(::logTimer)
+    }
+
+    /** timer TM1's "Time it": the timer's [startTimer], once the holder has taken [row] from the Suggest deck. */
+    public fun timeSuggestion(row: SessionRow) {
+        if (suggestions.take(row.songId)) startTimer(row.songId, row.title)
+    }
+
+    /** timer TM7, TM8. */
+    public fun stopTimer() {
+        timer.stop()?.let(::logTimer)
+    }
+
+    /** timer TM8: the question's two buttons. */
+    public fun answerTimer(withTime: Boolean) {
+        timer.answer(withTime)?.let(::logTimer)
+    }
+
+    /** timer TM7: a timer's log is a tap on its own instrument and date, undone as a tap is. */
+    private fun logTimer(log: TimerLog) {
+        val tap = SessionTap(
+            tapId = Ids.random(),
+            songId = log.songId,
+            instrumentId = log.instrumentId,
+            feel = null,
+            note = null,
+            loggedOn = log.loggedOn,
+            durationSeconds = log.durationSeconds,
+        )
+        _state.update { it.plusTap(tap, log.title, log.timing) }
+        persist(tap)
     }
 
     public fun clearMessage() {
@@ -1207,7 +1265,7 @@ public class SessionViewModel(
         private fun kilobytes(bytes: Long): String = "${(bytes + 1023) / 1024} kB"
 
         public fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SessionViewModel(graph.holder, graph.preferences, graph.deviceId) }
+            initializer { SessionViewModel(graph.holder, graph.preferences, graph.deviceId, timerStore = graph.timerStore) }
         }
     }
 }

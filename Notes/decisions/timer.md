@@ -65,6 +65,15 @@ lands on that instrument even if the View changes meanwhile.
 
 ### While running
 
+**AMENDED 2026-09-24 (journal session 11, D83):**
+- **while a timer runs, "Add song" demotes to a secondary button**, so Stop is the screen's one
+  primary action (VI12);
+- **the screen is kept on while the full-screen clock is open** (`FLAG_KEEP_SCREEN_ON` scoped to
+  it). This is a display flag, not a notification, and it serves "visible from across the room"
+  on a music stand;
+- **the feel sheet opens fully expanded**, so "Log it" and the timer button are never below the
+  fold.
+
 **TM4. The running bar** sits directly under the session header, in the visual-identity style:
 - the song title;
 - a **large `mm:ss` clock** (display face), switching to `h:mm:ss` after an hour;

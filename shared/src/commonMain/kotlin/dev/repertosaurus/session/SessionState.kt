@@ -182,14 +182,18 @@ public data class SessionState(
      * persists [tap] afterwards, off the main thread (decision 44 — this is the interaction
      * the product exists for and it must never wait on SQLite).
      */
-    public fun plusTap(tap: SessionTap): SessionState {
-        val title = rows.firstOrNull { it.songId == tap.songId }?.title ?: ""
-        return copy(
-            taps = taps + tap,
-            undo = UndoOffer(tapId = tap.tapId, songTitle = title, feel = tap.feel),
-            message = null,
-        )
-    }
+    public fun plusTap(tap: SessionTap): SessionState =
+        plusTap(tap, rows.firstOrNull { it.songId == tap.songId }?.title ?: "", timing = null)
+
+    /**
+     * timer TM7: a timer's log is a tap in every way but these: [title] is the timer's, since its song need not
+     * be in this View, and [timing] is what the undo snackbar says of its time.
+     */
+    public fun plusTap(tap: SessionTap, title: String, timing: StopOutcome?): SessionState = copy(
+        taps = taps + tap,
+        undo = UndoOffer(tapId = tap.tapId, songTitle = title, feel = tap.feel, timing = timing),
+        message = null,
+    )
 
     /**
      * Undo (decision 8). Dropping the tap is all the UI has to do — the underlying row was
@@ -250,7 +254,9 @@ public data class SessionTap(
     val feel: RatingLevel?,
     val note: String?,
     val loggedOn: String,
+    /** timer TM7: null for a tap, and for a timer's untimed log (TM8); schema-3 M10's 1-86400 otherwise. */
+    val durationSeconds: Long? = null,
 )
 
-/** What the snackbar offers after a tap. */
-public data class UndoOffer(val tapId: String, val songTitle: String, val feel: RatingLevel?)
+/** What the snackbar offers after a tap. [timing] is a timer's (timer TM7, TM8), null for anything else. */
+public data class UndoOffer(val tapId: String, val songTitle: String, val feel: RatingLevel?, val timing: StopOutcome? = null)

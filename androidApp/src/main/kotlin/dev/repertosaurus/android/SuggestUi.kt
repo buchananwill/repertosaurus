@@ -10,9 +10,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -83,6 +86,8 @@ internal fun SuggestSheet(
     tuneOpen: Boolean,
     onTuneOpen: (Boolean) -> Unit,
     onLog: (SessionRow) -> Unit,
+    /** Timer TM1: "Time it" on the card's song. */
+    onTime: (SessionRow) -> Unit,
     onAnother: () -> Unit,
     onUndoSkip: () -> Unit,
     onTune: (SuggestTuning) -> Unit,
@@ -114,13 +119,24 @@ internal fun SuggestSheet(
                 }
             } else {
                 SuggestCard(row = shown.row, skipCount = tuning.shownSkipCount(shown.skips), dealer = dealer)
-                // VI12: the sheet's one primary action.
-                PrimaryButton(
-                    text = Messages.SUGGEST_LOG,
-                    onClick = { onLog(shown.row) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !dealer.swapping,
-                )
+                // VI12: the sheet's one primary action. Timer TM1: "Time it" beside it, as on the feel sheet.
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PrimaryButton(
+                        text = Messages.SUGGEST_LOG,
+                        onClick = { onLog(shown.row) },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        enabled = !dealer.swapping,
+                    )
+                    SecondaryButton(
+                        text = Messages.TIMER_TIME_IT,
+                        onClick = { onTime(shown.row) },
+                        modifier = Modifier.weight(1f).fillMaxHeight().padding(bottom = Tokens.ShadowLarge),
+                        enabled = !dealer.swapping,
+                    )
+                }
             }
             if (card != SuggestionCard.EmptyPool) {
                 SecondaryButton(

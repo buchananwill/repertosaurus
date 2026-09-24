@@ -280,7 +280,7 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed** `4631d26` + fix round `2d7836e` |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | **split (journal session 11, D74):** P9a (triage sort plus inherited items) **in flight**; P9b (Suggest v2) next |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
-| P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
+| P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | **in flight** (P9a `0e9bb31`+`f2bec4e`, P9b `7655a03`+`9895199` committed) |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); **committed `2d7836e`**, fix round in flight |
 | P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |

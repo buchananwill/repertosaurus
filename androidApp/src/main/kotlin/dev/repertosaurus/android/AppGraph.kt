@@ -9,6 +9,7 @@ import dev.repertosaurus.habit.HabitScope
 import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.SessionPreferences
 import dev.repertosaurus.session.SuggestTuning
+import dev.repertosaurus.session.TimerStore
 
 /**
  * The process-wide wiring. Small enough to be a hand-rolled object; a dependency-injection
@@ -25,6 +26,9 @@ public class AppGraph private constructor(context: Context) {
     private val stored = AndroidSessionPreferences(context)
     public val preferences: SessionPreferences = stored
     public val devicePreferences: DevicePreferences = stored
+
+    /** timer TM10: the running timer, in the same preferences file under its own keys. */
+    public val timerStore: TimerStore = AndroidTimerStore(context)
 
     public companion object {
         private var instance: AppGraph? = null

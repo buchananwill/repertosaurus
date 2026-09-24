@@ -3,6 +3,7 @@ package dev.repertosaurus.android
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -129,11 +130,32 @@ public fun SessionScreen(
     val suggestion by suggestions.deck.collectAsState()
     LaunchedEffect(suggestions, suggestTuning) { suggestions.retune(suggestTuning) }
 
+    // Timer TM1-TM11. The clock is read inside the bar and the full-screen clock, so only they recompose on a tick.
+    val timer = viewModel.timer
+    val running by timer.running.collectAsState()
+    val question by timer.question.collectAsState()
+    val cancelled by timer.cancelled.collectAsState()
+    val elapsed = running?.let { rememberElapsed(timer, it) }
+    val seconds = { elapsed?.value ?: 0L }
+    var fullScreenClock by rememberSaveable { mutableStateOf(false) }
+    // A stop or a cancel from the full-screen clock returns to the list.
+    LaunchedEffect(running == null) { if (running == null) fullScreenClock = false }
+    LaunchedEffect(cancelled) {
+        if (cancelled != null) {
+            val result = snackbarHostState.showSnackbar(
+                message = Messages.TIMER_CANCELLED,
+                actionLabel = Messages.TIMER_UNDO,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) timer.undoCancel()
+        }
+    }
+
     val undo = state.undo
     LaunchedEffect(undo?.tapId) {
         if (undo != null) {
             val result = snackbarHostState.showSnackbar(
-                message = Messages.logged(undo.songTitle, undo.feel),
+                message = Messages.logged(undo.songTitle, undo.feel, undo.timing),
                 actionLabel = "Undo",
                 duration = SnackbarDuration.Short,
             )
@@ -157,106 +179,135 @@ public fun SessionScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            // visual-identity VI15: the screen's one primary action, full width, below the list so
-            // it never covers the last row as a FAB did.
-            InkFooter {
-                PrimaryButton(
-                    text = "Add song",
-                    onClick = {
-                        addSongTitle = state.query
-                        viewModel.loadArtists()
-                        addingSong = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        topBar = {
-            SessionHeader(
-                view = state.view,
-                instruments = state.instruments,
-                performers = performers,
-                songCount = state.pending.size + state.logged.size,
-                onOpenDrawer = onOpenDrawer,
-                onExport = onExport,
-                onSwitchView = { switching = true },
-                onSuggest = suggestions::open,
-                suggestEnabled = !state.loading,
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+    // Timer TM4: the full-screen clock is drawn over the Scaffold, so the list keeps its place behind it.
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                // visual-identity VI15: the screen's one primary action, full width, below the list so
+                // it never covers the last row as a FAB did.
+                InkFooter {
+                    PrimaryButton(
+                        text = "Add song",
+                        onClick = {
+                            addSongTitle = state.query
+                            viewModel.loadArtists()
+                            addingSong = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            topBar = {
+                Column {
+                    SessionHeader(
+                        view = state.view,
+                        instruments = state.instruments,
+                        performers = performers,
+                        songCount = state.pending.size + state.logged.size,
+                        onOpenDrawer = onOpenDrawer,
+                        onExport = onExport,
+                        onSwitchView = { switching = true },
+                        onSuggest = suggestions::open,
+                        suggestEnabled = !state.loading,
+                    )
+                    // Timer TM4: directly under the header.
+                    TimerBarSlot(
+                        song = running,
+                        seconds = seconds,
+                        onStop = viewModel::stopTimer,
+                        onCancel = timer::cancel,
+                        onOpenClock = { fullScreenClock = true },
+                    )
+                }
+            },
+        ) { padding ->
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            // The practice instrument (V13): what a tap logs to, and what staleness is
-            // measured against. It is **not** the capability filter — that is a field of
-            // the View, set in the editor and summarised in the header above. Merging the
-            // two back into one control is the bug Views exist to fix.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                SegmentStrip(layout = SegmentLayout.ContentWidth) {
-                    for (chip in state.instruments) {
-                        Segment(
-                            selected = chip.id == state.selectedInstrumentId,
-                            onClick = { viewModel.selectInstrument(chip.id) },
-                        ) {
-                            SegmentLabel(chip.label, modifier = Modifier.padding(horizontal = 8.dp))
+                // The practice instrument (V13): what a tap logs to, and what staleness is
+                // measured against. It is **not** the capability filter — that is a field of
+                // the View, set in the editor and summarised in the header above. Merging the
+                // two back into one control is the bug Views exist to fix.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    SegmentStrip(layout = SegmentLayout.ContentWidth) {
+                        for (chip in state.instruments) {
+                            Segment(
+                                selected = chip.id == state.selectedInstrumentId,
+                                onClick = { viewModel.selectInstrument(chip.id) },
+                            ) {
+                                SegmentLabel(chip.label, modifier = Modifier.padding(horizontal = 8.dp))
+                            }
                         }
                     }
                 }
+
+                // A mis-tap that reorders the list mid-session is worse than useless, so nothing that
+                // reorders is within reach of a thumb aiming at a song.
+                SortControl(
+                    order = state.order,
+                    triageAvailable = state.triageAvailable,
+                    onOrder = viewModel::setOrder,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+
+                SongSearchField(query = state.query, onQuery = viewModel::setQuery)
+
+                if (state.loading || transfer.busy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+
+                SessionList(
+                    state = state,
+                    // E47: the empty list has three causes, not two, and the third one is the
+                    // only one that must not be described as an empty repertoire.
+                    filterNamesRemovedRow = filterNamesRemovedRow(
+                        filter = state.view?.filter ?: ViewFilter.NONE,
+                        instruments = state.instruments,
+                        performers = performers,
+                    ),
+                    departures = departures,
+                    onTap = { row -> logAndDepart(row) { viewModel.log(row.songId) } },
+                    onLongPress = { row -> feelFor = row },
+                    onAddSong = { title ->
+                        addSongTitle = title
+                        viewModel.loadArtists()
+                        addingSong = true
+                    },
+                    // E42: there is no sensible automatic repair — nothing can stand in for the
+                    // performer the user meant — so the way out is the View editor, opened on the
+                    // View that is broken.
+                    // The active View, saved or forked — the forked one carries the same broken
+                    // filter (V13a), so opening the editor on it is what puts the problem in front
+                    // of the user rather than a blank form.
+                    onEditView = {
+                        editorTarget = state.view
+                        editorOpen = true
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
             }
+        }
 
-            // A mis-tap that reorders the list mid-session is worse than useless, so nothing that
-            // reorders is within reach of a thumb aiming at a song.
-            SortControl(
-                order = state.order,
-                triageAvailable = state.triageAvailable,
-                onOrder = viewModel::setOrder,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
-
-            SongSearchField(query = state.query, onQuery = viewModel::setQuery)
-
-            if (state.loading || transfer.busy) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-
-            SessionList(
-                state = state,
-                // E47: the empty list has three causes, not two, and the third one is the
-                // only one that must not be described as an empty repertoire.
-                filterNamesRemovedRow = filterNamesRemovedRow(
-                    filter = state.view?.filter ?: ViewFilter.NONE,
-                    instruments = state.instruments,
-                    performers = performers,
-                ),
-                departures = departures,
-                onTap = { row -> logAndDepart(row) { viewModel.log(row.songId) } },
-                onLongPress = { row -> feelFor = row },
-                onAddSong = { title ->
-                    addSongTitle = title
-                    viewModel.loadArtists()
-                    addingSong = true
-                },
-                // E42: there is no sensible automatic repair — nothing can stand in for the
-                // performer the user meant — so the way out is the View editor, opened on the
-                // View that is broken.
-                // The active View, saved or forked — the forked one carries the same broken
-                // filter (V13a), so opening the editor on it is what puts the problem in front
-                // of the user rather than a blank form.
-                onEditView = {
-                    editorTarget = state.view
-                    editorOpen = true
-                },
-                modifier = Modifier.fillMaxWidth().weight(1f),
+        val shownFullScreen = running
+        if (fullScreenClock && shownFullScreen != null) {
+            FullScreenClock(
+                song = shownFullScreen,
+                seconds = seconds,
+                onStop = viewModel::stopTimer,
+                onCancel = timer::cancel,
+                onClose = { fullScreenClock = false },
             )
         }
+    }
+
+    // Timer TM8: the one dialog.
+    question?.let { asked ->
+        TimerQuestionDialog(question = asked, onAnswer = viewModel::answerTimer, onDismiss = timer::dismissQuestion)
     }
 
     feelFor?.let { row ->
@@ -270,6 +321,11 @@ public fun SessionScreen(
             onEditLineUp = {
                 feelFor = null
                 viewModel.openCapabilities(row.identity())
+            },
+            timerRunning = running != null,
+            onStartTimer = {
+                feelFor = null
+                viewModel.startTimer(row.songId, row.title)
             },
         )
     }
@@ -289,6 +345,7 @@ public fun SessionScreen(
             tuneOpen = tuneOpen,
             onTuneOpen = { tuneOpen = it },
             onLog = { row -> logAndDepart(row) { viewModel.logSuggestion(row.songId) } },
+            onTime = viewModel::timeSuggestion,
             onAnother = suggestions::another,
             onUndoSkip = suggestions::undo,
             onTune = onTune,

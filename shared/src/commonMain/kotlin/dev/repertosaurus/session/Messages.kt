@@ -52,9 +52,69 @@ public object Messages {
 
     // ---- The logger (rating-scale RS14) ---------------------------------------------------
 
-    /** The undo snackbar: "Logged Jolene · feel: certainly". */
-    public fun logged(title: String, feel: RatingLevel?): String =
-        "Logged $title" + (feel?.let { " · feel: ${it.label}" } ?: "")
+    /**
+     * The undo snackbar: "Logged Jolene · feel: certainly". A timer's log (timer TM7, TM8) says its time,
+     * "Logged Jolene · 24 min", or "Logged Jolene (too short to time)"; [timing] is null for any other log.
+     */
+    public fun logged(title: String, feel: RatingLevel?, timing: StopOutcome? = null): String =
+        "Logged $title" + (feel?.let { " · feel: ${it.label}" } ?: "") + when (timing) {
+            is StopOutcome.Timed -> " · ${duration(timing.seconds)}"
+            StopOutcome.Untimed -> " (too short to time)"
+            is StopOutcome.NeedsChoice, null -> ""
+        }
+
+    // ---- The practice timer (timer TM1-TM10) ----------------------------------------------------
+
+    /** TM1: the feel sheet's timer button, and TM2's while another timer runs. */
+    public const val TIMER_START: String = "Start timer"
+    public const val TIMER_SWITCH: String = "Switch timer here"
+
+    /** TM1: the suggestion card's. */
+    public const val TIMER_TIME_IT: String = "Time it"
+
+    /** TM4. */
+    public const val TIMER_STOP: String = "Stop"
+    public const val TIMER_CANCEL: String = "Cancel"
+
+    /** TM4: the bar's clock, which opens the full-screen clock; and the full-screen clock, which closes it. */
+    public const val TIMER_OPEN_CLOCK: String = "Open the full-screen clock"
+    public const val TIMER_CLOSE_CLOCK: String = "Back to the list"
+
+    /** TM4: the drawer's line. */
+    public fun timerRunning(title: String): String = "Timer running: $title"
+
+    /** TM9: "Timer cancelled · Undo", the snackbar and its action. */
+    public const val TIMER_CANCELLED: String = "Timer cancelled"
+    public const val TIMER_UNDO: String = "Undo"
+
+    /** TM8: the one question, and its two buttons. */
+    public fun timerQuestion(seconds: Long): String = "Log ${duration(seconds)}, or log without a time?"
+    public fun timerLogWith(seconds: Long): String = "Log ${duration(seconds)}"
+    public const val TIMER_LOG_WITHOUT: String = "Log without a time"
+
+    /** TM10. */
+    public const val TIMER_SONG_REMOVED: String = "A timer for a removed song was discarded"
+
+    /** TM10: the stored timer could not be read or written (S11: said, never swallowed). */
+    public fun timerReadFailed(failure: Throwable): String = couldNot("read the timer", failure)
+    public fun timerWriteFailed(failure: Throwable): String = couldNot("remember the timer", failure)
+
+    /** TM7, TM8: a duration in words: "45 s", "24 min", "5 h 12 min". Minutes are whole, rounded down. */
+    public fun duration(seconds: Long): String {
+        val minutes = seconds / 60L
+        return when {
+            minutes == 0L -> "$seconds s"
+            minutes < 60L -> "$minutes min"
+            else -> "${minutes / 60L} h ${minutes % 60L} min"
+        }
+    }
+
+    /** TM4: the clock, `mm:ss`, and `h:mm:ss` from an hour. */
+    public fun timerClock(seconds: Long): String {
+        val s = seconds.coerceAtLeast(0L)
+        val two = { n: Long -> n.toString().padStart(2, '0') }
+        return if (s < 3_600L) "${two(s / 60L)}:${two(s % 60L)}" else "${s / 3_600L}:${two(s % 3_600L / 60L)}:${two(s % 60L)}"
+    }
 
     // ---- Adding a song (R21-R23a) ---------------------------------------------------------
 

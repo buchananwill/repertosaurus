@@ -42,6 +42,7 @@ import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.TimedSong
 import kotlinx.coroutines.launch
 
 /**
@@ -135,6 +136,9 @@ internal object DrawerTags {
 
     /** Onboarding OB6: opens the owner performer picker. */
     const val WHO_YOU_ARE: String = "drawer-who-you-are"
+
+    /** Timer TM4: "Timer running: <title>". */
+    const val TIMER: String = "drawer-timer"
 }
 
 /**
@@ -266,6 +270,8 @@ private fun AppShell(
     val noteSpelling by settings.noteSpelling.collectAsState()
     val ownerPerformer by settings.ownerPerformer.collectAsState()
     val performers by viewModel.performers.collectAsState()
+    // Timer TM4: named in the drawer, so it is hard to forget from anywhere in the app.
+    val timer by viewModel.timer.running.collectAsState()
     var sheet by remember { mutableStateOf<DrawerSheet?>(null) }
 
     val close = { scope.launch { drawerState.close() } }
@@ -311,6 +317,11 @@ private fun AppShell(
         drawerContent = {
             AppDrawerContent(
                 route = route,
+                timer = timer,
+                onTimer = {
+                    close()
+                    toLogger()
+                },
                 noteSpelling = noteSpelling,
                 onNavigate = { target ->
                     close()
@@ -425,6 +436,8 @@ private fun AppShell(
 @Composable
 private fun AppDrawerContent(
     route: Route,
+    timer: TimedSong?,
+    onTimer: () -> Unit,
     noteSpelling: NoteSpelling,
     onNavigate: (Route) -> Unit,
     onExport: () -> Unit,
@@ -440,6 +453,16 @@ private fun AppDrawerContent(
                     Messages.DRAWER_OFFLINE,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // Timer TM4: above everything, while a timer runs. It leads back to the logger and its bar.
+            timer?.let { running ->
+                DrawerItem(
+                    Messages.timerRunning(running.title),
+                    onClick = onTimer,
+                    modifier = Modifier.testTag(DrawerTags.TIMER),
+                    selected = true,
                 )
             }
 

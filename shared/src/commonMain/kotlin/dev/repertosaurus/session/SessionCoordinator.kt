@@ -112,7 +112,11 @@ public class SessionCoordinator(
         feel = tap.feel,
         note = tap.note,
         loggedOn = tap.loggedOn,
+        durationSeconds = tap.durationSeconds,
     )
+
+    /** timer TM10: a live song's title, or null when it was soft-deleted or merged away. */
+    public fun songTitle(songId: String): String? = repository.catalog.song(songId)?.title
 
     // ---- Adding a song ----------------------------------------------------------------
 
