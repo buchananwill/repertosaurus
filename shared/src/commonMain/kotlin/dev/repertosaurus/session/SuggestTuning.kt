@@ -24,25 +24,28 @@ public enum class SuggestSpoke(public val label: String, public val angleDegrees
     }
 }
 
-/**
- * suggest SG11, SG12, SG14: why [spoke] is locked at zero, or null when it takes a drag. **The one place
- * the lock is decided.** [countSkips] is the tuning's (SG12); [part] is triage T9's resolution for the
- * active View. The rating and skip spokes need a part (SG14), and the skip spoke needs counting on.
- */
-public fun lockOf(spoke: SuggestSpoke, countSkips: Boolean, part: PartResolution): String? = when (spoke) {
-    SuggestSpoke.COLDNESS, SuggestSpoke.HOTNESS -> null
-    SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE -> when (part) {
-        is PartResolution.Resolved -> null
-        PartResolution.Pending -> Messages.SUGGEST_LOCKED_RATINGS
-        PartResolution.None -> Messages.SUGGEST_LOCKED_NO_PERFORMER
+/** SG11, SG12, SG14: why [spoke] is locked at zero, or null. The one place the lock is decided. */
+public fun lockOf(spoke: SuggestSpoke, countSkips: Boolean, part: PartResolution, ratingsFresh: Boolean): String? =
+    when (spoke) {
+        SuggestSpoke.COLDNESS, SuggestSpoke.HOTNESS -> null
+        SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE -> when (part) {
+            is PartResolution.Resolved -> if (ratingsFresh) null else Messages.SUGGEST_LOCKED_RATINGS
+            PartResolution.Pending -> Messages.SUGGEST_LOCKED_RATINGS
+            PartResolution.None -> Messages.SUGGEST_LOCKED_NO_PERFORMER
+        }
+        SuggestSpoke.SKIPS -> if (!countSkips) {
+            Messages.SUGGEST_LOCKED_SKIPS
+        } else {
+            when (part) {
+                is PartResolution.Resolved -> null
+                PartResolution.Pending -> Messages.SUGGEST_LOCKED_SKIPS_PENDING
+                PartResolution.None -> Messages.SUGGEST_LOCKED_NO_PERFORMER
+            }
+        }
     }
-    SuggestSpoke.SKIPS -> when {
-        !countSkips -> Messages.SUGGEST_LOCKED_SKIPS
-        part is PartResolution.Resolved -> null
-        part == PartResolution.Pending -> Messages.SUGGEST_LOCKED_SKIPS_PENDING
-        else -> Messages.SUGGEST_LOCKED_NO_PERFORMER
-    }
-}
+
+/** SG11: one spoke as drawn and weighed: its radius, zero while locked, and the lock's reason. */
+public data class SpokeState(val radius: Double, val reason: String?)
 
 /**
  * suggest SG8, SG11, SG15, SG16: one radius per spoke in `[0, 1]`, snapped to [STEP], plus the two skip
@@ -68,9 +71,23 @@ public data class SuggestTuning(
     public fun withRadius(spoke: SuggestSpoke, radius: Double): SuggestTuning =
         copy(radii = radii + (spoke to snap(radius)))
 
-    /** SG11: what the suggester weighs and the radar draws for [part]: each locked spoke at zero. */
-    public fun effective(part: PartResolution): SuggestTuning =
-        copy(radii = radii.mapValues { (spoke, r) -> if (lockOf(spoke, countSkips, part) != null) 0.0 else r })
+    /** SG11: every spoke's [SpokeState], which the radar and its hint read. */
+    public fun spokes(part: PartResolution, ratingsFresh: Boolean): Map<SuggestSpoke, SpokeState> =
+        SuggestSpoke.entries.associateWith { spoke ->
+            val reason = lockOf(spoke, countSkips, part, ratingsFresh)
+            SpokeState(if (reason != null) 0.0 else radius(spoke), reason)
+        }
+
+    /** SG11: what the suggester weighs: each locked spoke at zero. */
+    public fun effective(part: PartResolution, ratingsFresh: Boolean): SuggestTuning =
+        copy(radii = spokes(part, ratingsFresh).mapValues { it.value.radius })
+
+    /** SG12, SG14: the part a skip is counted for, or null when skips are not counted or nobody resolves. */
+    public fun skipPart(part: PartResolution): ResolvedPart? =
+        if (countSkips) part.resolvedOrNull else null
+
+    /** SG13: the count the card shows, or null: counting on, the count shown, and above zero. */
+    public fun shownSkipCount(skips: Long): Long? = skips.takeIf { countSkips && showSkipCount && it > 0 }
 
     /** SG11's "Shuffle": every radius to zero; the skip settings are kept. */
     public fun shuffled(): SuggestTuning = copy(radii = ZERO)

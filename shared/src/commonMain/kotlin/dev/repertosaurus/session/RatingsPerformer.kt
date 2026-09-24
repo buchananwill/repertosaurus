@@ -1,5 +1,6 @@
 package dev.repertosaurus.session
 
+import dev.repertosaurus.data.Part
 import dev.repertosaurus.data.RepertosaurusRepository
 
 /** triage T9: the part a View's ratings belong to. [name] is the performer's, for the editor's title. */
@@ -42,9 +43,16 @@ public val SessionState.resolvedPart: ResolvedPart?
 public val SessionState.triageAvailable: Boolean
     get() = part != PartResolution.None
 
+/** triage T9: the rows carry the resolved part's ratings, or both are none. */
+public val SessionState.ratingsFresh: Boolean
+    get() = ratedFor == resolvedPart
+
 /** The rows' ratings belong to another part than [part] resolves to, so they must be read again. */
 public val SessionState.ratingsStale: Boolean
-    get() = !loading && resolvedPart != ratedFor
+    get() = !loading && !ratingsFresh
+
+/** schema-3 M12, suggest SG14: this part of [songId]. */
+public fun ResolvedPart.of(songId: String): Part = Part(songId, performerId, instrumentId)
 
 /**
  * **triage T9: whose part the View's ratings are**, in T9's order: the filter performer, then the owner

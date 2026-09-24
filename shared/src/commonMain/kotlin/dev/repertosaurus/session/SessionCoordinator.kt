@@ -3,6 +3,7 @@ package dev.repertosaurus.session
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.normalise
+import dev.repertosaurus.data.Part
 import dev.repertosaurus.data.PartRatings
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.data.SongCatalog
@@ -138,6 +139,16 @@ public class SessionCoordinator(
     public fun voidEvent(practiceEventId: String) {
         repository.voidPractice(practiceEventId)
     }
+
+    // ---- Suggest's counted skips (suggest SG12-SG13, schema-3 M13-M14) ------------------
+
+    public fun recordSkip(part: Part) {
+        repository.skips.recordSkip(part)
+    }
+
+    /** M14, one bulk read. */
+    public fun skipsSinceLastPractised(parts: Collection<Part>): Map<Part, Long> =
+        repository.skips.skipsSinceLastPractised(parts)
 }
 
 /** The chip row's ordering and selection rules. */

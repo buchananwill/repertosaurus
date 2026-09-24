@@ -13,27 +13,23 @@ public data class SuggestCandidate(
     val daysSince: Long?,
     val priority: RatingLevel? = null,
     val confidence: RatingLevel? = null,
-    val skips: Int = 0,
+    val skips: Long = 0L,
 )
 
-/** suggest SG5: the View's rows not logged this session, **ignoring the search query**. */
-public val SessionState.suggestionPool: List<SuggestCandidate>
-    get() = suggestionPool(skips = emptyMap())
-
 /**
- * SG5 with SG9's inputs: [skips] by song id, for the resolved part (SG14). **The ratings count only while
- * the rows carry the resolved part's** (journal F35 N3): between a part change and its ratings landing
- * they are the previous part's, and read as unrated.
+ * suggest SG5: the View's rows not logged this session, **ignoring the search query**, with SG9's inputs:
+ * [skips] by song id, for the resolved part (SG14). **The ratings count only while they are fresh**
+ * (triage T9): until the part's own land, the previous part's read as unrated.
  */
-public fun SessionState.suggestionPool(skips: Map<String, Int>): List<SuggestCandidate> {
-    val fresh = ratedFor == resolvedPart
+public fun SessionState.suggestionPool(skips: Map<String, Long> = emptyMap()): List<SuggestCandidate> {
+    val fresh = ratingsFresh
     return rows.filter { it.songId !in loggedCounts }.map {
         SuggestCandidate(
             songId = it.songId,
             daysSince = it.daysSince,
             priority = it.priority.takeIf { fresh },
             confidence = it.confidence.takeIf { fresh },
-            skips = skips[it.songId] ?: 0,
+            skips = skips[it.songId] ?: 0L,
         )
     }
 }
@@ -47,7 +43,7 @@ public sealed interface SuggestionCard {
     public data object Exhausted : SuggestionCard
 
     /** [skips] is the dealt candidate's, for SG13's count. */
-    public data class Showing(val row: SessionRow, val skips: Int = 0) : SuggestionCard
+    public data class Showing(val row: SessionRow, val skips: Long) : SuggestionCard
 }
 
 /**
@@ -59,7 +55,7 @@ public fun SessionState.suggestionCard(deck: SuggestionDeck): SuggestionCard = w
     is SuggestionDeck.Exhausted -> SuggestionCard.Exhausted
     is SuggestionDeck.Showing ->
         rows.firstOrNull { it.songId == deck.current.songId }?.let { SuggestionCard.Showing(it, deck.current.skips) }
-            ?: if (suggestionPool.isEmpty()) SuggestionCard.EmptyPool else SuggestionCard.Exhausted
+            ?: if (suggestionPool().isEmpty()) SuggestionCard.EmptyPool else SuggestionCard.Exhausted
 }
 
 /** suggest SG7-SG10: the weighting and the draw. Pure: the random source is the caller's. */
@@ -87,8 +83,8 @@ public object Suggester {
 
     /**
      * SG8's `exp(ln 16 × Σ rₖ · fₖ)`, as `16^Σ` so zero is exactly 1. SG10's staleness term is written
-     * `(r_cold − r_hot) · f + r_hot`, so equal radii cancel exactly. [tuning] is the one to weigh by,
-     * locks applied ([SuggestTuning.effective]).
+     * `(r_cold − r_hot) · f + r_hot`, so equal radii cancel exactly. [tuning] has its locks applied
+     * ([SuggestTuning.effective]).
      */
     public fun weights(pool: List<SuggestCandidate>, tuning: SuggestTuning): List<Double> {
         val cold = tuning.radius(SuggestSpoke.COLDNESS)
@@ -107,18 +103,18 @@ public object Suggester {
     }
 
     /** SG9: `level / 3`. **Unrated is 0.** */
-    public fun priorityNeed(level: RatingLevel?): Double = level?.let { it.value / MAX_LEVEL } ?: 0.0
+    internal fun priorityNeed(level: RatingLevel?): Double = level?.let { it.value / MAX_LEVEL } ?: 0.0
 
     /** SG9: `(3 − level) / 3`, lower confidence being more need. **Unrated is 0.** */
-    public fun confidenceNeed(level: RatingLevel?): Double = level?.let { (MAX_LEVEL - it.value) / MAX_LEVEL } ?: 0.0
+    internal fun confidenceNeed(level: RatingLevel?): Double = level?.let { (MAX_LEVEL - it.value) / MAX_LEVEL } ?: 0.0
 
     /** SG9: `min(skips, 10) / 10`. */
-    public fun skipsNeed(skips: Int): Double = skips.coerceIn(0, SKIPS_CAP) / SKIPS_CAP.toDouble()
+    internal fun skipsNeed(skips: Long): Double = skips.coerceIn(0L, SKIPS_CAP) / SKIPS_CAP.toDouble()
 
-    private const val MAX_LEVEL: Double = 3.0
+    private val MAX_LEVEL: Double = RatingLevel.entries.maxOf { it.value }.toDouble()
 
     /** SG9: past this many skips a song is no needier. */
-    private const val SKIPS_CAP: Int = 10
+    private const val SKIPS_CAP: Long = 10L
 
     /**
      * SG7: one weighted draw from [pool], skipping [excluding]. The weights are the whole pool's, so

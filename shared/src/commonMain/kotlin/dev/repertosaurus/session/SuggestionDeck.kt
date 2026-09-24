@@ -4,8 +4,7 @@ import kotlin.random.Random
 
 /**
  * suggest SG4, SG6: one open suggestion sheet. **A deck, not a die**: a song shown is not shown again
- * until every song in the pool has been. Closing the sheet discards it. The pending skip (SG12) and its
- * undo window are the Android holder's, beside the deck; undoing one restores the deck as it was.
+ * until every song in the pool has been. Closing the sheet discards it.
  */
 public sealed interface SuggestionDeck {
     /** The songs dealt from this deck so far. */
@@ -21,7 +20,7 @@ public sealed interface SuggestionDeck {
     /** SG4: every song in the pool shown once; the next draw starts a fresh deck. */
     public data class Exhausted(override val shown: Set<String>) : SuggestionDeck
 
-    /** SG6: "Another". **It writes nothing**: a counted skip is the holder's (SG12). */
+    /** SG6: "Another". It writes nothing. */
     public fun next(pool: List<SuggestCandidate>, tuning: SuggestTuning, random: Random): SuggestionDeck =
         deal(pool, tuning, random, if (this is Exhausted) emptySet() else shown)
 

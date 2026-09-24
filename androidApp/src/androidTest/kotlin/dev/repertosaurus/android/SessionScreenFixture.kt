@@ -20,9 +20,10 @@ import kotlinx.coroutines.Dispatchers
  * logger, and the screen composed in the app's own window — theme and grain — as `MainActivity` does.
  *
  * [fontScale], when given, is set through `LocalDensity` rather than the system setting, so the test
- * owns it and leaves nothing behind; a sheet's window inherits it from the composition.
+ * owns it and leaves nothing behind. **It does not reach a sheet**, which is its own window: a sheet's
+ * font-scale test uses [SystemFontScale].
  */
-internal class SessionScreenFixture(private val compose: ComposeContentTestRule, private val prefix: String) {
+internal class SessionScreenFixture(val compose: ComposeContentTestRule, private val prefix: String) {
 
     class Screen(val holder: DatabaseHolder, val session: SessionViewModel, val settings: DeviceSettings) {
         /** The first pending song's title: what a test taps. */

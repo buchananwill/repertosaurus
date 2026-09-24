@@ -52,7 +52,6 @@ import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.SuggestSpoke
 import dev.repertosaurus.session.SuggestTuning
-import dev.repertosaurus.session.lockOf
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -66,7 +65,7 @@ private val RadarHub = 24.dp
 /** The outer ring's largest radius: a small instrument panel (vision), not a full-bleed chart. */
 private val RadarMaxOuter = 130.dp
 
-/** The least the hub-to-rim span shrinks to however large the labels are (F26 N4: always positive). */
+/** The least the hub-to-rim span shrinks to however large the labels are, so it is always positive. */
 private val RadarMinSpan = 40.dp
 
 /** From a spoke's tip to its label: clear of a handle at full radius and its shadow. */
@@ -90,42 +89,46 @@ private class Held(val spoke: SuggestSpoke, val radius: Float)
 /**
  * suggest SG11: the radar. Five spokes, coldness opposite hotness (SG10).
  *
- * - **During a drag the handle and polygon follow the finger 1:1** (F31 N1); on release the radius
+ * - **During a drag the handle and polygon follow the finger 1:1**; on release the radius
  *   snaps to [SuggestTuning.STEP], springs there and is persisted. An external change (Shuffle)
  *   springs too.
- * - A press takes the nearest handle **as drawn** (F26 N5), locked ones included, and a locked one
+ * - A press takes the nearest handle **as drawn**, locked ones included, and a locked one
  *   takes nothing. A press away from every handle is left to the sheet.
- * - The labels are measured first and the rings sized to leave them room (F31 B1), so a large font
+ * - The labels are measured first and the rings sized to leave them room, so a large font
  *   shrinks the radar rather than pushing a label off it.
- * - [tuning] is the stored one, which a drag writes to; what is drawn is its [SuggestTuning.effective]
- *   for [part], each locked spoke at zero with [lockOf]'s reason (SG11, SG12, SG14).
  */
 @Composable
-internal fun SuggestRadar(tuning: SuggestTuning, part: PartResolution, onTune: (SuggestTuning) -> Unit, modifier: Modifier = Modifier) {
+internal fun SuggestRadar(
+    tuning: SuggestTuning,
+    part: PartResolution,
+    ratingsFresh: Boolean,
+    onTune: (SuggestTuning) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
-    val shown = tuning.effective(part)
-    val reasons = SuggestSpoke.entries.associateWith { lockOf(it, tuning.countSkips, part) }
-    val settled = remember { SuggestSpoke.entries.associateWith { Animatable(shown.radius(it).toFloat()) } }
+    val spokes = tuning.spokes(part, ratingsFresh)
+    val settled = remember { SuggestSpoke.entries.associateWith { Animatable(spokes.getValue(it).radius.toFloat()) } }
     var held by remember { mutableStateOf<Held?>(null) }
     var geometry by remember { mutableStateOf<RadarGeometry?>(null) }
     val tune by rememberUpdatedState(onTune)
     val persisted by rememberUpdatedState(tuning)
-    val locks by rememberUpdatedState(reasons)
-    val locked = { spoke: SuggestSpoke -> locks[spoke] != null }
+    val current by rememberUpdatedState(spokes)
+    val locked = { spoke: SuggestSpoke -> current.getValue(spoke).reason != null }
     val drawn = { spoke: SuggestSpoke -> held?.takeIf { it.spoke == spoke }?.radius ?: settled.getValue(spoke).value }
 
-    LaunchedEffect(shown) {
+    LaunchedEffect(spokes) {
         for ((spoke, radius) in settled) {
-            if (held?.spoke != spoke) launch { radius.animateTo(shown.radius(spoke).toFloat(), Motion.spring()) }
+            if (held?.spoke != spoke) launch { radius.animateTo(spokes.getValue(spoke).radius.toFloat(), Motion.spring()) }
         }
     }
 
     Layout(
         contents = listOf(
-            { for (spoke in SuggestSpoke.entries) SpokeLabel(spoke, reasons[spoke]) },
+            { for (spoke in SuggestSpoke.entries) SpokeLabel(spoke, spokes.getValue(spoke).reason) },
             {
                 for (spoke in SuggestSpoke.entries) {
-                    SpokeHandle(spoke, shown.radius(spoke), reasons[spoke], onSet = { tune(persisted.withRadius(spoke, it)) })
+                    val state = spokes.getValue(spoke)
+                    SpokeHandle(spoke, state.radius, state.reason, onSet = { tune(persisted.withRadius(spoke, it)) })
                 }
             },
         ),

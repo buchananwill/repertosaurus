@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
@@ -405,7 +404,4 @@ class OnboardingReducedMotionTest {
         compose.mainClock.autoAdvance = true
     }
 
-    private object NoMotion : MotionDurationScale {
-        override val scaleFactor: Float = 0f
-    }
 }

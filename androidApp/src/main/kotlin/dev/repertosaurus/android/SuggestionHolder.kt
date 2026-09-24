@@ -1,15 +1,18 @@
 package dev.repertosaurus.android
 
 import dev.repertosaurus.data.Part
-import dev.repertosaurus.session.ResolvedPart
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SuggestTuning
+import dev.repertosaurus.session.SuggestionCard
 import dev.repertosaurus.session.SuggestionDeck
+import dev.repertosaurus.session.of
 import dev.repertosaurus.session.part
-import dev.repertosaurus.session.resolvedPart
+import dev.repertosaurus.session.ratingsFresh
+import dev.repertosaurus.session.suggestionCard
 import dev.repertosaurus.session.suggestionPool
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,203 +26,172 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-/** schema-3 M13, M14 for Suggest: the one skip write and the one bulk count read, each off the main thread. */
-public interface SkipLedger {
-    public suspend fun record(part: Part)
-
-    public suspend fun counts(parts: Collection<Part>): Map<Part, Long>
-}
-
 /**
- * suggest SG2-SG7, SG12-SG14: the open suggestion sheet's deck (null while closed), drawn from [session]'s
- * pool. "Log it" is [take], then the session's own `log`, the plain tap's path.
+ * suggest SG2-SG7, SG12-SG14: the open suggestion sheet's deck (null while closed) and its skip window,
+ * which writes a skip only when it closes.
  *
- * **SG12's skip window lives here.** With counting on and a part resolved (SG14), "Another" stages a skip
- * for the card it replaces, and [staged] holds it for [SKIP_WINDOW_MS]. **It is written only when the
- * window closes**, or when "Another" or "Log it" on a different card cuts the window short. Undo, closing
- * the sheet, the part's song being logged, and the scope ending (the process dying) all drop it unwritten.
- * The window is a `delay` in [scope], so a test's scheduler owns the five seconds.
- *
- * The tuning is passed in on each call and the last one is kept for the empty-pool redraw and the window.
+ * [record] and [counts] do their own IO. [apply] is the state holder's atomic update.
  */
 public class SuggestionHolder(
     private val session: StateFlow<SessionState>,
     private val scope: CoroutineScope,
-    private val ledger: SkipLedger,
-    /** S11: a skip that could not be written, or counts that could not be read, is said. */
-    private val onFailure: (Throwable) -> Unit,
+    private val record: suspend (Part) -> Unit,
+    counts: suspend (Collection<Part>) -> Map<Part, Long>,
+    private val apply: ((SessionState) -> SessionState) -> Unit,
     private val random: Random = Random.Default,
 ) {
     private val _deck = MutableStateFlow<SuggestionDeck?>(null)
     public val deck: StateFlow<SuggestionDeck?> = _deck.asStateFlow()
 
-    /** SG12: the skip in its undo window, or null. */
-    private val _staged = MutableStateFlow<Part?>(null)
-    public val staged: StateFlow<Part?> = _staged.asStateFlow()
+    /** SG12: a skip in its undo window: its part, the deck Undo restores, and the window. */
+    public class StagedSkip internal constructor(public val part: Part, internal val before: SuggestionDeck, internal val window: Job)
+
+    private val _staged = MutableStateFlow<StagedSkip?>(null)
+    public val staged: StateFlow<StagedSkip?> = _staged.asStateFlow()
 
     private var tuning = SuggestTuning.DEFAULT
 
-    /** What Undo restores: the deck as it was before "Another". */
-    private var beforeSkip: SuggestionDeck? = null
-    private var window: Job? = null
+    private val skipCounts = SkipCounts(session, scope, counts, onFailure = ::fail)
 
-    /** M14's counts for this sheet, by song, for [Counts.part]; read once per opening (SG13). */
-    private class Counts(val part: ResolvedPart, val bySong: Map<String, Int>)
+    /** Moves on at every deck change, and at Undo, a retune and a close, so a late deal never lands. */
+    private var ticket = 0L
 
-    private var counts: Counts? = null
-    private var reading: Job? = null
+    /** The ticket of a deal waiting on a counts read; "Another" waits for it. */
+    private var pending: Long? = null
 
-    /** SG2, SG6: a fresh deck. Refused while the rows are loading (F26 B1): they are not the View's yet. */
-    public fun open(tuning: SuggestTuning) {
-        if (session.value.loading) return
+    /** SG12, SG13: the tuning under "Tune". Counting turned off drops a staged skip. */
+    public fun retune(tuning: SuggestTuning) {
         this.tuning = tuning
-        forget()
-        withCounts { bySong -> _deck.value = SuggestionDeck.open(pool(bySong), weighing(), random) }
+        if (tuning.skipPart(session.value.part) == null) drop()
+        val shown = _deck.value as? SuggestionDeck.Showing ?: return invalidate()
+        deal { bySong ->
+            _deck.value = shown.copy(current = shown.current.copy(skips = bySong[shown.current.songId] ?: 0L))
+        }
     }
 
-    /** SG6: "Another", from the pool as it is now. SG12: it closes any open window and stages the next. */
-    public fun another(tuning: SuggestTuning) {
+    /** SG2, SG6: a fresh deck. Refused while the rows are loading: they are not the View's yet. */
+    public fun open() {
+        if (session.value.loading) return
+        close()
+        deal { bySong -> _deck.value = SuggestionDeck.open(pool(bySong), weighing(), random) }
+    }
+
+    /** SG6, SG12: "Another". It closes any open window and stages a skip for the card it replaces. */
+    public fun another() {
         val deck = _deck.value ?: return
-        this.tuning = tuning
-        commit()
-        val shown = (deck as? SuggestionDeck.Showing)?.current
-        val part = session.value.resolvedPart
-        if (tuning.countSkips && part != null && shown != null) {
-            stage(Part(shown.songId, part.performerId, part.instrumentId), before = deck)
-        }
-        withCounts { bySong ->
-            if (_deck.value === deck) _deck.value = deck.next(pool(bySong), weighing(), random)
+        if (pending != null) return
+        deal { bySong ->
+            val skipped = skippable(deck)
+            _deck.value = deck.next(pool(bySong), weighing(), random)
+            restage(skipped?.let { stage(it, before = deck) })
         }
     }
 
     /** SG12: the card before "Another" is back, and nothing is written. */
     public fun undo() {
-        val before = beforeSkip ?: return
-        drop()
-        _deck.value = before
+        val skip = _staged.value ?: return
+        skip.window.cancel()
+        _staged.value = null
+        invalidate()
+        _deck.value = skip.before
     }
 
-    /**
-     * The tuning changed under "Tune". SG12: **counting turned off drops a staged skip**; turned on, the
-     * card on show gains its count (SG13).
-     */
-    public fun retune(tuning: SuggestTuning) {
-        this.tuning = tuning
-        if (!tuning.countSkips) drop()
-        val shown = _deck.value as? SuggestionDeck.Showing ?: return
-        withCounts { bySong ->
-            val now = _deck.value
-            if (now is SuggestionDeck.Showing && now.current.songId == shown.current.songId) {
-                _deck.value = now.copy(current = now.current.copy(skips = bySong[now.current.songId] ?: 0))
-            }
-        }
-    }
-
-    /** SG3: the deck is discarded and nothing is written. **A staged skip is dropped** (SG12). */
+    /** SG3: dismissing is never a skip. A staged skip is dropped. */
     public fun close() {
         drop()
-        forget()
+        invalidate()
+        skipCounts.forget()
         _deck.value = null
     }
 
     /**
-     * SG2's "Log it": true, and the sheet closed, when [songId] was dealt from the open deck; the caller
-     * then logs it. False, and nothing changes, for any other song. SG12: a skip staged for a different
-     * song is written; one for this song is dropped, since it is being played.
+     * SG2's "Log it": true, and the sheet closed, when [songId] was dealt from the open deck. SG12: a skip
+     * staged for another song is written; one for this song is dropped, since it is being played.
      */
     public fun take(songId: String): Boolean {
         if (_deck.value?.shown?.contains(songId) != true) return false
-        if (_staged.value?.songId == songId) drop() else commit()
-        forget()
+        val skip = _staged.value
+        if (skip?.part?.songId == songId) drop() else restage(null)
+        invalidate()
+        skipCounts.forget()
         _deck.value = null
         return true
     }
 
-    private fun pool(bySong: Map<String, Int>) = session.value.suggestionPool(bySong)
+    private fun pool(bySong: Map<String, Long>) = session.value.suggestionPool(bySong)
 
-    /** SG11: what the draw weighs, locks applied for the View's part. */
-    private fun weighing(): SuggestTuning = tuning.effective(session.value.part)
+    private fun weighing(): SuggestTuning = session.value.let { tuning.effective(it.part, it.ratingsFresh) }
 
-    private fun stage(part: Part, before: SuggestionDeck) {
-        beforeSkip = before
-        _staged.value = part
-        window = scope.launch {
-            delay(SKIP_WINDOW_MS)
-            window = null
-            commit()
+    /** The part to skip for [deck]'s card: counting on, a part resolved, and the card on screen the dealt one. */
+    private fun skippable(deck: SuggestionDeck): Part? {
+        val state = session.value
+        val card = state.suggestionCard(deck) as? SuggestionCard.Showing ?: return null
+        return tuning.skipPart(state.part)?.of(card.row.songId)
+    }
+
+    /**
+     * One deck change: [move] runs with the part's counts, now or when they land, and only if nothing has
+     * moved the deck since. While it waits, [pending] holds its ticket.
+     */
+    private fun deal(move: (Map<String, Long>) -> Unit) {
+        val mine = ++ticket
+        pending = mine
+        skipCounts.withCounts(tuning.skipPart(session.value.part)) { bySong ->
+            if (ticket == mine) {
+                pending = null
+                move(bySong)
+            }
         }
     }
 
-    /** SG12: the window closes and the staged skip is written, if counting is still on. */
-    private fun commit() {
-        val part = _staged.value ?: return
-        drop()
-        if (!tuning.countSkips) return
-        scope.launch {
-            try {
-                ledger.record(part)
-                counts?.takeIf { it.part.performerId == part.performerId && it.part.instrumentId == part.instrumentId }?.let {
-                    counts = Counts(it.part, it.bySong + (part.songId to (it.bySong[part.songId] ?: 0) + 1))
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                onFailure(failure)
-            }
+    private fun invalidate() {
+        ticket++
+        pending = null
+    }
+
+    private fun stage(part: Part, before: SuggestionDeck): StagedSkip {
+        lateinit var skip: StagedSkip
+        val window = scope.launch(start = CoroutineStart.LAZY) {
+            delay(SKIP_WINDOW_MS)
+            if (_staged.value === skip) restage(null)
         }
+        skip = StagedSkip(part, before, window)
+        return skip
+    }
+
+    /** SG12: the staged skip's window closes and it is written; [next], if any, takes its place. */
+    private fun restage(next: StagedSkip?) {
+        val closing = _staged.value
+        _staged.value = next
+        next?.window?.start()
+        closing?.let(::write)
     }
 
     /** SG12: the staged skip, gone unwritten. */
     private fun drop() {
-        window?.cancel()
-        window = null
-        beforeSkip = null
+        _staged.value?.window?.cancel()
         _staged.value = null
     }
 
-    /** This sheet's counts, and any read of them, discarded: the next opening reads again. */
-    private fun forget() {
-        reading?.cancel()
-        reading = null
-        counts = null
-    }
-
-    /**
-     * [then] with M14's counts for the resolved part (SG13, SG14): at once when skips are not counted or
-     * no part resolves (none), or when this sheet has read them; otherwise after **one bulk read** of the
-     * View's rows. A failed read is said and weighs as none.
-     */
-    private fun withCounts(then: (Map<String, Int>) -> Unit) {
-        val part = session.value.resolvedPart
-        if (!tuning.countSkips || part == null) return then(emptyMap())
-        counts?.takeIf { it.part == part }?.let { return then(it.bySong) }
-        reading?.cancel()
-        reading = scope.launch {
-            val parts = session.value.rows.map { Part(it.songId, part.performerId, part.instrumentId) }
-            val bySong = try {
-                ledger.counts(parts).entries.associate { (p, n) -> p.songId to n.toInt() }.also { counts = Counts(part, it) }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                onFailure(failure)
-                emptyMap()
-            }
-            reading = null
-            then(bySong)
+    private fun write(skip: StagedSkip) {
+        skip.window.cancel()
+        val counted = skipCounts.recording(skip.part)
+        scope.launch {
+            catchingFailure { record(skip.part) }.fold(onSuccess = { counted() }, onFailure = ::fail)
         }
     }
 
+    private fun fail(failure: Throwable) {
+        apply { it.withMessage(Messages.suggestSkipsFailed(failure)) }
+    }
+
     init {
-        // F26 B1: an empty-pool sheet deals as soon as there is something to deal.
+        // An empty-pool sheet deals as soon as there is something to deal.
         session
-            .map { !it.loading && it.suggestionPool.isNotEmpty() }
+            .map { !it.loading && it.suggestionPool().isNotEmpty() }
             .distinctUntilChanged()
             .filter { it && _deck.value == SuggestionDeck.EmptyPool }
-            .onEach {
-                withCounts { bySong ->
-                    if (_deck.value == SuggestionDeck.EmptyPool) _deck.value = SuggestionDeck.open(pool(bySong), weighing(), random)
-                }
-            }
+            .onEach { deal { bySong -> _deck.value = SuggestionDeck.open(pool(bySong), weighing(), random) } }
             .launchIn(scope)
     }
 

@@ -4,18 +4,13 @@ import android.content.Context
 import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.MotionDurationScale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -23,43 +18,32 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.repertosaurus.android.DatabaseFixtures.count
 import dev.repertosaurus.android.theme.RepertosaurusWindow
-import dev.repertosaurus.data.DatabaseHolder
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PartResolution
-import dev.repertosaurus.session.SuggestCandidate
 import dev.repertosaurus.session.SuggestSpoke
 import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.SuggestionDeck
 import dev.repertosaurus.session.lockOf
 import dev.repertosaurus.session.part
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * **suggest §3's [v1] instrumented checks** on the composed Session screen, and the P5 fix round's
- * (journal F26 B1, N7; F31 B1, N2, N3).
- */
+/** **suggest §3's [v1] instrumented checks** on the composed Session screen. */
 @RunWith(AndroidJUnit4::class)
 class SuggestFlowTest {
 
@@ -83,23 +67,23 @@ class SuggestFlowTest {
     @Test
     fun suggestOpensTheCard() {
         val screen = fixture.open("opens")
-        suggest()
+        compose.suggest(screen)
 
         val current = assertNotNull(screen.current(), "the sheet opened on a card")
-        compose.onNode(onTheCard(screen.titleOf(current.songId))).assertExists()
+        compose.onNode(onTheCard(screen.titleOf(current))).assertExists()
     }
 
-    /** SG6: "Another" shows a different song, and writes nothing (SG3; skips are [v2]). */
+    /** SG6: "Another" shows a different song, and with skips not counted writes nothing (SG3, SG12). */
     @Test
     fun anotherShowsADifferentSong() {
         val screen = fixture.open("another")
-        suggest()
-        val first = screen.current()!!.songId
+        compose.suggest(screen)
+        val first = screen.current()
         val writes = writes(screen.holder)
 
-        another()
+        compose.another()
 
-        val second = assertNotNull(screen.current()).songId
+        val second = assertNotNull(screen.current())
         assertNotEquals(first, second, "a deck, not a die")
         compose.onNode(onTheCard(screen.titleOf(second))).assertExists()
         compose.onNode(onTheCard(screen.titleOf(first))).assertDoesNotExist()
@@ -110,8 +94,8 @@ class SuggestFlowTest {
     @Test
     fun logItCreatesExactlyOneEventWithFeelNull() {
         val screen = fixture.open("log-it")
-        suggest()
-        val songId = screen.current()!!.songId
+        compose.suggest(screen)
+        val songId = screen.current()!!
         val before = count(screen.holder, "practice_event")
         // The sample data may already hold plain logs of this song, so the check is the difference.
         val plainLogs = "practice_event WHERE song_id = '$songId' AND feel IS NULL AND note IS NULL"
@@ -132,15 +116,15 @@ class SuggestFlowTest {
         assertNotNull(state.undo, "the standard undo is offered")
     }
 
-    /** F26 N7: the pool ignores the search (SG5), so a card can be one the list is hiding; it still logs. */
+    /** The pool ignores the search (SG5), so a card can be one the list is hiding; it still logs. */
     @Test
     fun logItOnACardTheSearchHides() {
         val screen = fixture.open("search-hidden")
         EditingFixtures.onMain { screen.session.setQuery("zzzz-no-such-song") }
         compose.waitForIdle()
         assertTrue(screen.session.state.value.pending.isEmpty(), "the search hides every row")
-        suggest()
-        val songId = screen.current()!!.songId
+        compose.suggest(screen)
+        val songId = screen.current()!!
         val before = count(screen.holder, "practice_event")
 
         compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).performClick()
@@ -158,8 +142,8 @@ class SuggestFlowTest {
     fun swipingTheSheetAwayWritesNothing() = withOneIoThread { io, drain ->
         val screen = fixture.open("dismiss-swipe", io = io)
         val before = writes(screen.holder)
-        suggest()
-        repeat(2) { another() }
+        compose.suggest(screen)
+        repeat(2) { compose.another() }
 
         compose.onNodeWithTag(SuggestTags.SHEET).performTouchInput { swipeDown() }
         compose.awaitUntil("the sheet's dismissal") { screen.session.suggestions.deck.value == null }
@@ -176,8 +160,8 @@ class SuggestFlowTest {
     fun tappingOutsideTheSheetWritesNothing() = withOneIoThread { io, drain ->
         val screen = fixture.open("dismiss-outside", io = io)
         val before = writes(screen.holder)
-        suggest()
-        another()
+        compose.suggest(screen)
+        compose.another()
 
         tapAboveTheSheet()
         compose.awaitUntil("the sheet's dismissal") { screen.session.suggestions.deck.value == null }
@@ -187,7 +171,7 @@ class SuggestFlowTest {
         assertEquals(before, writes(screen.holder), "no event, no void, no skip")
     }
 
-    /** SG4: with everything logged, the card says so, with no draw; F26 B1: a song coming back deals. */
+    /** SG4: with everything logged, the card says so, with no draw; a song coming back deals. */
     @Test
     fun anEmptyPoolSaysSoAndDealsWhenASongReturns() {
         val screen = fixture.open("empty-pool")
@@ -195,19 +179,19 @@ class SuggestFlowTest {
         EditingFixtures.onMain { for (song in songs) screen.session.log(song) }
         compose.awaitUntil("every insert") { count(screen.holder, "practice_event") >= songs.size.toLong() }
 
-        suggest()
+        compose.suggest(screen)
         assertEquals(SuggestionDeck.EmptyPool, screen.session.suggestions.deck.value)
         compose.onNodeWithText(Messages.SUGGEST_EMPTY_POOL).assertExists()
         compose.onNodeWithTag(SuggestTags.CARD).assertDoesNotExist()
 
         val lastTap = screen.session.state.value.taps.last()
         EditingFixtures.onMain { screen.session.undo(lastTap.tapId) }
-        compose.awaitUntil("the returned song's card") { screen.current()?.songId == lastTap.songId }
+        compose.awaitUntil("the returned song's card") { screen.current() == lastTap.songId }
         compose.waitForIdle()
         compose.onNode(onTheCard(screen.titleOf(lastTap.songId))).assertExists()
     }
 
-    /** F26 B1: Suggest is disabled while a View switch's rows load, and deals from the new rows after. */
+    /** Suggest is disabled while a View switch's rows load, and deals from the new rows after. */
     @Test
     fun suggestIsDisabledWhileTheRowsLoad() {
         val gate = Gate()
@@ -226,26 +210,26 @@ class SuggestFlowTest {
         gate.open()
         compose.awaitUntil("the new View's rows") { !screen.session.state.value.loading }
         compose.onNodeWithContentDescription(Messages.SUGGEST).assertIsEnabled()
-        suggest()
-        val dealt = assertNotNull(screen.current()).songId
+        compose.suggest(screen)
+        val dealt = assertNotNull(screen.current())
         assertTrue(screen.session.state.value.rows.any { it.songId == dealt }, "dealt from the new View")
     }
 
-    /** F26 N7: a rotation keeps the sheet, its card and the open radar; the ViewModel holds the deck. */
+    /** A rotation keeps the sheet, its card and the open radar; the ViewModel holds the deck. */
     @Test
     fun aRotationKeepsTheSheet() {
         val screen = fixture.build("rotation")
         val restoration = StateRestorationTester(compose)
         restoration.setContent { RepertosaurusWindow { SessionContent(screen) } }
         compose.waitForIdle()
-        suggest()
-        openTune()
-        val card = screen.current()!!.songId
+        compose.suggest(screen)
+        compose.openTune()
+        val card = screen.current()
 
         restoration.emulateSavedInstanceStateRestore()
         compose.waitForIdle()
 
-        assertEquals(card, screen.current()?.songId)
+        assertEquals(card, screen.current())
         compose.onNode(onTheCard(screen.titleOf(card))).assertExists()
         compose.onNodeWithTag(SuggestTags.RADAR).assertExists()
     }
@@ -258,11 +242,11 @@ class SuggestFlowTest {
     @Test
     fun theTuningPersistsAcrossAViewModelRestart() {
         val screen = fixture.open("persist", device = AndroidSessionPreferences(context, PREFERENCES))
-        suggest()
+        compose.suggest(screen)
         compose.onNodeWithTag(SuggestTags.spoke(SuggestSpoke.COLDNESS)).assertDoesNotExist()
-        openTune()
+        compose.openTune()
 
-        dragOutward(SuggestSpoke.COLDNESS, distance = 120f)
+        compose.dragOutward(SuggestSpoke.COLDNESS)
         compose.awaitUntil("the handle's release") { screen.settings.suggestTuning.value.radius(SuggestSpoke.COLDNESS) > 0.0 }
         val tuned = screen.settings.suggestTuning.value
         val coldness = tuned.radius(SuggestSpoke.COLDNESS)
@@ -276,76 +260,29 @@ class SuggestFlowTest {
 
     /**
      * SG11, SG14: with no performer to resolve, priority, confidence and skips are drawn, disabled, and a
-     * drag on them changes nothing — F26 N7: with a non-zero Hotness beside them, which a press on a locked
-     * handle must not take.
+     * drag on them changes nothing, with a non-zero Hotness beside them, which a press on a locked handle
+     * must not take.
      */
     @Test
     fun theLockedSpokesCannotBeDragged() {
         val hot = SuggestTuning.of(SuggestSpoke.HOTNESS to 0.5)
         val screen = fixture.open("locked", device = InMemoryDevicePreferences(suggestTuning = hot))
         compose.awaitUntil("the performers' read") { screen.session.state.value.part == PartResolution.None }
-        suggest()
-        openTune()
+        compose.suggest(screen)
+        compose.openTune()
 
-        val locked = SuggestSpoke.entries.filter { lockOf(it, hot.countSkips, PartResolution.None) != null }
+        val locked = SuggestSpoke.entries.filter { lockOf(it, hot.countSkips, PartResolution.None, ratingsFresh = true) != null }
         assertEquals(listOf(SuggestSpoke.PRIORITY, SuggestSpoke.CONFIDENCE, SuggestSpoke.SKIPS), locked)
         for (spoke in locked) {
-            handle(spoke).assertIsNotEnabled()
-            dragOutward(spoke, distance = 120f)
+            compose.handle(spoke).assertIsNotEnabled()
+            compose.dragOutward(spoke)
             assertEquals(hot, screen.settings.suggestTuning.value, "${spoke.name} took a drag")
-            val range = handle(spoke).fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+            val range = compose.handle(spoke).fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
             assertEquals(0f, range.current, "${spoke.name} is drawn at zero")
         }
     }
 
-    /**
-     * F31 B1, visual-identity VI8: at font scale 1.3 every spoke label, the two-line locked ones included,
-     * lies inside the radar and no line of it is lost.
-     */
-    @Test
-    fun theSpokeLabelsFitAtALargeFont() {
-        fixture.open("large-font", fontScale = LARGE_FONT)
-        suggest()
-        openTune()
-        compose.onNodeWithTag(SuggestTags.RADAR).performScrollTo()
-        val radar = compose.onNodeWithTag(SuggestTags.RADAR).fetchSemanticsNode().boundsInRoot
-
-        for (spoke in SuggestSpoke.entries) {
-            val label = compose.onNodeWithTag(SuggestTags.label(spoke), useUnmergedTree = true).fetchSemanticsNode()
-            val bounds = label.boundsInRoot
-            assertTrue(
-                bounds.left >= radar.left && bounds.right <= radar.right && bounds.top >= radar.top && bounds.bottom <= radar.bottom,
-                "${spoke.name}'s label $bounds lies outside the radar $radar",
-            )
-            for (text in label.children) {
-                val layouts = mutableListOf<TextLayoutResult>()
-                if (SemanticsActions.GetTextLayoutResult in text.config) {
-                    text.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
-                }
-                for (layout in layouts) {
-                    val lost = layout.didOverflowHeight || (0 until layout.lineCount).any(layout::isLineEllipsized)
-                    assertTrue(!lost, "${spoke.name}'s label loses a line at font scale $LARGE_FONT")
-                }
-            }
-        }
-    }
-
     // ---- Harness -------------------------------------------------------------------------
-
-    private fun suggest() {
-        compose.onNodeWithContentDescription(Messages.SUGGEST).performClick()
-        compose.waitForIdle()
-    }
-
-    private fun another() {
-        compose.onNodeWithText(Messages.SUGGEST_ANOTHER, ignoreCase = true).performClick()
-        compose.waitForIdle()
-    }
-
-    private fun openTune() {
-        compose.onNodeWithTag(SuggestTags.TUNE).performScrollTo().performClick()
-        compose.waitForIdle()
-    }
 
     /**
      * A real tap on the scrim, just below the top of the screen and above the sheet. Material 3 clears
@@ -364,38 +301,14 @@ class SuggestFlowTest {
         }
     }
 
-    private fun handle(spoke: SuggestSpoke): SemanticsNodeInteraction =
-        compose.onNodeWithTag(SuggestTags.spoke(spoke), useUnmergedTree = true)
-
-    /** A drag from the handle's centre outward along its spoke, by [distance] pixels. */
-    private fun dragOutward(spoke: SuggestSpoke, distance: Float) = compose.dragOutward(spoke, distance)
-
     private fun onTheCard(title: String) = hasText(title) and hasAnyAncestor(hasTestTag(SuggestTags.CARD))
-
-    /**
-     * Run [body] with a session on **one** IO thread, and a `drain` that returns once every IO task queued
-     * before it has run: the only honest way to say "nothing was written" of writes that are async.
-     */
-    private fun withOneIoThread(body: (io: kotlinx.coroutines.CoroutineDispatcher, drain: () -> Unit) -> Unit) {
-        val executor = Executors.newSingleThreadExecutor()
-        val io = executor.asCoroutineDispatcher()
-        try {
-            body(io) { runBlocking(io) {} }
-        } finally {
-            io.close()
-        }
-    }
 
     private companion object {
         const val PREFERENCES = "suggest-flow-test"
-        const val LARGE_FONT = 1.3f
     }
 }
 
-/**
- * **F31 N5, visual-identity VI22**: with the animator duration scale at 0, "Another" lands the next card
- * at once with both buttons live, and a dragged handle lands on its step.
- */
+/** **visual-identity VI22**: with the animator duration scale at 0, "Another" lands the next card at once. */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(AndroidJUnit4::class)
 class SuggestReducedMotionTest {
@@ -408,51 +321,25 @@ class SuggestReducedMotionTest {
     @After
     fun cleanUp() = fixture.cleanUp()
 
+    /** With both buttons live, and a dragged handle landing on its step. */
     @Test
     fun theSwapAndAHandleLandAtOnce() {
         val screen = fixture.open("no-motion")
-        compose.onNodeWithContentDescription(Messages.SUGGEST).performClick()
-        compose.waitForIdle()
-        val first = screen.current()!!.songId
+        compose.suggest(screen)
+        val first = screen.current()
 
-        compose.onNodeWithText(Messages.SUGGEST_ANOTHER, ignoreCase = true).performClick()
-        compose.waitForIdle()
-        val second = screen.current()!!.songId
+        compose.another()
+        val second = screen.current()
         assertNotEquals(first, second)
         assertEquals(1, compose.onAllNodesWithTag(SuggestTags.CARD).fetchSemanticsNodes().size, "one card, settled")
         compose.onNode(hasText(screen.titleOf(second)) and hasAnyAncestor(hasTestTag(SuggestTags.CARD))).assertExists()
         compose.onNodeWithText(Messages.SUGGEST_LOG, ignoreCase = true).assertIsEnabled()
         compose.onNodeWithText(Messages.SUGGEST_ANOTHER, ignoreCase = true).assertIsEnabled()
 
-        compose.onNodeWithTag(SuggestTags.TUNE).performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.dragOutward(SuggestSpoke.HOTNESS, distance = 120f)
+        compose.openTune()
+        compose.dragOutward(SuggestSpoke.HOTNESS)
         compose.awaitUntil("the release") { screen.settings.suggestTuning.value.radius(SuggestSpoke.HOTNESS) > 0.0 }
-        val range = compose.onNodeWithTag(SuggestTags.spoke(SuggestSpoke.HOTNESS), useUnmergedTree = true)
-            .fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+        val range = compose.handle(SuggestSpoke.HOTNESS).fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
         assertEquals(screen.settings.suggestTuning.value.radius(SuggestSpoke.HOTNESS).toFloat(), range.current)
     }
-
-    private object NoMotion : MotionDurationScale {
-        override val scaleFactor: Float = 0f
-    }
-}
-
-private fun SessionScreenFixture.Screen.current(): SuggestCandidate? =
-    (session.suggestions.deck.value as? SuggestionDeck.Showing)?.current
-
-private fun SessionScreenFixture.Screen.titleOf(songId: String): String =
-    session.state.value.rows.first { it.songId == songId }.title
-
-/** Every table a suggestion could conceivably write to. */
-private fun writes(holder: DatabaseHolder): List<Long> =
-    listOf("practice_event", "practice_event_void", "suggestion_skip").map { count(holder, it) }
-
-private fun ComposeContentTestRule.dragOutward(spoke: SuggestSpoke, distance: Float) {
-    val (x, y) = spoke.direction()
-    val outward = Offset(x.toFloat(), y.toFloat()) * distance
-    onNodeWithTag(SuggestTags.spoke(spoke), useUnmergedTree = true)
-        .performScrollTo()
-        .performTouchInput { swipe(start = center, end = center + outward, durationMillis = 400) }
-    waitForIdle()
 }

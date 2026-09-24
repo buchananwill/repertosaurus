@@ -1,12 +1,15 @@
 package dev.repertosaurus.android
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,12 +17,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -33,8 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.Departure
 import dev.repertosaurus.android.theme.DisplayText
@@ -43,6 +42,8 @@ import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.SwitchRow
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.android.theme.departing
 import dev.repertosaurus.android.theme.hardShadow
@@ -70,17 +71,14 @@ internal object SuggestTags {
     fun label(spoke: SuggestSpoke): String = "suggest-label-${spoke.name}"
 }
 
-/**
- * suggest SG2-SG4, SG11-SG13: the suggestion sheet. **Nothing here writes**: dismissing is never a skip
- * (SG3), and a skip's write is the holder's (SG12). [onLog] is given the card on screen. [part] is triage
- * T9's for the View, whose lock the radar shows (SG14). [skipStaged] shows "Skipped · Undo".
- */
+/** suggest SG2-SG4, SG11-SG13: the suggestion sheet. **Nothing here writes**: dismissing is never a skip (SG3). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SuggestSheet(
     card: SuggestionCard,
     tuning: SuggestTuning,
     part: PartResolution,
+    ratingsFresh: Boolean,
     skipStaged: Boolean,
     tuneOpen: Boolean,
     onTuneOpen: (Boolean) -> Unit,
@@ -115,9 +113,7 @@ internal fun SuggestSheet(
                     is SuggestionCard.Showing -> Unit
                 }
             } else {
-                // SG13: shown only when skips are counted and the musician wants to see it.
-                val count = shown.skips.takeIf { tuning.countSkips && tuning.showSkipCount && it > 0 }
-                SuggestCard(row = shown.row, skipCount = count, dealer = dealer)
+                SuggestCard(row = shown.row, skipCount = tuning.shownSkipCount(shown.skips), dealer = dealer)
                 // VI12: the sheet's one primary action.
                 PrimaryButton(
                     text = Messages.SUGGEST_LOG,
@@ -134,15 +130,15 @@ internal fun SuggestSheet(
                     enabled = !dealer.swapping,
                 )
             }
-            if (skipStaged) SkippedLine(onUndo = onUndoSkip, enabled = !dealer.swapping)
-            TuneDisclosure(open = tuneOpen, onOpen = onTuneOpen, tuning = tuning, part = part, onTune = onTune)
+            SkippedLine(visible = skipStaged, onUndo = onUndoSkip, enabled = !dealer.swapping)
+            TuneDisclosure(open = tuneOpen, onOpen = onTuneOpen, tuning = tuning, part = part, ratingsFresh = ratingsFresh, onTune = onTune)
         }
     }
 }
 
 /** SG2: title, artist and the session row's own staleness badge (rating-scale RS12); SG13's count under them. */
 @Composable
-private fun SuggestCard(row: SessionRow, skipCount: Int?, dealer: Dealer) {
+private fun SuggestCard(row: SessionRow, skipCount: Long?, dealer: Dealer) {
     Column(
         modifier = Modifier
             .departing(dealer.departure)
@@ -160,36 +156,22 @@ private fun SuggestCard(row: SessionRow, skipCount: Int?, dealer: Dealer) {
             Spacer(modifier = Modifier.width(12.dp))
             StalenessBadge(row = row, loggedCount = 0)
         }
-        // SG13: information, not a scolding: muted, never red.
+        // SG13: information, not a scolding, so muted and never red.
         skipCount?.let { MutedLine(Messages.suggestSkipCount(it), modifier = Modifier.testTag(SuggestTags.SKIP_COUNT)) }
     }
 }
 
-/** SG12: "Skipped · Undo", while the skip can still be taken back. The whole "Undo" is the touch target. */
+/** SG12: "Skipped · Undo" while the skip can be taken back. VI18: it springs in and out. */
 @Composable
-private fun SkippedLine(onUndo: () -> Unit, enabled: Boolean) {
-    Row(modifier = Modifier.fillMaxWidth().testTag(SuggestTags.SKIPPED), verticalAlignment = Alignment.CenterVertically) {
-        MutedLine("${Messages.SUGGEST_SKIPPED} ·")
-        Box(
-            modifier = Modifier
-                .heightIn(min = Tokens.TouchMin)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = enabled,
-                    role = Role.Button,
-                    onClick = onUndo,
-                )
-                .padding(horizontal = 8.dp)
-                .testTag(SuggestTags.UNDO_SKIP),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                Messages.SUGGEST_UNDO_SKIP,
-                style = MaterialTheme.typography.labelLarge,
-                color = Tokens.Ink,
-                textDecoration = TextDecoration.Underline,
-            )
+private fun ColumnScope.SkippedLine(visible: Boolean, onUndo: () -> Unit, enabled: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(Motion.spring()) + slideInVertically(Motion.spring()) { -it / 2 },
+        exit = fadeOut(Motion.spring()) + slideOutVertically(Motion.spring()) { -it / 2 },
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().testTag(SuggestTags.SKIPPED), verticalAlignment = Alignment.CenterVertically) {
+            MutedLine(Messages.SUGGEST_SKIPPED)
+            TextAction(Messages.SUGGEST_UNDO_SKIP, onClick = onUndo, enabled = enabled, modifier = Modifier.testTag(SuggestTags.UNDO_SKIP))
         }
     }
 }
@@ -197,7 +179,7 @@ private fun SkippedLine(onUndo: () -> Unit, enabled: Boolean) {
 /**
  * VI18 on "Another": the card on show departs as a logged row does, with no stamp to hold for, and the
  * next springs in from the left. [shown] trails the deck meanwhile, and [swapping] disables "Log it"
- * and "Another" until the new card has settled (F26 N6, F31 N2), so no card is logged or dealt unseen.
+ * and "Another" until the new card has settled, so no card is logged or dealt unseen.
  */
 @Stable
 private class Dealer(initial: SuggestionCard.Showing?) {
@@ -212,7 +194,7 @@ private class Dealer(initial: SuggestionCard.Showing?) {
 @Composable
 private fun rememberDealer(target: SuggestionCard.Showing?): Dealer {
     val dealer = remember { Dealer(target) }
-    // The same song with a new row or count (SG13) updates in place, with no swap and no cancelled one.
+    // The same song with a new row or count updates in place, with no swap and no cancelled one.
     LaunchedEffect(target) {
         if (target?.row?.songId == dealer.shown?.row?.songId) dealer.shown = target
     }
@@ -234,16 +216,14 @@ private fun rememberDealer(target: SuggestionCard.Showing?): Dealer {
     return dealer
 }
 
-/**
- * SG11: "Tune", opening onto the radar, "Shuffle" and SG12-SG13's two settings. [open] is the host's,
- * outside the sheet's popup, so it survives a rotation (F26 N7).
- */
+/** SG11-SG13: "Tune". [open] is the host's, outside the sheet's popup, so it survives a rotation. */
 @Composable
 private fun TuneDisclosure(
     open: Boolean,
     onOpen: (Boolean) -> Unit,
     tuning: SuggestTuning,
     part: PartResolution,
+    ratingsFresh: Boolean,
     onTune: (SuggestTuning) -> Unit,
 ) {
     SecondaryButton(
@@ -252,14 +232,15 @@ private fun TuneDisclosure(
         modifier = Modifier.fillMaxWidth().testTag(SuggestTags.TUNE),
     )
     if (open) {
+        val shuffle = tuning.spokes(part, ratingsFresh).values.all { it.radius == 0.0 }
         Text(
-            text = if (tuning.effective(part).isShuffle) Messages.SUGGEST_SHUFFLE_HINT else Messages.SUGGEST_TUNED_HINT,
+            text = if (shuffle) Messages.SUGGEST_SHUFFLE_HINT else Messages.SUGGEST_TUNED_HINT,
             style = MaterialTheme.typography.bodyMedium,
         )
-        SuggestRadar(tuning = tuning, part = part, onTune = onTune, modifier = Modifier.fillMaxWidth())
+        SuggestRadar(tuning = tuning, part = part, ratingsFresh = ratingsFresh, onTune = onTune, modifier = Modifier.fillMaxWidth())
         SecondaryButton(text = Messages.SUGGEST_SHUFFLE, onClick = { onTune(tuning.shuffled()) }, modifier = Modifier.fillMaxWidth())
-        // SG12: off by default. SG13: its own setting, offered only while skips are counted.
-        SettingSwitch(
+        // SG12: off by default. SG13: offered only while skips are counted.
+        Setting(
             text = Messages.SUGGEST_COUNT_SKIPS,
             hint = Messages.SUGGEST_COUNT_SKIPS_HINT,
             checked = tuning.countSkips,
@@ -267,7 +248,7 @@ private fun TuneDisclosure(
             tag = SuggestTags.COUNT_SKIPS,
         )
         if (tuning.countSkips) {
-            SettingSwitch(
+            Setting(
                 text = Messages.SUGGEST_SHOW_SKIP_COUNT,
                 hint = null,
                 checked = tuning.showSkipCount,
@@ -278,23 +259,16 @@ private fun TuneDisclosure(
     }
 }
 
-/** One setting: the whole row is the switch, as the toggle list's rows are. */
 @Composable
-private fun SettingSwitch(text: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit, tag: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = Tokens.TouchMin)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
+private fun Setting(text: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit, tag: String) {
+    SwitchRow(
+        checked = checked,
+        onChange = onChange,
+        modifier = Modifier.fillMaxWidth().heightIn(min = Tokens.TouchMin).testTag(tag),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(text, style = MaterialTheme.typography.bodyLarge)
             hint?.let { MutedLine(it) }
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        // No handler: the row is the one control.
-        Switch(checked = checked, onCheckedChange = null)
     }
 }

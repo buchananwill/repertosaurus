@@ -13,7 +13,6 @@ import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.data.DatabaseUnloadable
 import dev.repertosaurus.data.ImportPreview
 import dev.repertosaurus.data.ImportRejected
-import dev.repertosaurus.data.Part
 import dev.repertosaurus.data.PartRatings
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.data.RepertosaurusRepository
@@ -469,24 +468,20 @@ public class SessionViewModel(
         _state.update { it.withoutUndo() }
     }
 
-    /** suggest SG12, SG13: `suggestion_skip`, through the repository's own store, on [io]. */
-    private val skipLedger = object : SkipLedger {
-        override suspend fun record(part: Part) {
-            withContext(io) { holder.repository.skips.recordSkip(part) }
-        }
-
-        override suspend fun counts(parts: Collection<Part>): Map<Part, Long> =
-            withContext(io) { holder.repository.skips.skipsSinceLastPractised(parts) }
-    }
-
-    /** suggest SG2-SG7, SG12: the suggestion sheet's deck and its skip window. "Log it" is [log]. */
+    /** suggest SG2-SG7, SG12: the suggestion sheet. */
     public val suggestions: SuggestionHolder = SuggestionHolder(
         session = state,
         scope = viewModelScope,
-        ledger = skipLedger,
-        onFailure = { failure -> _state.update { it.withMessage(Messages.suggestSkipsFailed(failure)) } },
+        record = { part -> withContext(io) { coordinator().recordSkip(part) } },
+        counts = { parts -> withContext(io) { coordinator().skipsSinceLastPractised(parts) } },
+        apply = { change -> _state.update(change) },
         random = random,
     )
+
+    /** suggest SG2's "Log it": the plain tap's [log], once the holder has taken [songId] from its deck. */
+    public fun logSuggestion(songId: String) {
+        if (suggestions.take(songId)) log(songId)
+    }
 
     public fun clearMessage() {
         _state.update { it.withMessage(null) }

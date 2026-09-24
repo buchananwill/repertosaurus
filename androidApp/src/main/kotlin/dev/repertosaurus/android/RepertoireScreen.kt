@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -24,7 +23,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -39,10 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.SwitchRow
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PageFilter
 import dev.repertosaurus.session.PerformerRoles
@@ -277,7 +275,7 @@ private fun PerformerRow(
  * R3-R8: every live song, a search, a held count, and one toggle per row.
  *
  * **R5 / E1 / E11: a row tap toggles and nothing else on the row is a tap target.** The switch
- * is drawn with no click handler of its own; the whole row is one `toggleable`.
+ * is drawn with no click handler of its own; the whole row is one [SwitchRow].
  *
  * Triage T5a: the ratings editor's search, filter and letter strip.
  */
@@ -392,24 +390,19 @@ private fun ToggleRow(
     onToggle: (songId: String) -> Unit,
 ) {
     RuledItem {
-        Row(
+        // R5: the row is the tap target.
+        SwitchRow(
+            checked = held,
+            onChange = { onToggle(songId) },
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 64.dp)
-                .toggleable(
-                    value = held,
-                    enabled = enabled,
-                    role = Role.Switch,
-                    onValueChange = { onToggle(songId) },
-                )
-                .testTag(RepertoireTags.row(songId))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .testTag(RepertoireTags.row(songId)),
+            enabled = enabled,
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
             // E46: the one song label, from the core.
             SongLabelText(title = title, artistName = artistName, modifier = Modifier.weight(1f))
-            // No handler: the row is the tap target (R5), and a second one would be a second path.
-            Switch(checked = held, onCheckedChange = null, enabled = enabled)
         }
     }
 }

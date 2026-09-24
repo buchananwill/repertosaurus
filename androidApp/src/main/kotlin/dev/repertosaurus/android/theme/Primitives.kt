@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +43,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -231,6 +233,30 @@ private fun DrawScope.drawArrow(pointsUp: Boolean) {
         close()
     }
     drawPath(arrow, Tokens.Ink)
+}
+
+/**
+ * VI12: an inline text action, underlined `Ink`, with no container. Its target is at least
+ * [Tokens.TouchMin] square however short the word.
+ */
+@Composable
+internal fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Box(
+        modifier = modifier
+            .enabledLook(enabled)
+            .sizeIn(minWidth = Tokens.TouchMin, minHeight = Tokens.TouchMin)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = Tokens.Ink, textDecoration = TextDecoration.Underline)
+    }
 }
 
 /** A quiet line under a control: body-small, in `InkMuted`. */

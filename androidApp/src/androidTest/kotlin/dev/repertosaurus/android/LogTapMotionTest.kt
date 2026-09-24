@@ -1,7 +1,6 @@
 package dev.repertosaurus.android
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -121,9 +120,6 @@ class ReducedMotionTest {
         compose.assertSettled(screen, row.songId)
     }
 
-    private object NoMotion : MotionDurationScale {
-        override val scaleFactor: Float = 0f
-    }
 }
 
 /** The end state of a log tap: no row still leaving, and the song's live row in the logged section. */

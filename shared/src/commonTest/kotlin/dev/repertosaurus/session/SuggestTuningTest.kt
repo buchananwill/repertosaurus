@@ -33,37 +33,41 @@ class SuggestTuningTest {
 
     private val will = PartResolution.Resolved(ResolvedPart("will", "Will", "vocal"))
 
+    /** One row of [theLockInEveryCombination]: the inputs, then priority, confidence and skips' reasons. */
+    private class LockRow(val count: Boolean, val part: PartResolution, val fresh: Boolean, val reasons: List<String?>)
+
     /**
-     * SG11, SG12, SG14: [lockOf] in every combination of counting off or on and the part pending,
-     * resolved or none. Written out whole, row by row, rather than derived.
+     * SG11, SG12, SG14: [lockOf] in every combination of counting off or on and the part pending, resolved
+     * with fresh ratings, resolved with stale ones, or none. Written out whole, row by row.
      */
     @Test
     fun theLockInEveryCombination() {
         val ratings = Messages.SUGGEST_LOCKED_RATINGS
         val nobody = Messages.SUGGEST_LOCKED_NO_PERFORMER
         val notCounted = Messages.SUGGEST_LOCKED_SKIPS
-        // count, part -> priority, confidence, skips (coldness and hotness are never locked)
+        val skipsPending = Messages.SUGGEST_LOCKED_SKIPS_PENDING
         val expected = listOf(
-            Triple(false, PartResolution.Pending, listOf(ratings, ratings, notCounted)),
-            Triple(false, will, listOf(null, null, notCounted)),
-            Triple(false, PartResolution.None, listOf(nobody, nobody, notCounted)),
-            Triple(true, PartResolution.Pending, listOf(ratings, ratings, Messages.SUGGEST_LOCKED_SKIPS_PENDING)),
-            Triple(true, will, listOf(null, null, null)),
-            Triple(true, PartResolution.None, listOf(nobody, nobody, nobody)),
+            LockRow(false, PartResolution.Pending, true, listOf(ratings, ratings, notCounted)),
+            LockRow(false, will, true, listOf(null, null, notCounted)),
+            LockRow(false, will, false, listOf(ratings, ratings, notCounted)),
+            LockRow(false, PartResolution.None, true, listOf(nobody, nobody, notCounted)),
+            LockRow(true, PartResolution.Pending, true, listOf(ratings, ratings, skipsPending)),
+            LockRow(true, will, true, listOf(null, null, null)),
+            LockRow(true, will, false, listOf(ratings, ratings, null)),
+            LockRow(true, PartResolution.None, true, listOf(nobody, nobody, nobody)),
         )
-        for ((count, part, reasons) in expected) {
-            val what = "countSkips=$count, part=$part"
-            assertEquals(null, lockOf(SuggestSpoke.COLDNESS, count, part), what)
-            assertEquals(null, lockOf(SuggestSpoke.HOTNESS, count, part), what)
-            assertEquals(reasons[0], lockOf(SuggestSpoke.PRIORITY, count, part), what)
-            assertEquals(reasons[1], lockOf(SuggestSpoke.CONFIDENCE, count, part), what)
-            assertEquals(reasons[2], lockOf(SuggestSpoke.SKIPS, count, part), what)
+        for (row in expected) {
+            val what = "countSkips=${row.count}, part=${row.part}, fresh=${row.fresh}"
+            fun lock(spoke: SuggestSpoke) = lockOf(spoke, row.count, row.part, row.fresh)
+            assertEquals(null, lock(SuggestSpoke.COLDNESS), what)
+            assertEquals(null, lock(SuggestSpoke.HOTNESS), what)
+            assertEquals(row.reasons, listOf(lock(SuggestSpoke.PRIORITY), lock(SuggestSpoke.CONFIDENCE), lock(SuggestSpoke.SKIPS)), what)
         }
     }
 
     /**
-     * SG11: a locked spoke is weighed and drawn at zero ([SuggestTuning.effective]), and **its stored radius
-     * is kept**, so it comes back when the lock lifts.
+     * SG11: a locked spoke is weighed and drawn at zero, with its reason ([SuggestTuning.spokes] and
+     * [SuggestTuning.effective] agree), and **its stored radius is kept**, so it comes back when the lock lifts.
      */
     @Test
     fun aLockedSpokeIsEffectivelyZeroAndItsRadiusIsKept() {
@@ -75,18 +79,43 @@ class SuggestTuningTest {
         )
         assertEquals(0.8, tuning.radius(SuggestSpoke.PRIORITY), "withRadius stores what was set")
 
-        val nobody = tuning.effective(PartResolution.None)
+        val nobody = tuning.effective(PartResolution.None, ratingsFresh = true)
         assertEquals(listOf(0.4, 0.0, 0.0, 0.0, 0.0), SuggestSpoke.entries.map { nobody.radius(it) }.sortedDescending())
         assertEquals(0.4, nobody.radius(SuggestSpoke.COLDNESS))
 
-        val notCounted = tuning.effective(will)
+        val notCounted = tuning.effective(will, ratingsFresh = true)
         assertEquals(0.8, notCounted.radius(SuggestSpoke.PRIORITY))
         assertEquals(0.6, notCounted.radius(SuggestSpoke.CONFIDENCE))
         assertEquals(0.0, notCounted.radius(SuggestSpoke.SKIPS), "skips locked while not counted")
 
-        val counted = tuning.copy(countSkips = true).effective(will)
+        val stale = tuning.copy(countSkips = true).spokes(will, ratingsFresh = false)
+        assertEquals(SpokeState(0.0, Messages.SUGGEST_LOCKED_RATINGS), stale[SuggestSpoke.PRIORITY], "stale ratings drawn locked")
+        assertEquals(SpokeState(0.5, null), stale[SuggestSpoke.SKIPS])
+        assertEquals(0.0, tuning.copy(countSkips = true).effective(will, ratingsFresh = false).radius(SuggestSpoke.CONFIDENCE), "and weighed as zero")
+
+        val counted = tuning.copy(countSkips = true).effective(will, ratingsFresh = true)
         assertEquals(0.5, counted.radius(SuggestSpoke.SKIPS))
         assertEquals(tuning.copy(countSkips = true), counted, "nothing locked: the tuning as set")
+    }
+
+    /** SG12, SG14: a skip is counted for the resolved part only while counting is on. */
+    @Test
+    fun theSkipPartNeedsCountingAndAPart() {
+        val counting = SuggestTuning.DEFAULT.copy(countSkips = true)
+        assertEquals(will.part, counting.skipPart(will))
+        assertEquals(null, SuggestTuning.DEFAULT.skipPart(will))
+        assertEquals(null, counting.skipPart(PartResolution.None))
+        assertEquals(null, counting.skipPart(PartResolution.Pending))
+    }
+
+    /** SG13: the card's count shows only with counting on, the count shown, and above zero. */
+    @Test
+    fun theShownSkipCount() {
+        val counting = SuggestTuning.DEFAULT.copy(countSkips = true)
+        assertEquals(3L, counting.shownSkipCount(3L))
+        assertEquals(null, counting.shownSkipCount(0L))
+        assertEquals(null, counting.copy(showSkipCount = false).shownSkipCount(3L))
+        assertEquals(null, SuggestTuning.DEFAULT.shownSkipCount(3L), "not counted, not shown")
     }
 
     /** SG10: the two spokes are opposite, and their directions say so. */
@@ -100,7 +129,7 @@ class SuggestTuningTest {
         assertEquals(0.0, cy + hy, 1e-12)
     }
 
-    /** F26 N3: a tuning cannot be built with a missing spoke or an out-of-range radius. */
+    /** SG11: a tuning cannot be built with a missing spoke or an out-of-range radius. */
     @Test
     fun anInvalidTuningCannotBeBuilt() {
         assertFailsWith<IllegalArgumentException> { SuggestTuning(radii = mapOf(SuggestSpoke.COLDNESS to 0.5)) }
@@ -123,7 +152,7 @@ class SuggestTuningTest {
         assertEquals(false, tuning.showSkipCount)
     }
 
-    /** SG15, F27 B7: what is written is read back, and **the stored form is byte for byte the v1 one**. */
+    /** SG15: what is written is read back, and **the stored form is byte for byte the v1 one**. */
     @Test
     fun theStoredFormRoundTripsAndIsUnchanged() {
         val tuning = SuggestTuning.of(SuggestSpoke.COLDNESS to 0.35, SuggestSpoke.HOTNESS to 0.05)
@@ -155,7 +184,7 @@ class SuggestTuningTest {
         for (stored in unreadable) assertEquals(SuggestTuning.DEFAULT, SuggestTuning.fromStored(stored), "$stored")
     }
 
-    /** F26 N2: a stored radius is snapped. Every spoke's is read as stored; the lock is applied in use. */
+    /** SG15: a stored radius is snapped. Every spoke's is read as stored; the lock is applied in use. */
     @Test
     fun aStoredRadiusIsSnapped() {
         val read = SuggestTuning.fromStored("coldness=0.33;hotness=0.049;priority=0.8;confidence=1.0;skips=0.52")
@@ -166,7 +195,7 @@ class SuggestTuningTest {
         assertEquals(0.5, read.radius(SuggestSpoke.SKIPS))
     }
 
-    /** F26 N2: a pair splits on its first `=` only, so an `=` in a value makes it unreadable, not truncated. */
+    /** SG15: a pair splits on its first `=` only, so an `=` in a value makes it unreadable, not truncated. */
     @Test
     fun aPairSplitsOnItsFirstEquals() {
         assertEquals(SuggestTuning.DEFAULT, SuggestTuning.fromStored("coldness=0.5=0.5"))

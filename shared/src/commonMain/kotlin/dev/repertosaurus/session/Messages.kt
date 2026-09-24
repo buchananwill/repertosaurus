@@ -533,11 +533,11 @@ public object Messages {
     public const val SUGGEST_SHOW_SKIP_COUNT: String = "Show the count"
 
     /** SG12: the inline line while a skip can still be taken back. */
-    public const val SUGGEST_SKIPPED: String = "Skipped"
+    public const val SUGGEST_SKIPPED: String = "Skipped ·"
     public const val SUGGEST_UNDO_SKIP: String = "Undo"
 
     /** SG13: information, not a scolding. No exclamation mark. */
-    public fun suggestSkipCount(skips: Int): String = "Skipped ${nounCount(skips.toLong(), "time")} since you last played it"
+    public fun suggestSkipCount(skips: Long): String = "Skipped ${nounCount(skips, "time")} since you last played it"
 
     /** SG12: a skip's write or the skip counts' read threw (S11: said, never swallowed). */
     public fun suggestSkipsFailed(failure: Throwable): String = couldNot("count skips", failure)

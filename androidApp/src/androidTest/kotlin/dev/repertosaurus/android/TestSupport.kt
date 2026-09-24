@@ -1,8 +1,17 @@
 package dev.repertosaurus.android
 
+import android.content.res.Resources
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
+import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeTimeoutException
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.text.TextLayoutResult
+import org.junit.rules.ExternalResource
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import androidx.test.platform.app.InstrumentationRegistry
@@ -68,6 +77,69 @@ internal class Gate : CoroutineDispatcher() {
             waitOn?.await()
             block.run()
         })
+    }
+}
+
+/** visual-identity VI22: the animator duration scale at 0, for a rule's `effectContext`. */
+internal object NoMotion : MotionDurationScale {
+    override val scaleFactor: Float = 0f
+}
+
+/**
+ * visual-identity VI8: **the system font scale** at [scale] for each test, restored after. A sheet is its
+ * own window, which a `LocalDensity` override never reaches; only the system setting does. Order it
+ * before the Compose rule, so the activity starts at the scale rather than being recreated into it.
+ */
+class SystemFontScale(private val scale: Float) : ExternalResource() {
+    private var prior: String = "1.0"
+
+    override fun before() {
+        prior = shell("settings get system font_scale").trim().takeIf { it.toFloatOrNull() != null } ?: "1.0"
+        apply(scale)
+    }
+
+    override fun after() {
+        apply(prior.toFloat())
+    }
+
+    private fun apply(value: Float) {
+        shell("settings put system font_scale $value")
+        val deadline = System.currentTimeMillis() + BOOT_TIMEOUT_MS
+        while (Resources.getSystem().configuration.fontScale != value) {
+            check(System.currentTimeMillis() < deadline) { "the system font scale never reached $value" }
+            Thread.sleep(50)
+        }
+    }
+
+    private fun shell(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command))
+            .bufferedReader()
+            .use { it.readText() }
+}
+
+/**
+ * VI8: no text node in any window is clipped: a line lost to the height, ellipsised, or wider than its box.
+ * Not `hasVisualOverflow` alone: through the semantics action at this Compose version it reports a
+ * wrap-content label as overflowing, because the paragraph was laid out at the full available width.
+ */
+internal fun ComposeTestRule.assertNoTextClipped(where: String, matcher: SemanticsMatcher = SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult)) {
+    waitForIdle()
+    val nodes = onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes()
+    assertTrue(nodes.isNotEmpty(), "$where has no text to check")
+    val scale = InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.fontScale
+    for (node in nodes) {
+        if (SemanticsActions.GetTextLayoutResult !in node.config) continue
+        val layouts = mutableListOf<TextLayoutResult>()
+        node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
+        val text = node.config.getOrElse(SemanticsProperties.Text) { emptyList() }.joinToString()
+        for (layout in layouts) assertTrue(!clipped(layout), "$where: \"$text\" is clipped at font scale $scale")
+    }
+}
+
+private fun clipped(layout: TextLayoutResult): Boolean {
+    if (layout.didOverflowHeight) return true
+    return (0 until layout.lineCount).any { line ->
+        layout.isLineEllipsized(line) || layout.getLineRight(line) - layout.getLineLeft(line) > layout.size.width + 1f
     }
 }
 

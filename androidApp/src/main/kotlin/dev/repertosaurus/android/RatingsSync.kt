@@ -6,7 +6,6 @@ import dev.repertosaurus.session.ResolvedPart
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.ratingsStale
 import dev.repertosaurus.session.resolvedPart
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -47,14 +46,7 @@ internal class RatingsSync(
             apply { it.withRatings(null, emptyMap()) }
             return
         }
-        // Not `runCatching`: a cancelled read must stay cancelled, never land as a failure.
-        val ratings = try {
-            Result.success(read(part))
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Result.failure(failure)
-        }
+        val ratings = catchingFailure { read(part) }
         apply { current ->
             if (current.loading || current.resolvedPart != part) {
                 current

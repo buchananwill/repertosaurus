@@ -6,7 +6,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -476,7 +475,4 @@ class DirectionGlyphReducedMotionTest {
         assertEquals(-1f, seen.last())
     }
 
-    private object NoMotion : MotionDurationScale {
-        override val scaleFactor: Float = 0f
-    }
 }

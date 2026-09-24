@@ -56,6 +56,7 @@ import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.identity
 import dev.repertosaurus.session.part
+import dev.repertosaurus.session.ratingsFresh
 import dev.repertosaurus.session.triageAvailable
 import dev.repertosaurus.session.suggestionCard
 
@@ -126,6 +127,7 @@ public fun SessionScreen(
     val capabilities by viewModel.capabilities.collectAsState()
     val suggestions = viewModel.suggestions
     val suggestion by suggestions.deck.collectAsState()
+    LaunchedEffect(suggestions, suggestTuning) { suggestions.retune(suggestTuning) }
 
     val undo = state.undo
     LaunchedEffect(undo?.tapId) {
@@ -181,7 +183,7 @@ public fun SessionScreen(
                 onOpenDrawer = onOpenDrawer,
                 onExport = onExport,
                 onSwitchView = { switching = true },
-                onSuggest = { suggestions.open(suggestTuning) },
+                onSuggest = suggestions::open,
                 suggestEnabled = !state.loading,
             )
         },
@@ -273,7 +275,7 @@ public fun SessionScreen(
     }
 
     // Suggest SG2-SG4. "Log it" is the plain tap's log through the same departure, so a visible row
-    // leaves the list as it does for a tap; dismissing writes nothing (SG3). SG12's skip window is the holder's.
+    // leaves the list as it does for a tap.
     // SG11: "Tune" is collapsed on every opening, and kept across a rotation while open.
     var tuneOpen by rememberSaveable(suggestion != null) { mutableStateOf(false) }
     val skipStaged by suggestions.staged.collectAsState()
@@ -282,16 +284,14 @@ public fun SessionScreen(
             card = state.suggestionCard(deck),
             tuning = suggestTuning,
             part = state.part,
+            ratingsFresh = state.ratingsFresh,
             skipStaged = skipStaged != null,
             tuneOpen = tuneOpen,
             onTuneOpen = { tuneOpen = it },
-            onLog = { row -> logAndDepart(row) { if (suggestions.take(row.songId)) viewModel.log(row.songId) } },
-            onAnother = { suggestions.another(suggestTuning) },
+            onLog = { row -> logAndDepart(row) { viewModel.logSuggestion(row.songId) } },
+            onAnother = suggestions::another,
             onUndoSkip = suggestions::undo,
-            onTune = { tuning ->
-                onTune(tuning)
-                suggestions.retune(tuning)
-            },
+            onTune = onTune,
             onDismiss = suggestions::close,
         )
     }

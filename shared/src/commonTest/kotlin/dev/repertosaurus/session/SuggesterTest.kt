@@ -80,7 +80,7 @@ class SuggesterTest {
     // Every expected weight below is worked by hand from SG8 (`16^Σ rₖ·fₖ`) and SG9's rows, never read
     // back from the code. All candidates share one staleness, so the coldness term is zero throughout.
 
-    private fun rated(id: String, priority: RatingLevel? = null, confidence: RatingLevel? = null, skips: Int = 0) =
+    private fun rated(id: String, priority: RatingLevel? = null, confidence: RatingLevel? = null, skips: Long = 0L) =
         SuggestCandidate(id, daysSince = 5L, priority = priority, confidence = confidence, skips = skips)
 
     private val levels = RatingLevel.entries.map { rated(it.name, priority = it, confidence = it) } + rated("unrated")
@@ -112,7 +112,7 @@ class SuggesterTest {
     /** SG9 skips, `min(skips, 10) / 10`, at radius 1: 0 → 1, 5 → 16^0.5 = 4, 10 → 16, 25 → 16 (capped). */
     @Test
     fun skipsWeighUpToTenAndNoFurther() {
-        val pool = listOf(rated("none"), rated("five", skips = 5), rated("ten", skips = 10), rated("many", skips = 25))
+        val pool = listOf(rated("none"), rated("five", skips = 5L), rated("ten", skips = 10L), rated("many", skips = 25L))
         assertClose(listOf(1.0, 4.0, 16.0, 16.0), Suggester.weights(pool, SuggestTuning.of(SuggestSpoke.SKIPS to 1.0)))
         assertClose(listOf(1.0, 2.0, 4.0, 4.0), Suggester.weights(pool, SuggestTuning.of(SuggestSpoke.SKIPS to 0.5)))
     }
@@ -124,19 +124,19 @@ class SuggesterTest {
      */
     @Test
     fun theFiveSpokesSum() {
-        val x = SuggestCandidate("x", null, RatingLevel.EXCEPTIONALLY, RatingLevel.NOT_AT_ALL, skips = 10)
+        val x = SuggestCandidate("x", null, RatingLevel.EXCEPTIONALLY, RatingLevel.NOT_AT_ALL, skips = 10L)
         val y = SuggestCandidate("y", 1L)
         val tuning = SuggestTuning.of(*SuggestSpoke.entries.map { it to 0.25 }.toTypedArray())
         assertClose(listOf(16.0, 2.0), Suggester.weights(listOf(x, y), tuning))
 
         // Priority 0.5 at "certainly" (2/3) and skips 0.5 at five (1/2): 16^(1/3 + 1/4) = 2^(7/3) = 4·∛2.
-        val z = rated("z", priority = RatingLevel.CERTAINLY, skips = 5)
+        val z = rated("z", priority = RatingLevel.CERTAINLY, skips = 5L)
         val mixedSpokes = SuggestTuning.of(SuggestSpoke.PRIORITY to 0.5, SuggestSpoke.SKIPS to 0.5)
         assertClose(listOf(5.0396842), Suggester.weights(listOf(z), mixedSpokes), tolerance = 1e-6)
     }
 
     /**
-     * **Journal F35 N3, the freshness rule:** the rows carry Will's ratings. While Will is the resolved part
+     * **The freshness rule (triage T9):** the rows carry Will's ratings. While Will is the resolved part
      * they weigh; once the owner is Coralie and her ratings have not landed, they weigh nothing.
      */
     @Test
@@ -170,11 +170,11 @@ class SuggesterTest {
     fun thePoolAndTheCardCarryTheSkipCounts() {
         val rows = listOf(SessionRow("a", "Autumn Leaves", "Kosma", 12L, 3L), SessionRow("b", "Blue Bossa", "Dorham", null, 0L))
         val state = SessionState(rows = rows, loading = false)
-        val pool = state.suggestionPool(mapOf("a" to 4))
-        assertEquals(listOf(4, 0), pool.map { it.skips })
+        val pool = state.suggestionPool(mapOf("a" to 4L))
+        assertEquals(listOf(4L, 0L), pool.map { it.skips })
 
         val dealt = SuggestionDeck.Showing(pool.first(), setOf("a"))
-        assertEquals(SuggestionCard.Showing(rows.first(), skips = 4), state.suggestionCard(dealt))
+        assertEquals(SuggestionCard.Showing(rows.first(), skips = 4L), state.suggestionCard(dealt))
     }
 
     private fun assertClose(expected: List<Double>, actual: List<Double>, tolerance: Double = 1e-9) {
@@ -221,18 +221,18 @@ class SuggesterTest {
             .plusTap(SessionTap("t1", "c", "guitar", null, null, "2026-09-24"))
             .plusTap(SessionTap("t2", "a", "bass", null, null, "2026-09-24"))
 
-        assertEquals(listOf("a", "b"), state.suggestionPool.map { it.songId })
-        assertEquals(listOf(12L, null), state.suggestionPool.map { it.daysSince })
+        assertEquals(listOf("a", "b"), state.suggestionPool().map { it.songId })
+        assertEquals(listOf(12L, null), state.suggestionPool().map { it.daysSince })
     }
 
-    /** F27 B2, F31 N3: the card resolves against the rows, and a dealt row that has gone is never blank. */
+    /** SG4: the card resolves against the rows, and a dealt row that has gone is never blank. */
     @Test
     fun theCardResolvesAndAVanishedRowIsNeverBlank() {
         val row = SessionRow("a", "Autumn Leaves", "Kosma", 12L, 3L)
         val other = SessionRow("b", "Blue Bossa", "Dorham", null, 0L)
         val dealt = SuggestionDeck.Showing(SuggestCandidate("a", 12L), setOf("a"))
 
-        assertEquals(SuggestionCard.Showing(row), SessionState(rows = listOf(row, other)).suggestionCard(dealt))
+        assertEquals(SuggestionCard.Showing(row, skips = 0L), SessionState(rows = listOf(row, other)).suggestionCard(dealt))
         assertEquals(SuggestionCard.Exhausted, SessionState(rows = listOf(other)).suggestionCard(dealt), "others remain")
         assertEquals(SuggestionCard.EmptyPool, SessionState(rows = emptyList()).suggestionCard(dealt), "nothing remains")
         assertEquals(SuggestionCard.EmptyPool, SessionState().suggestionCard(SuggestionDeck.EmptyPool))
