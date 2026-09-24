@@ -281,6 +281,27 @@ class TriageSortFlowTest {
         }
     }
 
+    /**
+     * D78 #6: at a font scale of 2.0 no mode label is broken inside a word ("Confide / nce"). A word wider than
+     * its segment shrinks to fit; it still lies inside the segment, and nothing clips.
+     */
+    @Test
+    fun noModeLabelSplitsAWordAtFontScaleTwo() {
+        val screens = SessionScreenFixture(compose, "triage-words")
+        try {
+            val screen = screens.build("words")
+            compose.setContent { LargeFont(2f) { RepertosaurusWindow { SessionContent(screen) } } }
+            compose.waitForIdle()
+            for (mode in SortMode.entries) {
+                assertNoWordSplit(mode)
+                assertLabelFits(mode)
+            }
+            compose.screenshot("p13", "sort-labels-font-2.0")
+        } finally {
+            screens.cleanUp()
+        }
+    }
+
     /** VI18, F36 B4: the glyph squashes through nothing and opens pointing the other way; it never rotates. */
     @Test
     fun theDirectionGlyphFlipsThroughNothing() {
@@ -409,15 +430,31 @@ class TriageSortFlowTest {
         assertTrue(rowTop - listTop < 40.dp, "$title is at the top: row $rowTop, list $listTop")
     }
 
+    private fun labelOf(mode: SortMode) = compose.onNode(
+        hasText(Messages.sortMode(mode)) and hasAnyAncestor(hasTestTag(SortTags.mode(mode))),
+        useUnmergedTree = true,
+    ).fetchSemanticsNode()
+
+    private fun layoutOf(mode: SortMode): TextLayoutResult {
+        val layouts = mutableListOf<TextLayoutResult>()
+        labelOf(mode).config[SemanticsActions.GetTextLayoutResult].action!!.invoke(layouts)
+        return layouts.single()
+    }
+
+    /** Every word of the mode's label begins and ends on the same line. */
+    private fun assertNoWordSplit(mode: SortMode) {
+        val layout = layoutOf(mode)
+        for (word in Regex("\\S+").findAll(layout.layoutInput.text.text)) {
+            val first = layout.getLineForOffset(word.range.first)
+            val last = layout.getLineForOffset(word.range.last)
+            assertEquals(first, last, "${mode.name}'s \"${word.value}\" is split across lines $first to $last")
+        }
+    }
+
     /** The mode's label, laid out inside its segment with no visual overflow. */
     private fun assertLabelFits(mode: SortMode) {
-        val label = compose.onNode(
-            hasText(Messages.sortMode(mode)) and hasAnyAncestor(hasTestTag(SortTags.mode(mode))),
-            useUnmergedTree = true,
-        ).fetchSemanticsNode()
-        val layouts = mutableListOf<TextLayoutResult>()
-        label.config[SemanticsActions.GetTextLayoutResult].action!!.invoke(layouts)
-        val layout = layouts.single()
+        val label = labelOf(mode)
+        val layout = layoutOf(mode)
         assertFalse(
             layout.hasVisualOverflow,
             "${mode.name}'s label clips: width ${layout.didOverflowWidth}, height ${layout.didOverflowHeight}, " +

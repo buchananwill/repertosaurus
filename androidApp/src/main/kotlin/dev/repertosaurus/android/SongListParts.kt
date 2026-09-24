@@ -8,21 +8,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.Messages
-import dev.repertosaurus.session.songLabel
 
 /**
- * **The song lists' shared parts** (style review F17 N1, F27 B3): the search box, the one-line
- * label, the title over the artist, the tappable song row and the empty-list line. The Songs list, the Repertoire toggle list,
+ * **The song lists' shared parts** (style review F17 N1, F27 B3): the search box, the count line,
+ * the title over the artist, the tappable song row and the empty-list line. The Songs list, the Repertoire toggle list,
  * the Artists list and the merge picker draw these rather than copies of them.
  */
 
@@ -44,12 +43,12 @@ internal fun SongSearchField(
         placeholder = placeholder,
         trailingIcon = {
             if (query.isNotEmpty()) {
-                TextButton(onClick = { onQuery("") }) { Text("Clear") }
+                TextAction("Clear", onClick = { onQuery("") })
             }
         },
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        // The caller's test tag belongs on the input, which holds the text.
+        fieldModifier = modifier,
     )
 }
 
@@ -78,21 +77,21 @@ internal fun SongTitleArtist(
     }
 }
 
-/** One song in one line, `Title — Artist` — the core's label (E46), two lines at most. */
+/** A list's count under its search: "12 songs", "3 of 12 songs" ([Messages.shownOf]). */
 @Composable
-internal fun SongLabelText(title: String, artistName: String?, modifier: Modifier = Modifier) {
+internal fun CountLine(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = songLabel(title, artistName),
-        style = MaterialTheme.typography.bodyLarge,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier,
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = Tokens.InkMuted,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 4.dp),
     )
 }
 
 /**
- * **One tappable song row** (style review F27 B3): the Songs list and the merge picker. A tap
- * opens or picks the song — it never logs practice. [modifier] carries the row's test tag.
+ * **One tappable song row** (style review F27 B3): the Songs list and the merge picker, the title over
+ * its artist as the logger's rows have it (VI15). A tap opens or picks the song — it never logs practice.
+ * [modifier] carries the row's test tag.
  */
 @Composable
 internal fun SongListRow(
@@ -101,14 +100,14 @@ internal fun SongListRow(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    SongLabelText(
+    SongTitleArtist(
         title = song.title,
         artistName = song.artistName,
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 64.dp)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     )
 }
 

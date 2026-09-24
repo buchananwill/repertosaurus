@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -20,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,7 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
@@ -99,7 +100,7 @@ internal fun SongCapabilitySheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // E24: the detail *inside* this sheet is the sheet's own state and closes first. It is an
-    // AlertDialog rather than an inline expansion precisely so back lands on it: one press
+    // dialog rather than an inline expansion precisely so back lands on it: one press
     // closes the capability, a second closes the sheet, and the second leaves the user on the
     // logger. There is no third level anywhere in this arc.
     //
@@ -283,88 +284,76 @@ private fun CapabilityDialog(
     var range by remember(capability.id) { mutableStateOf(capability.vocalRange) }
     var notes by remember(capability.id) { mutableStateOf(capability.notes.orEmpty()) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        // E46: `Coralie · Backing Vocal`, from the core.
-        title = { Text(capability.heading) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                // E4: offered on every instrument and defaulting off. `backing vocal` gets no
-                // special case — a featured backing vocalist is a real thing.
+    // E46: `Coralie · Backing Vocal`, from the core.
+    InkDialog(onDismiss = onDismiss, title = capability.heading) {
+        // E4: offered on every instrument and defaulting off. `backing vocal` gets no
+        // special case — a featured backing vocalist is a real thing.
+        FilterChip(
+            selected = isLead,
+            enabled = !busy,
+            onClick = { isLead = !isLead },
+            label = { Text(capability.leadLabel) },
+            modifier = Modifier.height(44.dp),
+        )
+
+        if (capability.rangeApplies) {
+            Text("Range", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
-                    selected = isLead,
+                    selected = range == null,
                     enabled = !busy,
-                    onClick = { isLead = !isLead },
-                    label = { Text(capability.leadLabel) },
+                    onClick = { range = null },
+                    label = { Text("Unset") },
                     modifier = Modifier.height(44.dp),
                 )
-
-                if (capability.rangeApplies) {
-                    Text("Range", style = MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = range == null,
-                            enabled = !busy,
-                            onClick = { range = null },
-                            label = { Text("Unset") },
-                            modifier = Modifier.height(44.dp),
-                        )
-                        for (option in VocalRange.entries) {
-                            FilterChip(
-                                selected = range == option,
-                                enabled = !busy,
-                                onClick = { range = option },
-                                label = { Text(option.label) },
-                                modifier = Modifier.height(44.dp),
-                            )
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    enabled = !busy,
-                    label = { Text("Notes (optional)") },
-                    minLines = 2,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                // E7: the removal is a tombstone, and E6's revive path depends on it still
-                // being there — re-adding this pair brings this row back rather than making a
-                // second one.
-                TextButton(
-                    onClick = onRemove,
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().testTag(CapabilityTags.REMOVE),
-                ) {
-                    Text("Remove from the line-up")
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !busy,
-                onClick = {
-                    onSave(
-                        capability.copy(
-                            isLead = isLead,
-                            vocalRange = range,
-                            notes = notes.trim().takeIf { it.isNotEmpty() },
-                        ),
+                for (option in VocalRange.entries) {
+                    FilterChip(
+                        selected = range == option,
+                        enabled = !busy,
+                        onClick = { range = option },
+                        label = { Text(option.label) },
+                        modifier = Modifier.height(44.dp),
                     )
-                },
-                modifier = Modifier.testTag(CapabilityTags.SAVE),
-            ) {
-                Text("Save")
+                }
             }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+        }
+
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            enabled = !busy,
+            label = { Text("Notes (optional)") },
+            minLines = 2,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        // E7: the removal is a tombstone, and E6's revive path depends on it still
+        // being there — re-adding this pair brings this row back rather than making a
+        // second one.
+        TextAction(
+            text = "Remove from the line-up",
+            onClick = onRemove,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag(CapabilityTags.REMOVE),
+        )
+
+        DialogActions(
+            confirm = "Save",
+            onConfirm = {
+                onSave(
+                    capability.copy(
+                        isLead = isLead,
+                        vocalRange = range,
+                        notes = notes.trim().takeIf { it.isNotEmpty() },
+                    ),
+                )
+            },
+            onDismiss = onDismiss,
+            confirmEnabled = !busy,
+            confirmModifier = Modifier.testTag(CapabilityTags.SAVE),
+        )
+    }
 }
 
 /**
@@ -463,18 +452,14 @@ private fun AddCapability(
             onPick = { instrument = it },
         )
 
-        Button(
+        PrimaryButton(
+            text = "Add to the line-up",
             // E44: the names stay until the write is confirmed. E45: dead while one is in
             // flight, so a double press cannot queue a second add behind the first.
             onClick = { onAdd(performer.trim(), instrument.trim()) },
             enabled = enabled && performer.isNotBlank() && instrument.isNotBlank(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .testTag(CapabilityTags.ADD),
-        ) {
-            Text("Add to the line-up")
-        }
+            modifier = Modifier.fillMaxWidth().testTag(CapabilityTags.ADD),
+        )
     }
 }
 

@@ -4,17 +4,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.InkTextField
 import dev.repertosaurus.core.NearMatches
 
 /**
@@ -73,18 +71,18 @@ internal fun <T> LookupTypeAhead(
         text.isBlank() -> TypeAheadHint.Blank
         else -> TypeAheadHint.New(text.trim())
     }
-    val supporting = error ?: hint(state)
-    OutlinedTextField(
+    InkTextField(
         value = text,
         onValueChange = onType,
         enabled = enabled,
-        label = { Text(label) },
+        label = label,
         isError = error != null,
-        supportingText = supporting?.let { line -> @Composable { Text(line) } },
-        singleLine = true,
+        supportingText = error ?: hint(state),
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
+        // The caller's test tag belongs on the input, which holds the text.
+        fieldModifier = modifier,
     )
     if (suggestions.isNotEmpty()) {
         Row(
@@ -92,13 +90,7 @@ internal fun <T> LookupTypeAhead(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             for (match in suggestions) {
-                FilterChip(
-                    selected = false,
-                    enabled = enabled,
-                    onClick = { onPick(match) },
-                    label = { Text(name(match)) },
-                    modifier = Modifier.height(44.dp),
-                )
+                InkChip(label = name(match), selected = false, enabled = enabled, onClick = { onPick(match) })
             }
         }
     }

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -14,19 +13,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,11 +24,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.DisplayText
+import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkHeader
+import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.TextAction
+import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.Keys
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.core.NearMatches
@@ -71,6 +74,7 @@ internal object SongDetailTags {
     const val MERGE: String = "song-detail-merge"
     const val NEW_TAG: String = "song-detail-new-tag"
     const val TIMED_TOTAL: String = "song-detail-timed-total"
+    const val TIMED_MORE: String = "song-detail-timed-more"
     fun timedEvent(eventId: String): String = "song-detail-timed-$eventId"
     fun field(field: SongField): String = "song-detail-field-${field.name}"
     fun tag(tagId: String): String = "song-detail-tag-$tagId"
@@ -122,7 +126,6 @@ internal class SongDetailActions(
  *
  * Nothing on this screen logs practice.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SongDetailScreen(
     detail: SongDetail?,
@@ -137,49 +140,33 @@ internal fun SongDetailScreen(
     val errors = remember(detail?.draft) { detail?.draft?.errors().orEmpty() }
     val canSave = detail != null && detail.draftDirty && errors.isEmpty() && !busy
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        // E46: the one song label, over the stored values rather than the draft.
-                        text = record?.let { songLabel(it.title, it.artistName) }.orEmpty(),
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    TextButton(
-                        onClick = actions.onClose,
-                        // F18 N4: a save in flight lands on this detail; closing under it would
-                        // drop the result the user is waiting for.
-                        enabled = detail?.saving != true,
-                        modifier = Modifier.testTag(SongDetailTags.CLOSE),
-                    ) {
-                        Text("Close")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = actions.onSave,
-                        enabled = canSave,
-                        modifier = Modifier.testTag(SongDetailTags.SAVE),
-                    ) {
-                        Text("Save")
-                    }
-                },
-            )
-        },
-    ) { padding ->
+    Column(modifier = Modifier.fillMaxSize()) {
+        InkHeader(
+            navigation = {
+                SecondaryButton(
+                    text = "Close",
+                    onClick = actions.onClose,
+                    // F18 N4: a save in flight lands on this detail; closing under it would
+                    // drop the result the user is waiting for.
+                    enabled = detail?.saving != true,
+                    modifier = Modifier.testTag(SongDetailTags.CLOSE),
+                )
+            },
+            actions = {
+                SecondaryButton(text = "Save", onClick = actions.onSave, enabled = canSave, modifier = Modifier.testTag(SongDetailTags.SAVE))
+            },
+            // E46: the one song label, over the stored values rather than the draft.
+            title = { DisplayText(record?.title.orEmpty(), style = DisplayType.Heading, maxLines = 2) },
+            subline = record?.artistName?.let { artist -> { DisplayText(artist, style = DisplayType.Subline, maxLines = 1) } },
+        )
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+                .fillMaxWidth()
+                .weight(1f)
                 .testTag(SongDetailTags.DETAIL)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 48.dp),
+                .padding(top = 12.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             StatusLines(message = message, error = error)
@@ -195,18 +182,18 @@ internal fun SongDetailScreen(
                 onEdit = actions.onEdit,
             )
 
-            Button(
+            // VI12: the detail's one primary action.
+            PrimaryButton(
+                text = if (detail.draftDirty) "Save" else "No unsaved changes",
                 onClick = actions.onSave,
                 enabled = canSave,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Text(if (detail.draftDirty) "Save" else "No unsaved changes")
-            }
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
 
-            HorizontalDivider()
+            SectionRule()
             TagsSection(detail = detail, allTags = lists.tags, enabled = !busy, actions = actions)
 
-            HorizontalDivider()
+            SectionRule()
             InstrumentsSection(
                 detail = detail,
                 instruments = lists.instruments,
@@ -214,20 +201,20 @@ internal fun SongDetailScreen(
                 actions = actions,
             )
 
-            HorizontalDivider()
+            SectionRule()
             LineUpSection(
                 detail = detail,
                 enabled = !busy,
                 onEdit = { actions.onEditLineUp(SongIdentity(record.id, record.title, record.artistName)) },
             )
 
-            HorizontalDivider()
+            SectionRule()
             PracticeSection(detail.practice, detail.timed)
 
-            HorizontalDivider()
+            SectionRule()
             MergeSection(dirty = detail.dirty, enabled = detail.canMerge, onMerge = actions.onMerge)
 
-            HorizontalDivider()
+            SectionRule()
             RemoveSection(
                 label = songLabel(record.title, record.artistName),
                 enabled = !busy,
@@ -235,6 +222,12 @@ internal fun SongDetailScreen(
             )
         }
     }
+}
+
+/** VI4: the rule between the detail's sections. */
+@Composable
+private fun SectionRule() {
+    RowRule(modifier = Modifier.padding(top = 8.dp))
 }
 
 // ---- The song's own columns (R12-R16) -------------------------------------------------------
@@ -306,15 +299,14 @@ private fun SongFields(
             onEdit { it.copy(tonalityNote = v) }
         }
     } else {
-        TextButton(onClick = { showTonalityNote = true }) {
-            Text(
-                if (draft.tonalityNote.isBlank()) {
-                    "Show ${SongField.TONALITY_NOTE.label.lowercase()}"
-                } else {
-                    "Show ${SongField.TONALITY_NOTE.label.lowercase()} (has one)"
-                },
-            )
-        }
+        TextAction(
+            text = if (draft.tonalityNote.isBlank()) {
+                "Show ${SongField.TONALITY_NOTE.label.lowercase()}"
+            } else {
+                "Show ${SongField.TONALITY_NOTE.label.lowercase()} (has one)"
+            },
+            onClick = { showTonalityNote = true },
+        )
     }
 
     DraftField(SongField.TEMPO_BPM, draft.tempoBpm, errors, enabled, numeric = true) { v ->
@@ -376,17 +368,17 @@ private fun DraftField(
     onChange: (String) -> Unit,
 ) {
     val error = errors[field]
-    OutlinedTextField(
+    InkTextField(
         value = value,
         onValueChange = onChange,
         enabled = enabled,
-        label = { Text(field.label) },
+        label = field.label,
         isError = error != null,
-        supportingText = error?.let { text -> @Composable { Text(text) } },
+        supportingText = error,
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 2,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        modifier = Modifier.fillMaxWidth().testTag(SongDetailTags.field(field)),
+        fieldModifier = Modifier.testTag(SongDetailTags.field(field)),
     )
 }
 
@@ -431,23 +423,15 @@ private fun <T> Picker(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             item(key = "unset") {
-                FilterChip(
-                    selected = selected == null,
-                    enabled = enabled,
-                    onClick = { onPick(null) },
-                    label = { Text("Unset") },
-                    modifier = Modifier.height(44.dp),
-                )
+                InkChip(label = "Unset", selected = selected == null, enabled = enabled, onClick = { onPick(null) })
             }
             itemsIndexed(choices, key = { index, _ -> index }) { index, choice ->
-                FilterChip(
+                InkChip(
+                    label = choiceLabel(choice),
                     selected = selected == choice,
                     enabled = enabled,
                     onClick = { onPick(choice) },
-                    label = { Text(choiceLabel(choice)) },
-                    modifier = Modifier
-                        .height(44.dp)
-                        .let { chip -> choiceTag?.let { chip.testTag(it(index)) } ?: chip },
+                    modifier = choiceTag?.let { Modifier.testTag(it(index)) } ?: Modifier,
                 )
             }
         }
@@ -492,30 +476,25 @@ private fun TagsSection(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         for (tag in allTags) {
-            FilterChip(
+            InkChip(
+                label = tag.name,
                 selected = tag.id in held,
                 enabled = enabled,
                 onClick = { actions.onToggleTag(tag.id) },
-                label = { Text(tag.name) },
-                modifier = Modifier.height(44.dp).testTag(SongDetailTags.tag(tag.id)),
+                modifier = Modifier.testTag(SongDetailTags.tag(tag.id)),
             )
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        InkTextField(
             value = typed,
             onValueChange = { typed = it },
             enabled = enabled,
-            label = { Text("New tag") },
-            singleLine = true,
-            modifier = Modifier.weight(1f).testTag(SongDetailTags.NEW_TAG),
+            label = "New tag",
+            modifier = Modifier.weight(1f),
+            fieldModifier = Modifier.testTag(SongDetailTags.NEW_TAG),
         )
-        TextButton(
-            onClick = { actions.onAddTag(typed) },
-            enabled = enabled && typed.isNotBlank(),
-        ) {
-            Text("Add")
-        }
+        SecondaryButton(text = "Add", onClick = { actions.onAddTag(typed) }, enabled = enabled && typed.isNotBlank())
     }
 }
 
@@ -530,11 +509,7 @@ private fun InstrumentsSection(
 ) {
     val rows = detail.instruments
     SectionHeading(Messages.songSection(SongChildKey.INSTRUMENT))
-    Text(
-        "Difficulty, patch and notes for this song on one instrument.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    MutedLine("Difficulty, patch and notes for this song on one instrument.")
     for (row in rows) {
         key(row.id) {
             SongInstrumentRow(
@@ -555,12 +530,11 @@ private fun InstrumentsSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             for (instrument in addable) {
-                FilterChip(
+                InkChip(
+                    label = "+ ${instrument.label}",
                     selected = false,
                     enabled = enabled,
                     onClick = { actions.onAddInstrument(instrument.id) },
-                    label = { Text("+ ${instrument.label}") },
-                    modifier = Modifier.height(44.dp),
                 )
             }
         }
@@ -583,7 +557,7 @@ private fun SongInstrumentRow(
 ) {
     val changed = edit != InstrumentEdit.of(row)
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         // E46: the core's title case, never a copy of it.
         Text(titleCase(row.instrumentName), style = MaterialTheme.typography.titleSmall)
         // R13 / decision 42: 1-5, picked — the same picker as the key signature (F17 B4).
@@ -595,30 +569,29 @@ private fun SongInstrumentRow(
             enabled = enabled,
             onPick = { value -> onEdit(edit.copy(difficulty = value)) },
         )
-        OutlinedTextField(
+        InkTextField(
             value = edit.patch,
             onValueChange = { onEdit(edit.copy(patch = it)) },
             enabled = enabled,
-            label = { Text("Patch") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().testTag(SongDetailTags.instrumentPatch(row.id)),
+            label = "Patch",
+            fieldModifier = Modifier.testTag(SongDetailTags.instrumentPatch(row.id)),
         )
-        OutlinedTextField(
+        InkTextField(
             value = edit.notes,
             onValueChange = { onEdit(edit.copy(notes = it)) },
             enabled = enabled,
-            label = { Text("Notes") },
+            label = "Notes",
+            singleLine = false,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(
+            SecondaryButton(
+                text = "Save ${titleCase(row.instrumentName)}",
                 onClick = onSave,
                 enabled = enabled && changed,
                 modifier = Modifier.testTag(SongDetailTags.instrumentSave(row.id)),
-            ) {
-                Text("Save ${titleCase(row.instrumentName)}")
-            }
-            TextButton(onClick = onRemove, enabled = enabled) { Text("Remove") }
+            )
+            SecondaryButton(text = "Remove", onClick = onRemove, enabled = enabled)
         }
     }
 }
@@ -631,10 +604,11 @@ private val DIFFICULTY_CHOICES: List<Long> = SongCatalog.DIFFICULTY_RANGE.toList
 /**
  * **One heading convention for the song's sections** (style review F27 N2), shared by the detail
  * and the merge preview, which lists the same sections under the same words ([Messages.songSection]).
+ * Display type, as the scorecards' sections are (VI6).
  */
 @Composable
 internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
-    Text(text, style = MaterialTheme.typography.titleMedium, modifier = modifier.padding(top = 8.dp))
+    DisplayText(text, style = DisplayType.Badge, color = Tokens.Ink, modifier = modifier.padding(top = 8.dp))
 }
 
 @Composable
@@ -654,13 +628,12 @@ private fun LineUpSection(detail: SongDetail, enabled: Boolean, onEdit: () -> Un
             }
         }
     }
-    OutlinedButton(
+    SecondaryButton(
+        text = "Edit who plays this",
         onClick = onEdit,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().testTag(SongDetailTags.EDIT_LINE_UP),
-    ) {
-        Text("Edit who plays this")
-    }
+    )
 }
 
 /** R20: read-only, in decision 18's chip order (the core's read applied it), worded by the core. */
@@ -676,6 +649,7 @@ private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSumma
     timed?.let { TimedLines(it) }
 }
 
+/** SC19, D85 #1: the total over every timed event, then the latest [TimedHistory.SHOWN] and a count of the rest. */
 @Composable
 private fun TimedLines(timed: TimedHistory) {
     Text(
@@ -683,22 +657,20 @@ private fun TimedLines(timed: TimedHistory) {
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(top = 4.dp).testTag(SongDetailTags.TIMED_TOTAL),
     )
-    for (event in timed.events) {
+    for (event in timed.latest) {
         key(event.id) {
             SubLine(Messages.timedEventLine(event), Modifier.testTag(SongDetailTags.timedEvent(event.id)))
         }
     }
+    if (timed.olderCount > 0) {
+        SubLine(Messages.timedMore(timed.olderCount), Modifier.testTag(SongDetailTags.TIMED_MORE))
+    }
 }
 
-/** An indented, muted line beneath a heading line. */
+/** An indented [MutedLine] beneath a heading line (F46 B5, F36 N2). */
 @Composable
 private fun SubLine(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(start = 12.dp),
-    )
+    MutedLine(text, modifier = modifier.padding(start = 12.dp))
 }
 
 /**
@@ -707,55 +679,40 @@ private fun SubLine(text: String, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun MergeSection(dirty: Boolean, enabled: Boolean, onMerge: () -> Unit) {
-    OutlinedButton(
+    SecondaryButton(
+        text = "Merge with…",
         onClick = onMerge,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().testTag(SongDetailTags.MERGE),
-    ) {
-        Text("Merge with…")
-    }
-    if (dirty) {
-        Text(
-            Messages.MERGE_NEEDS_SAVE,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    )
+    if (dirty) MutedLine(Messages.MERGE_NEEDS_SAVE)
 }
 
 /** R21: a soft delete behind a confirmation that says the history is kept and hidden. */
 @Composable
 private fun RemoveSection(label: String, enabled: Boolean, onRemove: () -> Unit) {
     var confirming by rememberSaveable { mutableStateOf(false) }
-    OutlinedButton(
+    SecondaryButton(
+        text = "Remove this song",
         onClick = { confirming = true },
         enabled = enabled,
         modifier = Modifier.fillMaxWidth().testTag(SongDetailTags.REMOVE),
-    ) {
-        Text("Remove this song", color = MaterialTheme.colorScheme.error)
-    }
+    )
     if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text("Remove $label?") },
-            text = {
-                Text(
-                    "It leaves every list. Its practice history is kept, and hidden with it. " +
-                        "Adding the same title and artist again restores it.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirming = false
-                        onRemove()
-                    },
-                    modifier = Modifier.testTag(SongDetailTags.CONFIRM_REMOVE),
-                ) {
-                    Text("Remove")
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
-        )
+        InkDialog(onDismiss = { confirming = false }, title = "Remove $label?") {
+            DialogText(
+                "It leaves every list. Its practice history is kept, and hidden with it. " +
+                    "Adding the same title and artist again restores it.",
+            )
+            DialogActions(
+                confirm = "Remove",
+                onConfirm = {
+                    confirming = false
+                    onRemove()
+                },
+                onDismiss = { confirming = false },
+                confirmModifier = Modifier.testTag(SongDetailTags.CONFIRM_REMOVE),
+            )
+        }
     }
 }

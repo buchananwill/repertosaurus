@@ -18,9 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.android.theme.DisplayText
-import dev.repertosaurus.android.theme.DisplayType
-import dev.repertosaurus.android.theme.InkHeader
+import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.core.RatingKind
@@ -83,16 +81,16 @@ public fun RatingsEditorScreen(
 /** VI9, VI15's pattern: the indigo bar, the part as the screen title. */
 @Composable
 private fun RatingsHeader(title: String, onDone: () -> Unit, onSongs: (() -> Unit)?) {
-    InkHeader(
-        navigation = { DisplayText("Ratings", style = DisplayType.Subline) },
+    RouteHeader(
+        title = title,
+        kicker = "Ratings",
+        onDone = onDone,
+        doneModifier = Modifier.testTag(RatingsEditorTags.DONE),
+        titleModifier = Modifier.testTag(RatingsEditorTags.TITLE),
         actions = {
             if (onSongs != null) {
                 SecondaryButton(text = "Songs", onClick = onSongs, modifier = Modifier.testTag(RatingsEditorTags.SONGS))
             }
-            SecondaryButton(text = "Done", onClick = onDone, modifier = Modifier.testTag(RatingsEditorTags.DONE))
-        },
-        title = {
-            DisplayText(title, style = DisplayType.ScreenTitle, maxLines = 2, modifier = Modifier.testTag(RatingsEditorTags.TITLE))
         },
     )
 }

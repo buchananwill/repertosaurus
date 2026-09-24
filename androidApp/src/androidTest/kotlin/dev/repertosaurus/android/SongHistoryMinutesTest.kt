@@ -63,6 +63,34 @@ class SongHistoryMinutesTest {
         compose.screenshot(SCREENSHOTS, "song-history-durations")
     }
 
+    /**
+     * D85 #1: twelve timed events on Valerie, 1 to 12 min on 1 to 12 Sep, logged oldest first. The detail lists
+     * the latest ten (12 Sep back to 3 Sep), then "and 2 more"; the 1st and 2nd are not listed; and the total is
+     * over all twelve: 60 × (1 + … + 12) = 4 680 s = 78 min = "1 h 18 min", not the 75 min the ten shown add to.
+     */
+    @Test
+    fun theTimedListShowsTheLatestTenAndCountsTheRest() {
+        val route = harness.route("capped") { holder ->
+            val valerie = EditingFixtures.song(holder, "Valerie").id
+            for (day in 1..12) {
+                holder.repository.logPractice(valerie, SampleData.VOCAL, loggedOn = "2026-09-%02d".format(day), durationSeconds = day * 60L)
+            }
+        }
+        harness.openDetail(route, EditingFixtures.song(route.holder, "Valerie"))
+
+        val events = route.songs.state.value.detail!!.timed!!.events
+        assertEquals((12 downTo 1).map { "2026-09-%02d".format(it) }, events.map { it.loggedOn })
+
+        compose.onNodeWithTag(SongDetailTags.TIMED_TOTAL).performScrollTo().assertTextEquals("Timed total: 1 h 18 min")
+        for (event in events.take(10)) {
+            compose.onNodeWithTag(SongDetailTags.timedEvent(event.id)).performScrollTo().assertTextEquals(Messages.timedEventLine(event))
+        }
+        for (event in events.drop(10)) {
+            compose.onNodeWithTag(SongDetailTags.timedEvent(event.id)).assertDoesNotExist()
+        }
+        compose.onNodeWithTag(SongDetailTags.TIMED_MORE).performScrollTo().assertTextEquals("and 2 more")
+    }
+
     @Test
     fun aSongWithNoTimedEventShowsNoTimedLines() {
         val route = harness.route("untimed")
@@ -72,6 +100,7 @@ class SongHistoryMinutesTest {
 
         assertNull(route.songs.state.value.detail!!.timed)
         compose.onNodeWithTag(SongDetailTags.TIMED_TOTAL).assertDoesNotExist()
+        compose.onNodeWithTag(SongDetailTags.TIMED_MORE).assertDoesNotExist()
     }
 
     private companion object {

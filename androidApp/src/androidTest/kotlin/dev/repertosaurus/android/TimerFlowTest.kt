@@ -158,7 +158,7 @@ class TimerFlowTest {
         clock.forward(90L)
 
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithText(Messages.TIMER_CANCEL, ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.CANCEL, ignoreCase = true).performClick()
         framesUntil("the cancel's snackbar") { shows(Messages.TIMER_CANCELLED) }
         assertNull(screen.session.timer.running.value)
         compose.onNodeWithText(Messages.UNDO).performClick()
@@ -186,7 +186,7 @@ class TimerFlowTest {
         compose.mainClock.autoAdvance = false
         compose.onNode(inTheList(tapped.title)).performClick()
         framesUntil("the tap's snackbar") { shows("Logged ${tapped.title}") }
-        compose.onNodeWithText(Messages.TIMER_CANCEL, ignoreCase = true).performClick()
+        compose.onNodeWithText(Messages.CANCEL, ignoreCase = true).performClick()
         framesUntil("the cancel's snackbar, at once") { shows(Messages.TIMER_CANCELLED) }
         framesUntil("the tap's snackbar making way", frames = TimerKit.CROSSFADE_FRAMES) { !shows("Logged ${tapped.title}") }
         compose.onNodeWithText(Messages.UNDO).performClick()

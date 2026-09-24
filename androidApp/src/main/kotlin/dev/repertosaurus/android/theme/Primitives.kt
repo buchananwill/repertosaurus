@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -299,32 +301,66 @@ internal fun MutedLine(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * VI1, VI4: an input, `Field` white inside a 3 dp `Ink` outline. A filled field with its indicator
- * hidden, because the outlined one's stroke is fixed at 1-2 dp.
+ * VI1, VI4: **the one input**, `Field` white inside a 3 dp `Ink` outline. A filled field with its indicator
+ * hidden, because the outlined one's stroke is fixed at 1-2 dp. The [label] rides inside the box; the
+ * [supportingText] sits under it, outside the outline, in the error colour when [isError].
+ *
+ * [modifier] places and sizes the whole (a weight, a width, padding); the input fills its width.
+ * [fieldModifier] is the input's own, where a test tag goes, because the input is the node that holds the text.
  */
 @Composable
 internal fun InkTextField(
     value: String,
     onValueChange: (String) -> Unit,
-    placeholder: String,
     modifier: Modifier = Modifier,
+    fieldModifier: Modifier = Modifier,
+    placeholder: String? = null,
+    label: String? = null,
+    supportingText: String? = null,
+    isError: Boolean = false,
+    enabled: Boolean = true,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     trailingIcon: (@Composable () -> Unit)? = null,
 ) {
-    TextField(
-        value = value,
-        onValueChange = onValueChange,
-        placeholder = { Text(placeholder) },
-        singleLine = true,
-        trailingIcon = trailingIcon,
-        shape = RectangleShape,
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = Tokens.Field,
-            unfocusedContainerColor = Tokens.Field,
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-        ),
-        modifier = modifier.inkBorder(),
-    )
+    // Always the one Column, so a supporting line coming or going never recreates the input under the keyboard.
+    Column(modifier = modifier) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            placeholder = placeholder?.let { text -> @Composable { Text(text) } },
+            label = label?.let { text -> @Composable { Text(text) } },
+            isError = isError,
+            singleLine = singleLine,
+            minLines = minLines,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            trailingIcon = trailingIcon,
+            shape = RectangleShape,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Tokens.Field,
+                unfocusedContainerColor = Tokens.Field,
+                errorContainerColor = Tokens.Field,
+                disabledContainerColor = Tokens.Ground,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                errorIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+            ),
+            modifier = fieldModifier.fillMaxWidth().inkBorder(),
+        )
+        supportingText?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isError) MaterialTheme.colorScheme.error else Tokens.InkMuted,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp),
+            )
+        }
+    }
 }
 
 /** VI4: a list-row rule. */

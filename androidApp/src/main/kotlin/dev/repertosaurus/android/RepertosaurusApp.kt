@@ -21,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.InkSwitch
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
@@ -486,7 +486,7 @@ private fun AppDrawerContent(
                 onClick = flipSpelling,
                 modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING),
                 badge = {
-                    Switch(
+                    InkSwitch(
                         checked = simplified,
                         onCheckedChange = { flipSpelling() },
                         modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING_SWITCH),

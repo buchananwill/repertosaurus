@@ -291,7 +291,7 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); **committed `2d7836e`**, fix round in flight |
 | P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |
 | P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |
-| P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard | blocked |
+| P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard (closed for the look, D49) | **in flight** (journal session 11, D90/D92); dark theme is split out |
 
 **Critical path (amended 2026-09-23):** P1 → P2 ✓ → P13b → P5 → P9 → P11 → P13. After
 P13b, P6, P8 and P14 run in parallel with P5, because none of them owns the hot files.

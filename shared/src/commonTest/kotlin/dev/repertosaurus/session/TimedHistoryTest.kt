@@ -36,6 +36,31 @@ class TimedHistoryTest {
         assertEquals("2026-09-20 · Removed instrument: 50 min", Messages.timedEventLine(timed.events[1]))
     }
 
+    /**
+     * D85 #1: twelve timed events, 60 s apart from 60 to 720 s (newest first): the latest ten are listed,
+     * "and 2 more" counts the rest, and the total is all twelve: 60 × (1 + … + 12) = 4 680 s = "1 h 18 min".
+     */
+    @Test
+    fun theLatestTenAreShownAndTheTotalIsOverEveryEvent() {
+        val history = (12 downTo 1).map { n -> entry("e$n", "2026-09-${n + 10}", "vocal", n * 60L) }
+
+        val timed = TimedHistory.of(history)!!
+
+        assertEquals((12 downTo 3).map { "e$it" }, timed.latest.map { it.id })
+        assertEquals(2, timed.olderCount)
+        assertEquals("and 2 more", Messages.timedMore(timed.olderCount))
+        assertEquals(4_680L, timed.totalSeconds)
+        assertEquals("Timed total: 1 h 18 min", Messages.timedTotalLine(timed.totalSeconds))
+    }
+
+    /** Ten or fewer: all listed, none counted. */
+    @Test
+    fun tenOrFewerAreAllShown() {
+        val timed = TimedHistory.of((10 downTo 1).map { n -> entry("e$n", "2026-09-${n + 10}", "vocal", 60L) })!!
+        assertEquals(10, timed.latest.size)
+        assertEquals(0, timed.olderCount)
+    }
+
     /** F45 N1: untimed is absent, never a zero total. */
     @Test
     fun aSongWithNothingTimedHasNoTimedHistory() {

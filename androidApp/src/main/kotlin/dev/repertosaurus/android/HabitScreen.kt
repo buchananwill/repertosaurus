@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -37,8 +36,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
-import dev.repertosaurus.android.theme.InkHeader
-import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.RouteHeader
 import dev.repertosaurus.android.theme.Segment
 import dev.repertosaurus.android.theme.SegmentLabel
 import dev.repertosaurus.android.theme.SegmentStrip
@@ -92,10 +90,11 @@ public fun HabitScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().testTag(HabitTags.SCREEN)) {
-        InkHeader(
-            navigation = { DisplayText(Messages.HABIT_KICKER, style = DisplayType.Subline) },
-            actions = { SecondaryButton(text = "Done", onClick = onBack, modifier = Modifier.testTag(HabitTags.DONE)) },
-            title = { DisplayText(Messages.HABIT_TITLE, style = DisplayType.ScreenTitle, maxLines = 2) },
+        RouteHeader(
+            title = Messages.HABIT_TITLE,
+            kicker = Messages.HABIT_KICKER,
+            onDone = onBack,
+            doneModifier = Modifier.testTag(HabitTags.DONE),
         )
         StatusLines(message = null, error = state.error)
         if (state.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -135,16 +134,19 @@ private fun ScopeStrip(instrumentScoped: Boolean, practiceInstrument: Instrument
     }
 }
 
-/** SC7's line for the tapped day, or SC14's when there is nothing yet. Its height is reserved. */
+/**
+ * SC7's line for the tapped day, or SC14's when there is nothing yet. With neither it is absent, so no
+ * empty band sits under the grid (journal session 11, F29); the first tap moves what is below it down.
+ */
 @Composable
 private fun DayLine(card: HabitCard, selected: String?) {
     val day = selected?.let(card::day)
     val text = when {
         day != null -> Messages.habitDay(day)
         card.empty -> Messages.HABIT_EMPTY
-        else -> ""
+        else -> return
     }
-    Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).testTag(HabitTags.LINE))
+    Text(text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.fillMaxWidth().testTag(HabitTags.LINE))
 }
 
 /** SC9-SC11; not shown in the empty state (SC14). */

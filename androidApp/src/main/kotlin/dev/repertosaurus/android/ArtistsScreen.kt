@@ -11,16 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,6 +27,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.RouteHeader
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.ArtistSearch
 import dev.repertosaurus.session.Messages
@@ -57,7 +59,6 @@ internal object ArtistTags {
  * hold the artist's **id** and resolve the row from the live list on every composition, so a
  * write landing underneath cannot leave a dialog editing a snapshot (E45's lesson).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun ArtistsScreen(viewModel: ArtistsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
@@ -74,55 +75,41 @@ public fun ArtistsScreen(viewModel: ArtistsViewModel, onBack: () -> Unit) {
     // F16 #8: in memory over the list already held (E36), in the list's own order.
     val shown = remember(state.artists, state.query) { ArtistSearch.search(state.artists, state.query) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Artists") },
-                actions = { TextButton(onClick = onBack) { Text("Done") } },
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Text(
-                "Renaming keeps every song attached. An artist with songs cannot be removed.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-            SongSearchField(
-                query = state.query,
-                onQuery = viewModel::setQuery,
-                placeholder = "Search artists",
-                modifier = Modifier.testTag(ArtistTags.SEARCH),
-            )
-            if (state.query.isNotEmpty()) {
-                Text(
-                    Messages.shownOf(shown.size, Messages.artistCount(state.artists.size.toLong())),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            StatusLines(message = state.message, error = state.error)
-            if (state.busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            HorizontalDivider()
+    Column(modifier = Modifier.fillMaxSize()) {
+        RouteHeader(title = Messages.DRAWER_ARTISTS, onDone = onBack)
+        MutedLine(
+            "Renaming keeps every song attached. An artist with songs cannot be removed.",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        SongSearchField(
+            query = state.query,
+            onQuery = viewModel::setQuery,
+            placeholder = "Search artists",
+            modifier = Modifier.testTag(ArtistTags.SEARCH),
+        )
+        if (state.query.isNotEmpty()) {
+            CountLine(Messages.shownOf(shown.size, Messages.artistCount(state.artists.size.toLong())))
+        }
+        StatusLines(message = state.message, error = state.error)
+        if (state.busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        RowRule(modifier = Modifier.padding(top = 4.dp))
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().testTag(ArtistTags.LIST),
-                contentPadding = PaddingValues(bottom = 48.dp),
-            ) {
-                items(shown, key = { it.id }) { artist ->
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().testTag(ArtistTags.LIST),
+            contentPadding = PaddingValues(bottom = 48.dp),
+        ) {
+            items(shown, key = { it.id }) { artist ->
+                RuledItem {
                     ArtistRow(
                         artist = artist,
                         enabled = !state.busy,
                         onRename = { renamingId = artist.id },
                         onRemove = { removingId = artist.id },
                     )
-                    HorizontalDivider()
                 }
-                // With no search typed, an empty list says nothing: the count line is enough.
-                if (shown.isEmpty() && !state.busy) emptyListLine(state.query, whenEmpty = null)
             }
+            // With no search typed, an empty list says nothing: the count line is enough.
+            if (shown.isEmpty() && !state.busy) emptyListLine(state.query, whenEmpty = null)
         }
     }
 
@@ -138,28 +125,18 @@ public fun ArtistsScreen(viewModel: ArtistsViewModel, onBack: () -> Unit) {
     }
 
     removing?.let { artist ->
-        AlertDialog(
-            onDismissRequest = { removingId = null },
-            title = { Text("Remove ${artist.name}?") },
-            text = {
-                Text(
-                    "It stops being offered. An artist with songs is refused, and the screen " +
-                        "says how many.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        removingId = null
-                        viewModel.remove(artist.id, artist.name)
-                    },
-                    modifier = Modifier.testTag(ArtistTags.CONFIRM_REMOVE),
-                ) {
-                    Text("Remove")
-                }
-            },
-            dismissButton = { TextButton(onClick = { removingId = null }) { Text("Cancel") } },
-        )
+        InkDialog(onDismiss = { removingId = null }, title = "Remove ${artist.name}?") {
+            DialogText("It stops being offered. An artist with songs is refused, and the screen says how many.")
+            DialogActions(
+                confirm = "Remove",
+                onConfirm = {
+                    removingId = null
+                    viewModel.remove(artist.id, artist.name)
+                },
+                onDismiss = { removingId = null },
+                confirmModifier = Modifier.testTag(ArtistTags.CONFIRM_REMOVE),
+            )
+        }
     }
 }
 
@@ -180,33 +157,11 @@ private fun ArtistRow(
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(artist.name, style = MaterialTheme.typography.titleMedium)
-            if (artist.sortName != artist.name) {
-                Text(
-                    "Sorted as ${artist.sortName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                Messages.songCount(artist.liveSongs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (artist.sortName != artist.name) MutedLine("Sorted as ${artist.sortName}")
+            MutedLine(Messages.songCount(artist.liveSongs))
         }
-        TextButton(
-            onClick = onRename,
-            enabled = enabled,
-            modifier = Modifier.testTag(ArtistTags.rename(artist.id)),
-        ) {
-            Text("Rename")
-        }
-        TextButton(
-            onClick = onRemove,
-            enabled = enabled,
-            modifier = Modifier.testTag(ArtistTags.remove(artist.id)),
-        ) {
-            Text("Remove")
-        }
+        TextAction("Rename", onClick = onRename, enabled = enabled, modifier = Modifier.testTag(ArtistTags.rename(artist.id)))
+        TextAction("Remove", onClick = onRemove, enabled = enabled, modifier = Modifier.testTag(ArtistTags.remove(artist.id)))
     }
 }
 
@@ -219,44 +174,32 @@ private fun RenameArtistDialog(
 ) {
     var name by remember(artist.id) { mutableStateOf(artist.name) }
     var sortName by remember(artist.id) { mutableStateOf(artist.sortName) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename ${artist.name}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    isError = name.isBlank(),
-                    supportingText = { if (name.isBlank()) Text(Messages.ARTIST_NEEDS_NAME) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                )
-                OutlinedTextField(
-                    value = sortName,
-                    onValueChange = { sortName = it },
-                    label = { Text("Sort name") },
-                    supportingText = { Text("Leave blank to derive it from the name.") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                )
-                Text(
-                    // R22: renaming never re-derives the id, so every song stays attached.
-                    "Every song by this artist stays attached to it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onRename(name, sortName) },
-                enabled = name.isNotBlank(),
-                modifier = Modifier.testTag(ArtistTags.SAVE_RENAME),
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    InkDialog(onDismiss = onDismiss, title = "Rename ${artist.name}") {
+        InkTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = "Name",
+            isError = name.isBlank(),
+            supportingText = if (name.isBlank()) Messages.ARTIST_NEEDS_NAME else null,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        InkTextField(
+            value = sortName,
+            onValueChange = { sortName = it },
+            label = "Sort name",
+            supportingText = "Leave blank to derive it from the name.",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // R22: renaming never re-derives the id, so every song stays attached.
+        MutedLine("Every song by this artist stays attached to it.")
+        DialogActions(
+            confirm = "Save",
+            onConfirm = { onRename(name, sortName) },
+            onDismiss = onDismiss,
+            confirmEnabled = name.isNotBlank(),
+            confirmModifier = Modifier.testTag(ArtistTags.SAVE_RENAME),
+        )
+    }
 }

@@ -3,16 +3,11 @@ package dev.repertosaurus.android
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,8 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DisplayText
+import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.ArtistSuggestions
+import dev.repertosaurus.session.Messages
 
 /** Stable handles for the instrumented tests. */
 internal object AddSongTags {
@@ -84,19 +84,18 @@ internal fun AddSongSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Add a song", style = MaterialTheme.typography.headlineSmall)
+            DisplayText("Add a song", style = DisplayType.Heading)
 
             // E43: a refusal stays on the sheet, in the error colour, with what was typed — the
             // routes' own status lines (style review F17 N8), not a third copy of them.
             StatusLines(message = null, error = error)
 
-            OutlinedTextField(
+            InkTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Title") },
-                singleLine = true,
+                label = "Title",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth().testTag(AddSongTags.TITLE),
+                fieldModifier = Modifier.testTag(AddSongTags.TITLE),
             )
 
             // F22 B3: the one type-ahead, shared with the song detail's artist and groove.
@@ -129,13 +128,12 @@ internal fun AddSongSheet(
                 keyboardActions = KeyboardActions(onDone = { commit() }),
             )
 
-            Button(
+            PrimaryButton(
+                text = Messages.ADD_SONG,
                 onClick = commit,
                 enabled = title.isNotBlank() && !busy,
-                modifier = Modifier.fillMaxWidth().height(56.dp).testTag(AddSongTags.ADD),
-            ) {
-                Text("Add song")
-            }
+                modifier = Modifier.fillMaxWidth().testTag(AddSongTags.ADD),
+            )
         }
     }
 }

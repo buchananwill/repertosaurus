@@ -138,7 +138,11 @@ shadow**: the risograph misregistration.
 **VI10. Grain: a fine monochrome paper grain over the whole screen, at about 20% strength,
 multiplied.**
 - It is one small **tileable noise bitmap**, generated deterministically (a fixed seed) and
-  bundled or built once at startup. It is drawn as a repeating shader with `BlendMode.Multiply`.
+  bundled or built once at startup. It is drawn as a repeating shader with ~~`BlendMode.Multiply`~~
+  **`BlendMode.Modulate` and no trailing `graphicsLayer`** (AMENDED 2026-09-24, journal session
+  11, D93). For an opaque tile over the opaque window the pixels are identical, and on the emulator it
+  measured about 1.5 ms per frame cheaper. The emulator measurement is SwiftShader, so the real
+  cost on hardware is still owed.
 - **It must not intercept touches, and it must not cost a frame.** It is one draw call, with no
   per-frame work.
 - It sits above content and below dialogs.

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,21 +14,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,6 +32,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RouteHeader
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.TextAction
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.session.LookupItem
 import dev.repertosaurus.session.LookupKind
@@ -67,7 +69,6 @@ import dev.repertosaurus.session.LookupSuggestions
  *   It is false for `venue` (E16a), whose table has no such column, and the store refuses the
  *   write there — so the flag is the guard, not a decoration.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun ManageLookupScreen(
     viewModel: SessionViewModel,
@@ -111,35 +112,25 @@ public fun ManageLookupScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text(kind.plural) },
-                actions = { TextButton(onClick = onBack) { Text("Done") } },
-            )
-        },
+        topBar = { RouteHeader(title = kind.plural, onDone = onBack) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-            OutlinedTextField(
+            InkTextField(
                 value = typed,
                 onValueChange = { typed = it },
                 // E46: the article is English grammar and the wording below is seven branches
                 // of per-kind phrasing. Both are rules, both are JVM-tested in the shared core,
                 // and the desktop UI needs all seven of them verbatim.
-                label = { Text("Add ${kind.withArticle}") },
-                supportingText = {
-                    Text(
-                        when {
-                            exact != null -> "${exact.name} is already here."
-                            suggestions.isNotEmpty() -> "Did you mean one of these?"
-                            else -> "Type a name and press enter."
-                        },
-                    )
+                label = "Add ${kind.withArticle}",
+                supportingText = when {
+                    exact != null -> "${exact.name} is already here."
+                    suggestions.isNotEmpty() -> "Did you mean one of these?"
+                    else -> "Type a name and press enter."
                 },
-                singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { commit() }),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             )
 
             if (suggestions.isNotEmpty()) {
@@ -151,44 +142,39 @@ public fun ManageLookupScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     for (match in suggestions) {
-                        FilterChip(
-                            selected = false,
-                            onClick = { typed = match.name },
-                            label = { Text(match.name) },
-                            modifier = Modifier.height(44.dp),
-                        )
+                        InkChip(label = match.name, selected = false, onClick = { typed = match.name })
                     }
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Button(onClick = commit, enabled = typed.isNotBlank()) {
-                    Text(if (exact != null) "Keep the existing one" else "Add")
-                }
-            }
+            // VI12: the screen's one primary action.
+            PrimaryButton(
+                text = if (exact != null) "Keep the existing one" else "Add",
+                onClick = commit,
+                enabled = typed.isNotBlank(),
+                modifier = Modifier.padding(16.dp),
+            )
 
             if (state.busy) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            HorizontalDivider()
+            RowRule()
 
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 48.dp),
             ) {
                 items(items, key = { it.id }) { item ->
-                    LookupRowItem(
-                        item = item,
-                        kind = kind,
-                        onRename = { renaming = item },
-                        onRemove = { removing = item },
-                        onNotes = { noting = item },
-                    )
-                    HorizontalDivider()
+                    RuledItem {
+                        LookupRowItem(
+                            item = item,
+                            kind = kind,
+                            onRename = { renaming = item },
+                            onRemove = { removing = item },
+                            onNotes = { noting = item },
+                        )
+                    }
                 }
 
                 if (items.isEmpty() && !state.busy) {
@@ -217,34 +203,27 @@ public fun ManageLookupScreen(
     }
 
     removing?.let { item ->
-        AlertDialog(
-            onDismissRequest = { removing = null },
-            title = { Text("Remove ${item.name}?") },
-            text = {
-                // E22: the screen states how many rows removal will hide *before* it happens,
-                // and E17 makes what is counted the kind's own business — practice events for
-                // an instrument, capability rows for a performer, tagged songs for a tag.
-                Text(
-                    if (item.usageCount == 0L) {
-                        "Nothing points at it. It stops being offered; nothing else changes."
-                    } else {
-                        "It has ${kind.usagePhrase(item.usageCount)}. Those rows are kept " +
-                            "and still count — the ${kind.singular} just stops being offered."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.removeLookup(kind, item.id, item.name)
-                        removing = null
-                    },
-                ) {
-                    Text("Remove")
-                }
-            },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
-        )
+        InkDialog(onDismiss = { removing = null }, title = "Remove ${item.name}?") {
+            // E22: the screen states how many rows removal will hide *before* it happens,
+            // and E17 makes what is counted the kind's own business — practice events for
+            // an instrument, capability rows for a performer, tagged songs for a tag.
+            DialogText(
+                if (item.usageCount == 0L) {
+                    "Nothing points at it. It stops being offered; nothing else changes."
+                } else {
+                    "It has ${kind.usagePhrase(item.usageCount)}. Those rows are kept " +
+                        "and still count — the ${kind.singular} just stops being offered."
+                },
+            )
+            DialogActions(
+                confirm = "Remove",
+                onConfirm = {
+                    viewModel.removeLookup(kind, item.id, item.name)
+                    removing = null
+                },
+                onDismiss = { removing = null },
+            )
+        }
     }
 
     noting?.let { item ->
@@ -299,31 +278,17 @@ private fun LookupRowItem(
                     )
                 }
 
-                Text(
-                    text = if (item.usageCount == 0L) {
-                        "nothing points at it"
-                    } else {
-                        kind.usagePhrase(item.usageCount)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                MutedLine(if (item.usageCount == 0L) "nothing points at it" else kind.usagePhrase(item.usageCount))
             }
             if (kind.hasNotes) {
-                TextButton(onClick = onNotes) { Text("Notes") }
+                TextAction("Notes", onClick = onNotes)
             }
-            TextButton(onClick = onRename) { Text("Rename") }
-            TextButton(onClick = onRemove) { Text("Remove") }
+            TextAction("Rename", onClick = onRename)
+            TextAction("Remove", onClick = onRemove)
         }
 
         if (kind.hasNotes) {
-            item.notes?.let { notes ->
-                Text(
-                    text = notes,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            item.notes?.let { notes -> MutedLine(notes) }
         }
     }
 }
@@ -345,27 +310,18 @@ private fun NotesDialog(
     onSave: (String?) -> Unit,
 ) {
     var notes by remember(item.id) { mutableStateOf(item.notes.orEmpty()) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Notes on ${item.name}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "Yours, on this ${kind.singular}. Clearing the field removes them.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(notes) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    InkDialog(onDismiss = onDismiss, title = "Notes on ${item.name}") {
+        InkTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = "Notes",
+            singleLine = false,
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        MutedLine("Yours, on this ${kind.singular}. Clearing the field removes them.")
+        DialogActions(confirm = "Save", onConfirm = { onSave(notes) }, onDismiss = onDismiss)
+    }
 }
 
 /** Renaming keeps the id (decision 5), so every practice event stays attached. */
@@ -377,33 +333,18 @@ private fun RenameDialog(
     onRename: (String) -> Unit,
 ) {
     var name by remember { mutableStateOf(item.name) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rename ${item.name}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { onRename(name) }),
-                )
-                Text(
-                    // E21: an id is opaque and immutable once written, and every referencing
-                    // row points at it. Renaming never re-derives one.
-                    "Everything already recorded against this ${kind.singular} stays " +
-                        "attached to it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onRename(name) }, enabled = name.isNotBlank()) {
-                Text("Rename")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    InkDialog(onDismiss = onDismiss, title = "Rename ${item.name}") {
+        InkTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = "Name",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onRename(name) }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // E21: an id is opaque and immutable once written, and every referencing
+        // row points at it. Renaming never re-derives one.
+        MutedLine("Everything already recorded against this ${kind.singular} stays attached to it.")
+        DialogActions(confirm = "Rename", onConfirm = { onRename(name) }, onDismiss = onDismiss, confirmEnabled = name.isNotBlank())
+    }
 }

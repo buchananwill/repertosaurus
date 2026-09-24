@@ -7,18 +7,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +25,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.data.DatabaseState
 
 /** Test tags, so the instrumented test asserting S10 names the same things the screen shows. */
@@ -113,92 +115,62 @@ public fun RecoveryScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            HorizontalDivider()
+            RowRule()
 
-            Button(
+            // VI12: the recommended fix is the screen's one primary action (S4).
+            PrimaryButton(
+                text = "Import a database",
                 onClick = onImport,
                 enabled = !transfer.busy,
                 modifier = Modifier.fillMaxWidth().testTag(RecoveryTags.IMPORT),
-            ) {
-                Text("Import a database")
-            }
-            Text(
-                "Pick a Repertosaurus export. This is the recommended fix, and the one that " +
-                    "keeps your repertoire.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            MutedLine("Pick a Repertosaurus export. This is the recommended fix, and the one that keeps your repertoire.")
 
-            OutlinedButton(
+            SecondaryButton(
+                text = "Try again",
                 onClick = { viewModel.retryDatabase() },
                 enabled = !transfer.busy,
                 modifier = Modifier.fillMaxWidth().testTag(RecoveryTags.RETRY),
-            ) {
-                Text("Try again")
-            }
+            )
 
-            OutlinedButton(
+            SecondaryButton(
+                text = "Start fresh",
                 onClick = { confirmingFresh = true },
                 enabled = !transfer.busy,
                 modifier = Modifier.fillMaxWidth().testTag(RecoveryTags.START_FRESH),
-            ) {
-                Text("Start fresh")
-            }
-            Text(
-                "Deletes the file above and creates an empty database. Only do this if you " +
-                    "have no export to import.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            MutedLine("Deletes the file above and creates an empty database. Only do this if you have no export to import.")
         }
     }
 
     if (confirmingFresh) {
-        AlertDialog(
-            onDismissRequest = { confirmingFresh = false },
-            title = { Text("Delete this database?") },
-            text = {
-                Text(
-                    "Everything in ${state.file} is removed and an empty database takes its " +
-                        "place. This cannot be undone, and there is no other copy on this " +
-                        "phone.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmingFresh = false
-                        viewModel.startFresh()
-                    },
-                ) {
-                    Text("Delete and start fresh")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmingFresh = false }) { Text("Cancel") }
-            },
-        )
+        InkDialog(onDismiss = { confirmingFresh = false }, title = "Delete this database?") {
+            DialogText(
+                "Everything in ${state.file} is removed and an empty database takes its " +
+                    "place. This cannot be undone, and there is no other copy on this " +
+                    "phone.",
+            )
+            DialogActions(
+                confirm = "Delete and start fresh",
+                onConfirm = {
+                    confirmingFresh = false
+                    viewModel.startFresh()
+                },
+                onDismiss = { confirmingFresh = false },
+            )
+        }
     }
 
     // The same two-step import the Session screen runs, because it is the same import: staging
     // describes the file, and only the confirmation overwrites anything.
     transfer.pending?.let { preview ->
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelImport() },
-            title = { Text("Use this database?") },
-            text = {
-                Text(
-                    "The file you picked holds ${preview.songs} songs and " +
-                        "${preview.practiceEvents} practice events.\n\n" +
-                        "It replaces the database this phone cannot read.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.confirmImport() }) { Text("Use it") }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelImport() }) { Text("Cancel") }
-            },
-        )
+        InkDialog(onDismiss = { viewModel.cancelImport() }, title = "Use this database?") {
+            DialogText(
+                "The file you picked holds ${preview.songs} songs and " +
+                    "${preview.practiceEvents} practice events.\n\n" +
+                    "It replaces the database this phone cannot read.",
+            )
+            DialogActions(confirm = "Use it", onConfirm = { viewModel.confirmImport() }, onDismiss = { viewModel.cancelImport() })
+        }
     }
 }

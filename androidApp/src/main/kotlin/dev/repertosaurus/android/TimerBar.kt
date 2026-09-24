@@ -54,15 +54,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import dev.repertosaurus.android.theme.DialogActions
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.InkDialog
 import dev.repertosaurus.android.theme.InkEdge
 import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.Tokens
-import dev.repertosaurus.android.theme.hardShadow
-import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.android.theme.inkRule
 import dev.repertosaurus.session.InstrumentChip
 import dev.repertosaurus.session.Messages
@@ -226,7 +226,7 @@ private fun TimerBar(
         }
         Column(modifier = Modifier.width(BarButtonWidth), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(Messages.TIMER_STOP, onClick = onStop, modifier = Modifier.fillMaxWidth(), enabled = stoppable)
-            SecondaryButton(Messages.TIMER_CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
+            SecondaryButton(Messages.CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -331,7 +331,7 @@ private fun FullScreenFace(
             )
         }
         PrimaryButton(Messages.TIMER_STOP, onClick = onStop, modifier = Modifier.fillMaxWidth(), enabled = stoppable)
-        SecondaryButton(Messages.TIMER_CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
+        SecondaryButton(Messages.CANCEL, onClick = onCancel, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -341,20 +341,12 @@ private const val DIGIT_WIDTH_EM = 0.62f
 /** timer TM8: **the only question the timer asks.** The question and two buttons, nothing else. */
 @Composable
 private fun TimerQuestionDialog(question: TimerQuestion, onAnswer: (withTime: Boolean) -> Unit, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .hardShadow(Tokens.ShadowLarge)
-                .background(Tokens.Paper)
-                .inkBorder()
-                .padding(20.dp)
-                .testTag(TimerTags.QUESTION),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(Messages.timerQuestion(question.seconds), style = MaterialTheme.typography.titleLarge, color = Tokens.Ink)
-            PrimaryButton(Messages.timerLogWith(question.seconds), onClick = { onAnswer(true) }, modifier = Modifier.fillMaxWidth())
-            SecondaryButton(Messages.TIMER_LOG_WITHOUT, onClick = { onAnswer(false) }, modifier = Modifier.fillMaxWidth())
-        }
+    InkDialog(onDismiss = onDismiss, title = Messages.timerQuestion(question.seconds), modifier = Modifier.testTag(TimerTags.QUESTION)) {
+        DialogActions(
+            confirm = Messages.timerLogWith(question.seconds),
+            onConfirm = { onAnswer(true) },
+            dismiss = Messages.TIMER_LOG_WITHOUT,
+            onDismiss = { onAnswer(false) },
+        )
     }
 }

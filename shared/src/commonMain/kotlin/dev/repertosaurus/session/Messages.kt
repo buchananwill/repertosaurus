@@ -69,6 +69,12 @@ public object Messages {
     /** The one "Undo": a log's snackbar, a cancelled timer's, and a staged skip's. */
     public const val UNDO: String = "Undo"
 
+    /** The one "Cancel": every dialog's way out, and the running timer's (timer TM4). */
+    public const val CANCEL: String = "Cancel"
+
+    /** The one "Add song": the logger's foot, the Songs route's, and the add sheet's button. */
+    public const val ADD_SONG: String = "Add song"
+
     // ---- The practice timer (timer TM1-TM12) ----------------------------------------------------
 
     /** timer TM1: the feel sheet's timer button, and TM2's while another timer runs. */
@@ -80,7 +86,6 @@ public object Messages {
 
     /** timer TM4. */
     public const val TIMER_STOP: String = "Stop"
-    public const val TIMER_CANCEL: String = "Cancel"
 
     /** timer TM4: the actions of the bar's clock and of the full-screen digits, read with the time. */
     public const val TIMER_OPEN_CLOCK: String = "Open the full-screen clock"
@@ -568,6 +573,9 @@ public object Messages {
 
     /** SC19: "Timed total: 1 h 10 min". */
     public fun timedTotalLine(seconds: Long): String = "Timed total: ${duration(seconds)}"
+
+    /** SC19, journal session 11 D85 #1: the timed events beyond [TimedHistory.SHOWN], "and 3 more". */
+    public fun timedMore(count: Int): String = "and $count more"
 
     /** SC8: "19 of 26", or "not yet" for a weekday the clipped window has not reached. */
     public fun habitFraction(weekday: WeekdayReliability): String =

@@ -8,16 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +21,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.InkFooter
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.RouteHeader
+import dev.repertosaurus.android.theme.RowRule
+import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.session.DetailRequest
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.SongSearch
@@ -58,7 +57,6 @@ internal object SongsTags {
  * capability state exactly as the logger drives it (session 09 ruling). This screen owns the
  * song; it does not own a second capability editor.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun SongsScreen(
     viewModel: SongsViewModel,
@@ -231,35 +229,24 @@ public fun SongsScreen(
 
     if (confirmingDiscard) {
         val label = detail?.record?.let { songLabel(it.title, it.artistName) }.orEmpty()
-        AlertDialog(
-            onDismissRequest = { confirmingDiscard = false },
-            title = { Text("Discard your changes?") },
-            text = { Text("Your edits to $label have not been saved.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmingDiscard = false
-                        detailId = null
-                    },
-                    modifier = Modifier.testTag(SongsTags.DISCARD),
-                ) {
-                    Text("Discard")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { confirmingDiscard = false },
-                    modifier = Modifier.testTag(SongsTags.KEEP_EDITING),
-                ) {
-                    Text("Keep editing")
-                }
-            },
-        )
+        InkDialog(onDismiss = { confirmingDiscard = false }, title = "Discard your changes?") {
+            DialogText("Your edits to $label have not been saved.")
+            DialogActions(
+                confirm = "Discard",
+                onConfirm = {
+                    confirmingDiscard = false
+                    detailId = null
+                },
+                dismiss = "Keep editing",
+                onDismiss = { confirmingDiscard = false },
+                confirmModifier = Modifier.testTag(SongsTags.DISCARD),
+                dismissModifier = Modifier.testTag(SongsTags.KEEP_EDITING),
+            )
+        }
     }
 }
 
 /** R11: every live song, filtered and ordered in memory by `SongSearch` (E36). */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SongListScreen(
     state: SongsState,
@@ -269,46 +256,35 @@ private fun SongListScreen(
     onBack: () -> Unit,
 ) {
     val shown = remember(state.songs, state.query) { SongSearch.search(state.songs, state.query) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Songs") },
-                actions = { TextButton(onClick = onBack) { Text("Done") } },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onAdd, modifier = Modifier.testTag(SongsTags.ADD)) {
-                Text("Add song")
-            }
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            SongSearchField(query = state.query, onQuery = onQuery, modifier = Modifier.testTag(SongsTags.SEARCH))
-            Text(
-                if (state.query.isEmpty()) {
-                    Messages.songCount(state.songs.size.toLong())
-                } else {
-                    Messages.shownOf(shown.size, Messages.songCount(state.songs.size.toLong()))
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            StatusLines(message = state.message, error = state.error)
-            if (state.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            HorizontalDivider()
+    Column(modifier = Modifier.fillMaxSize()) {
+        RouteHeader(title = Messages.DRAWER_SONGS, onDone = onBack)
+        SongSearchField(query = state.query, onQuery = onQuery, modifier = Modifier.testTag(SongsTags.SEARCH))
+        CountLine(
+            if (state.query.isEmpty()) {
+                Messages.songCount(state.songs.size.toLong())
+            } else {
+                Messages.shownOf(shown.size, Messages.songCount(state.songs.size.toLong()))
+            },
+        )
+        StatusLines(message = state.message, error = state.error)
+        if (state.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        RowRule()
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f).testTag(SongsTags.LIST),
-                contentPadding = PaddingValues(bottom = 96.dp),
-            ) {
-                items(shown, key = { it.id }) { song ->
-                    // A tap opens the song's detail — it never logs practice.
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f).testTag(SongsTags.LIST),
+            contentPadding = PaddingValues(bottom = 16.dp),
+        ) {
+            items(shown, key = { it.id }) { song ->
+                // A tap opens the song's detail — it never logs practice.
+                RuledItem {
                     SongListRow(song = song, onClick = { onOpen(song.id) }, modifier = Modifier.testTag(SongsTags.row(song.id)))
-                    HorizontalDivider()
                 }
-                if (shown.isEmpty() && !state.loading) emptyListLine(state.query, whenEmpty = Messages.NO_SONGS_YET)
             }
+            if (shown.isEmpty() && !state.loading) emptyListLine(state.query, whenEmpty = Messages.NO_SONGS_YET)
+        }
+        // VI15's foot, as the logger has it: the route's one primary action, full width, never over a row.
+        InkFooter {
+            PrimaryButton(text = Messages.ADD_SONG, onClick = onAdd, modifier = Modifier.fillMaxWidth().testTag(SongsTags.ADD))
         }
     }
 }

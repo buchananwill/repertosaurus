@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +36,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
@@ -227,15 +227,12 @@ internal fun ViewSwitcherSheet(
                 HorizontalDivider()
             }
 
-            Button(
+            // VI3, VI12 (journal session 11, D90): the sheet's one primary, square.
+            PrimaryButton(
+                text = if (views.isEmpty()) "Make the first view" else "New view",
                 onClick = onCreate,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .height(56.dp),
-            ) {
-                Text(if (views.isEmpty()) "Make the first view" else "New view")
-            }
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+            )
         }
     }
 }
@@ -524,7 +521,8 @@ internal fun ViewEditorSheet(
             SortControl(order = order, triageAvailable = true, onOrder = { order = it })
 
             val practice = practiceInstrumentId
-            Button(
+            PrimaryButton(
+                text = "Save view",
                 onClick = {
                     practice?.let { instrumentId ->
                         onCommit(
@@ -545,10 +543,8 @@ internal fun ViewEditorSheet(
                     }
                 },
                 enabled = name.isNotBlank() && practice != null,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-            ) {
-                Text("Save view")
-            }
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             if (editing != null && editing.saved) {
                 // V23: a tombstone, not a DELETE — every practice event logged under this

@@ -25,9 +25,17 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasurePolicy
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.text.rememberTextMeasurer
+import kotlin.math.ceil
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -183,12 +191,89 @@ internal fun Segment(
 }
 
 /**
- * VI8, VI13: **a segment's words, which never clip.** A label wider than its segment wraps, and the strip
- * takes its tallest segment's height, so every segment in the row grows with it. There is no single-line
- * form: a strip of equal shares cannot promise a label its width at every font scale.
+ * VI8, VI13: **a segment's words, which never clip and never split.** A label wider than its segment wraps
+ * between words, and the strip takes its tallest segment's height, so every segment in the row grows with
+ * it. A single word wider than the segment ("Confidence" at a font scale of 2.0, journal session 11,
+ * D78 #6) is laid out at its own width and drawn smaller, to the segment's width: it shrinks, and is
+ * never broken inside ("Confide / nce").
  */
 @Composable
 internal fun SegmentLabel(text: String, modifier: Modifier = Modifier) {
-    // The segment's full width, so a centred line is laid out in the space it is drawn in.
-    Text(text, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, modifier = modifier.fillMaxWidth())
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = rememberTextMeasurer()
+    val widestWord = remember(text, style, measurer) {
+        text.split(' ').filter { it.isNotEmpty() }.maxOfOrNull { word ->
+            measurer.measure(word, style, softWrap = false, maxLines = 1).size.width
+        } ?: 0
+    }
+    val policy = remember(widestWord) { WholeWords(widestWord + 1) }
+    Layout(
+        content = {
+            // The segment's full width, so a centred line is laid out in the space it is drawn in.
+            Text(text, style = style, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        },
+        modifier = modifier,
+        measurePolicy = policy,
+    )
+}
+
+/**
+ * [SegmentLabel]'s measure: the text at the width it is given, unless its widest word is wider. Then the
+ * text is laid out at [widestWord], where every word fits a line, and scaled down to the width given, so the
+ * lines still break only between words. Intrinsic heights follow the same rule, because a strip sizes its
+ * rows from them.
+ */
+private class WholeWords(private val widestWord: Int) : MeasurePolicy {
+
+    private fun scale(width: Int): Float = if (width >= widestWord) 1f else width.toFloat() / widestWord
+
+    override fun MeasureScope.measure(measurables: List<Measurable>, constraints: Constraints): MeasureResult {
+        val text = measurables.single()
+        if (!constraints.hasBoundedWidth || constraints.maxWidth >= widestWord) {
+            val placeable = text.measure(constraints)
+            return layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        }
+        val scale = scale(constraints.maxWidth)
+        val placeable = text.measure(Constraints.fixedWidth(widestWord))
+        val height = ceil(placeable.height * scale).toInt().coerceIn(constraints.minHeight, constraints.maxHeight)
+        return layout(constraints.maxWidth, height) {
+            placeable.placeWithLayer(0, 0) {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0f)
+            }
+        }
+    }
+
+    override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int =
+        scaledHeight(width) { measurables.single().maxIntrinsicHeight(it) }
+
+    override fun IntrinsicMeasureScope.minIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int =
+        scaledHeight(width) { measurables.single().minIntrinsicHeight(it) }
+
+    override fun IntrinsicMeasureScope.maxIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int =
+        measurables.single().maxIntrinsicWidth(height)
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int =
+        measurables.single().minIntrinsicWidth(height)
+
+    private inline fun scaledHeight(width: Int, height: (Int) -> Int): Int =
+        if (width >= widestWord) height(width) else ceil(height(widestWord) * scale(width)).toInt()
+}
+
+/**
+ * VI13: one [Segment] standing alone, inside its own 2 dp `Ink` border: a choice among many that do not
+ * share a strip (a picker row that scrolls, a tag, a near-match to pick).
+ */
+@Composable
+internal fun InkChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Segment(selected = selected, onClick = onClick, modifier = modifier.inkBorder(Tokens.StrokeRule), enabled = enabled) {
+        Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 3, modifier = Modifier.padding(horizontal = 8.dp))
+    }
 }

@@ -88,7 +88,8 @@ class RecoveryScreenTest {
         assertIs<DatabaseState.Unloadable>(model.databaseState.value)
 
         compose.onNodeWithTag(RecoveryTags.START_FRESH).performClick()
-        compose.onNodeWithText("Delete and start fresh").performClick()
+        // The dialog's confirm is display type, set in upper case (VI6).
+        compose.onNodeWithText("Delete and start fresh", ignoreCase = true).performClick()
         compose.waitUntil(BOOT_TIMEOUT_MS) { model.databaseState.value == DatabaseState.Ready }
         compose.waitForIdle()
 

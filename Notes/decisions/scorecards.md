@@ -177,6 +177,8 @@ minutes accumulating on each song".
 (AMENDED 2026-09-24, journal session 11, D85 #1: the song detail has no per-event list, only
 R20's per-instrument summary. SC19 is met by a timed total and a list of **the timed events
 only**, beneath that summary. A full per-event history is not decided.)
+(AMENDED 2026-09-24, D93: the list shows the latest 10, then "and N more". The timed total is
+always over every timed event.)
 
 **SC20. Verification:**
 - `HabitStats` tests: a mixed day, an all-untimed day (null, not 0), and totals;

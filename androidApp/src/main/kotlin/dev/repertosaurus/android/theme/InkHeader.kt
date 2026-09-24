@@ -92,6 +92,33 @@ private fun headerGradient(size: Size): Brush {
     )
 }
 
+/**
+ * VI9, VI15's pattern for a route: [kicker] small on the bar's top line, [title] as the screen title beneath,
+ * and a way back, [onDone], as the bar's secondary button. [actions] go before it.
+ */
+@Composable
+internal fun RouteHeader(
+    title: String,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+    kicker: String? = null,
+    doneModifier: Modifier = Modifier,
+    titleModifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    InkHeader(
+        modifier = modifier,
+        navigation = { kicker?.let { DisplayText(it, style = DisplayType.Subline) } },
+        actions = {
+            actions()
+            SecondaryButton(text = DONE, onClick = onDone, modifier = doneModifier)
+        },
+        title = { DisplayText(title, style = DisplayType.ScreenTitle, maxLines = 2, modifier = titleModifier) },
+    )
+}
+
+private const val DONE = "Done"
+
 /** The bar at a screen's foot, over its content with a 3 dp rule: where the one primary action goes. */
 @Composable
 internal fun InkFooter(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {

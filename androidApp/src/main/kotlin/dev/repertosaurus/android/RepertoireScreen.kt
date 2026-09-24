@@ -9,23 +9,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,9 +30,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.InkChip
+import dev.repertosaurus.android.theme.MutedLine
+import dev.repertosaurus.android.theme.RouteHeader
+import dev.repertosaurus.android.theme.RowRule
 import dev.repertosaurus.android.theme.RuledItem
+import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.SwitchRow
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PageFilter
@@ -140,8 +137,7 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
             },
         )
         ratingsTarget != null && list != null -> ToggleListScreen(
-            performerName = performer?.performerName.orEmpty(),
-            instrumentLabel = instrumentLabel,
+            title = ratingsTarget.title,
             list = list,
             message = state.message,
             error = state.error,
@@ -168,7 +164,6 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
 }
 
 /** R1, R2: every live performer, a chip per held role, and "+ role". */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PerformerListScreen(
     performers: List<PerformerRoles>,
@@ -178,41 +173,30 @@ private fun PerformerListScreen(
     onOpen: (performerId: String, instrumentId: String) -> Unit,
     onBack: () -> Unit,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Repertoire") },
-                actions = { TextButton(onClick = onBack) { Text("Done") } },
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Text(
-                "Pick a performer's role to choose the songs they hold on it. Nothing here logs " +
-                    "practice.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-            StatusLines(message = message, error = error)
-            if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+    Column(modifier = Modifier.fillMaxSize()) {
+        RouteHeader(title = Messages.DRAWER_REPERTOIRE, onDone = onBack)
+        MutedLine(
+            "Pick a performer's role to choose the songs they hold on it. Nothing here logs practice.",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        StatusLines(message = message, error = error)
+        if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        RowRule()
 
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().testTag(RepertoireTags.PERFORMERS),
-                contentPadding = PaddingValues(bottom = 48.dp),
-            ) {
-                items(performers, key = { it.performerId }) { performer ->
-                    PerformerRow(performer = performer, onOpen = onOpen)
-                    HorizontalDivider()
-                }
-                if (performers.isEmpty() && !loading) {
-                    item(key = "empty") {
-                        Text(
-                            "No performers yet. Add one from Performers in the menu.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(32.dp),
-                        )
-                    }
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().testTag(RepertoireTags.PERFORMERS),
+            contentPadding = PaddingValues(bottom = 48.dp),
+        ) {
+            items(performers, key = { it.performerId }) { performer ->
+                RuledItem { PerformerRow(performer = performer, onOpen = onOpen) }
+            }
+            if (performers.isEmpty() && !loading) {
+                item(key = "empty") {
+                    Text(
+                        "No performers yet. Add one from Performers in the menu.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(32.dp),
+                    )
                 }
             }
         }
@@ -237,22 +221,17 @@ private fun PerformerRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (role in performer.roles) {
-                AssistChip(
-                    onClick = { onOpen(performer.performerId, role.id) },
-                    label = { Text(role.label) },
-                    modifier = Modifier.height(44.dp),
-                )
+                InkChip(label = role.label, selected = false, onClick = { onOpen(performer.performerId, role.id) })
             }
             // R2: the only way to give a performer their first song on an instrument, so it is
             // always on the row, never behind a further menu.
             if (performer.unheldInstruments.isNotEmpty()) {
                 Box {
-                    AssistChip(
+                    InkChip(
+                        label = "+ role",
+                        selected = false,
                         onClick = { picking = true },
-                        label = { Text("+ role") },
-                        modifier = Modifier
-                            .height(44.dp)
-                            .testTag(RepertoireTags.addRole(performer.performerId)),
+                        modifier = Modifier.testTag(RepertoireTags.addRole(performer.performerId)),
                     )
                     DropdownMenu(expanded = picking, onDismissRequest = { picking = false }) {
                         for (instrument in performer.unheldInstruments) {
@@ -279,11 +258,9 @@ private fun PerformerRow(
  *
  * Triage T5a: the ratings editor's search, filter and letter strip.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ToggleListScreen(
-    performerName: String,
-    instrumentLabel: String,
+    title: String,
     list: ToggleList,
     message: String?,
     error: String?,
@@ -300,41 +277,20 @@ private fun ToggleListScreen(
     // Under All only the song set matters, which a toggle leaves alone.
     val rowsKey = if (paging.filter == PageFilter.ALL) list.ticket to list.rows.size else list.rows
     val letters = remember(rowsKey, paging.filter) { paging.letters(list.paged()) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            performerName,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            instrumentLabel,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                actions = {
-                    TextButton(onClick = onRatings, modifier = Modifier.testTag(RepertoireTags.RATINGS)) {
-                        Text("Ratings")
-                    }
-                    TextButton(onClick = onClose) { Text("Done") }
-                },
-            )
-        },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).testTag(RepertoireTags.TOGGLE_LIST)) {
-            Text(
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Triage T1: the role's two panes share one header, each naming itself and offering the other.
+        RouteHeader(
+            title = title,
+            kicker = "Songs",
+            onDone = onClose,
+            actions = {
+                SecondaryButton(text = "Ratings", onClick = onRatings, modifier = Modifier.testTag(RepertoireTags.RATINGS))
+            },
+        )
+        Column(modifier = Modifier.fillMaxWidth().weight(1f).testTag(RepertoireTags.TOGGLE_LIST)) {
+            CountLine(
                 Messages.shownOf(list.heldCount, Messages.songCount(list.rows.size.toLong())) + " held",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .testTag(RepertoireTags.HELD_COUNT),
+                modifier = Modifier.padding(top = 4.dp).testTag(RepertoireTags.HELD_COUNT),
             )
             StatusLines(message = message, error = error)
             if (list.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -401,8 +357,8 @@ private fun ToggleRow(
             enabled = enabled,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            // E46: the one song label, from the core.
-            SongLabelText(title = title, artistName = artistName, modifier = Modifier.weight(1f))
+            // The title over its artist, as every song row has it (VI15).
+            SongTitleArtist(title = title, artistName = artistName, modifier = Modifier.weight(1f))
         }
     }
 }

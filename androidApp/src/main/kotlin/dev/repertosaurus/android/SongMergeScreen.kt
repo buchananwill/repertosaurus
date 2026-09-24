@@ -13,15 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.DialogActions
+import dev.repertosaurus.android.theme.DialogText
+import dev.repertosaurus.android.theme.InkDialog
+import dev.repertosaurus.android.theme.PrimaryButton
+import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.data.SongChildKey
@@ -216,37 +218,30 @@ private fun MergePreview(
                 }
             }
             item(key = "confirm") {
-                Button(
+                PrimaryButton(
+                    text = "Merge…",
                     onClick = { confirming = true },
                     enabled = enabled && errors.isEmpty(),
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(top = 8.dp).testTag(MergeTags.CONFIRM),
-                ) {
-                    Text("Merge…")
-                }
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag(MergeTags.CONFIRM),
+                )
             }
         }
     }
 
     if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text("Merge these two songs?") },
-            text = { Text(Messages.mergeConfirmation(plan)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirming = false
-                        actions.onConfirm()
-                    },
-                    modifier = Modifier.testTag(MergeTags.DO_MERGE),
-                ) {
-                    Text("Merge")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirming = false }, modifier = Modifier.testTag(MergeTags.CANCEL)) { Text("Cancel") }
-            },
-        )
+        InkDialog(onDismiss = { confirming = false }, title = "Merge these two songs?") {
+            DialogText(Messages.mergeConfirmation(plan))
+            DialogActions(
+                confirm = "Merge",
+                onConfirm = {
+                    confirming = false
+                    actions.onConfirm()
+                },
+                onDismiss = { confirming = false },
+                confirmModifier = Modifier.testTag(MergeTags.DO_MERGE),
+                dismissModifier = Modifier.testTag(MergeTags.CANCEL),
+            )
+        }
     }
 }
 
@@ -262,13 +257,12 @@ private fun LazyListScope.survivorItems(plan: MergePlan, enabled: Boolean, actio
                 Messages.mergeRemoves(songLabel(plan.loser.record.title, plan.loser.record.artistName)),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            OutlinedButton(
+            SecondaryButton(
+                text = "Swap: keep the other one",
                 onClick = actions.onSwap,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth().testTag(MergeTags.SWAP),
-            ) {
-                Text("Swap: keep the other one")
-            }
+            )
         }
     }
 }
