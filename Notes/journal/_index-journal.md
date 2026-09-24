@@ -19,8 +19,17 @@ was made, and the reversal is recorded where it happened.
   primitive ship ahead of it.
   - Only two gates block work: G1 (the triage sort names, because they fix a CHECK, F1) and G10
     (beauty).
-  - Measured: 386 shared tests, 0 failures.
-  - Read §4 first.
+  - **The user then authorised the whole roadmap overnight (D51).** Delivered, reviewed three
+    ways and committed:
+    - schema 3 and the rating scale;
+    - the approved "handed on" look, with motion;
+    - the ratings editor;
+    - Suggest v1;
+    - Scorecards;
+    - onboarding;
+    - the triage sorts.
+  - Last verified: 520 shared and 137 instrumented tests, 0 failures.
+  - Read §4 first. It was rewritten overnight.
 
 - [2026-09-23 — Session 10: From Logger to Nudger, the Habit Arc Opens](2026-09-23-session-10.md)
   — The user's five-point direction, recorded in their words: suggest a song, timed practice,

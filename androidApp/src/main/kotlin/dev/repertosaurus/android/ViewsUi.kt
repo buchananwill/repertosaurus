@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
@@ -121,32 +122,28 @@ internal sealed interface RateThese {
 }
 
 /**
- * Triage T1, T9: the active View's pool, rated on [part], **the session state's one resolution**
- * (`SessionState.part`, F21 B11), which the triage sort reads too. What is here is the instrument's label.
+ * Triage T1, T9: the active View's pool, rated on [part], the session state's one resolution, which the
+ * triage sort reads too. What is here is the instrument's label.
  *
- * Null — the entry is not shown — when there is no View, or while [part] is pending because the
- * performers are not yet read (safety review F20 N2): "not known yet" must not read as "nobody".
+ * Null — the entry is not shown — while [part] is pending (no View, or the performers not yet read):
+ * "not known yet" must not read as "nobody".
  */
 internal fun rateThese(
-    view: SessionView?,
     part: PartResolution,
     pool: List<SessionRow>,
     instruments: List<InstrumentChip>,
-): RateThese? {
-    if (view == null) return null
-    return when (val resolution = part) {
-        PartResolution.Pending -> null
-        PartResolution.None -> RateThese.Unavailable(Messages.RATE_NEEDS_PERFORMER)
-        is PartResolution.Resolved -> RateThese.Ready(
-            RatingsTarget(
-                performerId = resolution.part.performerId,
-                instrumentId = resolution.part.instrumentId,
-                performerName = resolution.part.name,
-                instrumentLabel = instrumentLabel(resolution.part.instrumentId, instruments),
-                source = RatingsSource.ViewPool(pool.map { RatingsSong(it.songId, it.title, it.artistName) }),
-            ),
-        )
-    }
+): RateThese? = when (part) {
+    PartResolution.Pending -> null
+    PartResolution.None -> RateThese.Unavailable(Messages.RATE_NEEDS_PERFORMER)
+    is PartResolution.Resolved -> RateThese.Ready(
+        RatingsTarget(
+            performerId = part.part.performerId,
+            instrumentId = part.part.instrumentId,
+            performerName = part.part.name,
+            instrumentLabel = instrumentLabel(part.part.instrumentId, instruments),
+            source = RatingsSource.ViewPool(pool.map { RatingsSong(it.songId, it.title, it.artistName) }),
+        ),
+    )
 }
 
 /** What the switcher shows under a View's name: the two halves it pairs, in that order. */
@@ -314,13 +311,11 @@ private fun RateTheseRow(entry: RateThese, onRate: (RatingsTarget) -> Unit, modi
             style = MaterialTheme.typography.titleMedium,
             color = if (ready != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            text = when (entry) {
+        MutedLine(
+            when (entry) {
                 is RateThese.Ready -> Messages.rateThesePart(entry.target.title)
                 is RateThese.Unavailable -> entry.reason
             },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -525,8 +520,6 @@ internal fun ViewEditorSheet(
                 }
             }
 
-            // Triage T6: the same two controls as the session screen's sort. The editor stores what is
-            // picked; whether a performer resolves for the triage modes is the session screen's to say (T9).
             SectionLabel(title = "Starting from", detail = null)
             SortControl(order = order, triageAvailable = true, onOrder = { order = it })
 
@@ -576,12 +569,6 @@ internal fun ViewEditorSheet(
 private fun SectionLabel(title: String, detail: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxWidth()) {
         Text(title, style = MaterialTheme.typography.titleSmall)
-        if (detail != null) {
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        if (detail != null) MutedLine(detail)
     }
 }

@@ -127,12 +127,12 @@ parameter**, so later packages cannot thread it inconsistently.
 ### The control
 
 **RS9.** `RatingSegmentedControl(value: RatingLevel?, onValueChange: (RatingLevel?) -> Unit,
-modifier: Modifier = Modifier, ~~levels: List<RatingLevel> = RatingLevel.entries~~ **lowest:
-RatingLevel = RatingLevel.NOT_AT_ALL**)` is the only 0–3 input in the app. **AMENDED 2026-09-23
+modifier: Modifier = Modifier, ~~levels: List<RatingLevel> = RatingLevel.entries~~ ~~lowest:
+RatingLevel = RatingLevel.NOT_AT_ALL~~)` is the only 0–3 input in the app. **AMENDED 2026-09-23
 (journal session 11, F10 B1):** a `List` parameter is unstable to the Compose compiler, and
 strong skipping is off at this compiler version. The control will run two to a row in a lazy
-list of hundreds, so every parameter must be stable. The segments shown are `lowest` through
-`EXCEPTIONALLY`. Its behaviour:
+list of hundreds, so every parameter must be stable. **AMENDED again (D76, F35 N4):** `lowest` is
+removed together with RS10. **All four levels are always shown.** Its behaviour:
 - **One tap sets a value.** No dropdown and no confirmation (vision; journal session 10, D4).
 - **Tapping the selected segment clears it to `null`.** This matches today's feel chips, so
   "unrated" stays reachable in one tap.

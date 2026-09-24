@@ -72,9 +72,8 @@ private val SwatchBand = 5.dp
 
 /**
  * rating-scale RS9: **the only 0-3 input in the app.** A tap on the selected segment clears it, so
- * unrated is one tap away. All four levels are shown: RS10's `lowest` is gone (F16), since schema 3
- * widened feel to 0-3 and nothing passed it. visual-identity VI14: the segments are joined in one
- * [SegmentStrip], and the selected one is filled with its ramp step.
+ * unrated is one tap away. visual-identity VI14: the segments are joined in one [SegmentStrip], and
+ * the selected one is filled with its ramp step.
  *
  * [labelsFit] is [rememberRatingLabelsFit]'s answer, taken once for a whole list and passed down
  * (Compose review F22 B2). Null, a lone control (the feel sheet) measures its own width for it.

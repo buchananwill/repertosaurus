@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -31,8 +32,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -40,6 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import kotlin.math.abs
 
 /**
  * visual-identity VI5: a solid `Ink` rectangle, no blur, down and right by [offset]. The modifier pads
@@ -185,6 +192,51 @@ internal fun DieGlyph(modifier: Modifier = Modifier) {
             }
         },
     )
+}
+
+/** The direction glyph's turn, for a test: 1 is pointing down, -1 up, and in between it is mid-flip. */
+internal val DirectionTurn: SemanticsPropertyKey<Float> = SemanticsPropertyKey("DirectionTurn")
+internal var SemanticsPropertyReceiver.directionTurn: Float by DirectionTurn
+
+/**
+ * triage T6's direction: a square-ended arrow, drawn as [MenuGlyph] is (VI3), pointing down for "need
+ * first" and up when [up]. **It never rotates** (VI3): the way it points is in its geometry. A flip
+ * squashes it to nothing and springs it open the other way (VI18); with animations off it simply points.
+ */
+@Composable
+internal fun DirectionGlyph(up: Boolean, modifier: Modifier = Modifier) {
+    val turn by animateFloatAsState(if (up) -1f else 1f, Motion.spring(), label = "direction")
+    // Read here, so the test's property follows the flip frame by frame; a small glyph, and only while it turns.
+    val shown = turn
+    Box(
+        modifier = modifier
+            .size(18.dp, 22.dp)
+            .semantics { directionTurn = shown }
+            .graphicsLayer { scaleY = abs(turn) }
+            .drawBehind { drawArrow(pointsUp = turn < 0f) },
+    )
+}
+
+private fun DrawScope.drawArrow(pointsUp: Boolean) {
+    val stem = Tokens.StrokeHeavy.toPx()
+    val head = size.width / 2f
+    val stemTop = if (pointsUp) head else 0f
+    drawRect(Tokens.Ink, topLeft = Offset((size.width - stem) / 2f, stemTop), size = Size(stem, size.height - head))
+    val base = if (pointsUp) head else size.height - head
+    val tip = if (pointsUp) 0f else size.height
+    val arrow = Path().apply {
+        moveTo(0f, base)
+        lineTo(size.width, base)
+        lineTo(size.width / 2f, tip)
+        close()
+    }
+    drawPath(arrow, Tokens.Ink)
+}
+
+/** A quiet line under a control: body-small, in `InkMuted`. */
+@Composable
+internal fun MutedLine(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = Tokens.InkMuted, modifier = modifier)
 }
 
 /**

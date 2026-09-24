@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
@@ -125,16 +126,10 @@ internal fun SongCapabilitySheet(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Who plays this", style = MaterialTheme.typography.headlineSmall)
-                // F21 B7: a missing artist is omitted, never worded.
                 SongTitleArtist(title = song.title, artistName = song.artistName)
                 // E1, said on the screen and not only in the code: the user has arrived here
                 // from the sheet whose other half logs practice.
-                Text(
-                    text = "The line-up, not a practice log. Nothing on this sheet records " +
-                        "that you played today.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                MutedLine("The line-up, not a practice log. Nothing on this sheet records that you played today.")
             }
 
             if (busy) {

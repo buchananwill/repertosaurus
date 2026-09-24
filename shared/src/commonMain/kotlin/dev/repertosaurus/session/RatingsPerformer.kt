@@ -16,6 +16,36 @@ public sealed interface PartResolution {
     public data object None : PartResolution
 }
 
+/** The part, when one resolved. */
+public val PartResolution.resolvedOrNull: ResolvedPart?
+    get() = (this as? PartResolution.Resolved)?.part
+
+/**
+ * **triage T9: whose ratings the active View reads**, the one resolution the sort and the View menu's
+ * "Rate these songs" both use. Pending while there is no View or the performers are unread.
+ */
+public val SessionState.part: PartResolution
+    get() = partOf(view)
+
+/** T9 for [view] with this state's owner and performers: what a row read for [view] is rated on. */
+public fun SessionState.partOf(view: SessionView?): PartResolution =
+    if (view == null) {
+        PartResolution.Pending
+    } else {
+        RatingsPerformer.resolve(view.filter.performerId, ownerPerformerId, view.practiceInstrumentId, performers)
+    }
+
+public val SessionState.resolvedPart: ResolvedPart?
+    get() = part.resolvedOrNull
+
+/** triage T9: the Priority and Confidence modes are disabled only when nobody resolves. */
+public val SessionState.triageAvailable: Boolean
+    get() = part != PartResolution.None
+
+/** The rows' ratings belong to another part than [part] resolves to, so they must be read again. */
+public val SessionState.ratingsStale: Boolean
+    get() = !loading && resolvedPart != ratedFor
+
 /**
  * **triage T9: whose part the View's ratings are**, in T9's order: the filter performer, then the owner
  * (T10), then none. Nothing is guessed.

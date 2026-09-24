@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
@@ -36,12 +37,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.InkFooter
 import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.Segment
+import dev.repertosaurus.android.theme.SegmentLabel
 import dev.repertosaurus.android.theme.SegmentLayout
 import dev.repertosaurus.android.theme.SegmentStrip
 import dev.repertosaurus.session.Messages
@@ -52,6 +55,8 @@ import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.identity
+import dev.repertosaurus.session.part
+import dev.repertosaurus.session.triageAvailable
 import dev.repertosaurus.session.suggestionCard
 
 /** Stable handles for the instrumented tests and for on-device inspection. */
@@ -87,14 +92,14 @@ public fun SessionScreen(
     onTune: (SuggestTuning) -> Unit,
     onOpenDrawer: () -> Unit,
     onExport: () -> Unit,
-    // Triage T1, T9, T10: the View menu's "Rate these songs". Off the tap path: it opens a route.
-    ownerPerformerId: String? = null,
+    // Triage T10: the device's owner performer. The session state resolves the part from it (T9), for the
+    // sort and for the View menu's "Rate these songs", which opens a route, off the tap path.
+    ownerPerformerId: String?,
     onRateSongs: (RatingsTarget) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val transfer by viewModel.transfer.collectAsState()
-    // Triage T9, T10: the owner performer is a device setting; the session state resolves the part from it.
-    LaunchedEffect(ownerPerformerId) { viewModel.setOwnerPerformer(ownerPerformerId) }
+    LaunchedEffect(viewModel, ownerPerformerId) { viewModel.setOwnerPerformer(ownerPerformerId) }
     val snackbarHostState = remember { SnackbarHostState() }
     var feelFor by remember { mutableStateOf<SessionRow?>(null) }
 
@@ -199,20 +204,14 @@ public fun SessionScreen(
                             selected = chip.id == state.selectedInstrumentId,
                             onClick = { viewModel.selectInstrument(chip.id) },
                         ) {
-                            Text(
-                                chip.label,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                            )
+                            SegmentLabel(chip.label, modifier = Modifier.padding(horizontal = 8.dp))
                         }
                     }
                 }
             }
 
-            // The sort sits up here, above the search field and two rows clear of the first tap
-            // target. Coldest first is the default and stays it; a mis-tap that reorders the list
-            // mid-session is worse than useless, so nothing that reorders is within reach of a thumb
-            // aiming at a song. Triage T6: a mode and a direction.
+            // A mis-tap that reorders the list mid-session is worse than useless, so nothing that
+            // reorders is within reach of a thumb aiming at a song.
             SortControl(
                 order = state.order,
                 triageAvailable = state.triageAvailable,
@@ -220,7 +219,6 @@ public fun SessionScreen(
                 modifier = Modifier.padding(horizontal = 12.dp),
             )
 
-            // F21 B5: the lists' one search box.
             SongSearchField(query = state.query, onQuery = viewModel::setQuery)
 
             if (state.loading || transfer.busy) {
@@ -348,9 +346,8 @@ public fun SessionScreen(
                 editorOpen = true
             },
             onDismiss = { switching = false },
-            // F22 N2: memoised on its inputs. F21 B11: the part is the session state's, as the sort's.
-            rateThese = remember(state.view, state.part, state.rows, state.instruments) {
-                rateThese(state.view, state.part, state.rows, state.instruments)
+            rateThese = remember(state.part, state.rows, state.instruments) {
+                rateThese(state.part, state.rows, state.instruments)
             },
             onRate = { target ->
                 switching = false
@@ -451,9 +448,8 @@ private fun SessionList(
     modifier: Modifier = Modifier,
 ) {
     val entries by remember(state.pending) { derivedStateOf { departures.entries(state.pending) } }
-    // Triage T6, journal F7: a new order starts at its top, not wherever the old one was scrolled to.
     val listState = rememberLazyListState()
-    LaunchedEffect(state.order) { listState.scrollToItem(0) }
+    ScrollToTopOnNewList(listState, state)
     LazyColumn(
         modifier = modifier.testTag(SessionTags.LIST),
         state = listState,
@@ -481,11 +477,7 @@ private fun SessionList(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Text(
-                        "Tap again for a second pass.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    MutedLine("Tap again for a second pass.")
                 }
             }
             items(state.logged, key = { "logged:${it.row.songId}" }) { logged ->
@@ -545,6 +537,22 @@ private fun SessionList(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Triage T6: a new order starts at its top, and so does another View, which is another list. Only a real
+ * change scrolls: the list last shown is saved with the scroll position, so a rotation keeps both.
+ */
+@Composable
+private fun ScrollToTopOnNewList(listState: LazyListState, state: SessionState) {
+    val shown = listOf(state.order.name, state.view?.id, state.view?.practiceInstrumentId).joinToString("|")
+    var lastShown by rememberSaveable { mutableStateOf(shown) }
+    LaunchedEffect(shown) {
+        if (shown != lastShown) {
+            lastShown = shown
+            listState.scrollToItem(0)
         }
     }
 }

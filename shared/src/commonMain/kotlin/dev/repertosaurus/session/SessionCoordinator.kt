@@ -64,9 +64,8 @@ public class SessionCoordinator(
      * on `session` — the layering is `session → data → core` — so the repository takes the
      * three components as primitives, and this is the one place that knows a View sent them.
      */
-    public fun rows(view: SessionView, part: ResolvedPart? = null): List<SessionRow> {
-        val ratings = ratings(part)
-        return repository.songsByStaleness(
+    public fun rows(view: SessionView): List<SessionRow> =
+        repository.songsByStaleness(
             practiceInstrumentId = view.practiceInstrumentId,
             filterPerformerId = view.filter.performerId,
             filterInstrumentId = view.filter.instrumentId,
@@ -78,13 +77,13 @@ public class SessionCoordinator(
                 artistName = song.artistName,
                 daysSince = song.daysSince,
                 timesPractised = song.timesPractised,
-            ).ratedBy(ratings[song.songId])
+            )
         }
-    }
 
     /**
      * triage T9: [part]'s ratings, keyed by song id, in one read for the whole View (never one query a
-     * row). No part is no ratings: every triage sort then degrades to staleness (T8).
+     * row). No part is no ratings: every triage sort then degrades to staleness (T8). The rows take
+     * them through `SessionState.withRatings`, the one join.
      */
     public fun ratings(part: ResolvedPart?): Map<String, PartRatings> =
         part?.let { repository.ratings.ratingsFor(it.performerId, it.instrumentId) } ?: emptyMap()

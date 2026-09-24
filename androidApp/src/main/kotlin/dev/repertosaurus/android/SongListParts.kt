@@ -54,10 +54,8 @@ internal fun SongSearchField(
 }
 
 /**
- * **A song's title over its artist** (style review F21 B7): the title in the song-title role, the
- * artist muted beneath, and **a missing artist omitted**, never worded (journal session 11, F21 B7
- * ruling). The ratings editor, the logger's row, the feel sheet and the line-up sheet draw it. A
- * sheet's heading passes its own [titleStyle].
+ * **A song's title over its artist**: the title in the song-title role, the artist muted beneath, and
+ * **a missing artist omitted**, never worded. A sheet's heading passes its own [titleStyle].
  */
 @Composable
 internal fun SongTitleArtist(

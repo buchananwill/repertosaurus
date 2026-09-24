@@ -124,7 +124,6 @@ private fun SongRowFrame(outer: Modifier, inner: Modifier = Modifier, content: @
 
 @Composable
 private fun RowScope.SongRowContent(row: SessionRow, loggedCount: Int, stampOnEnter: Boolean = false) {
-    // F21 B7: the one title-over-artist, which omits a missing artist.
     SongTitleArtist(title = row.title, artistName = row.artistName, modifier = Modifier.weight(1f))
     Spacer(modifier = Modifier.width(12.dp))
     StalenessBadge(row = row, loggedCount = loggedCount, stampOnEnter = stampOnEnter)

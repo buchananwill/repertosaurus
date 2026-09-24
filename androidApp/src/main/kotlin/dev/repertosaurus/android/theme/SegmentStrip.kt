@@ -5,10 +5,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -27,6 +30,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -141,7 +145,7 @@ internal fun Segment(
     val grown = animateFloatAsState(if (selected) 1f else 0f, Motion.spring(), label = "segment fill")
     val filled by remember { derivedStateOf { grown.value > 0.5f } }
     val contentColour = when {
-        !enabled -> Tokens.InkMuted.copy(alpha = DISABLED_ALPHA)
+        !enabled -> Tokens.InkMuted.copy(alpha = Tokens.DisabledAlpha)
         filled && selectedFill.luminance() < 0.5f -> Tokens.Paper
         else -> Tokens.Ink
     }
@@ -178,5 +182,13 @@ internal fun Segment(
     }
 }
 
-/** A disabled segment's content. */
-private const val DISABLED_ALPHA = 0.35f
+/**
+ * VI8, VI13: **a segment's words, which never clip.** A label wider than its segment wraps, and the strip
+ * takes its tallest segment's height, so every segment in the row grows with it. There is no single-line
+ * form: a strip of equal shares cannot promise a label its width at every font scale.
+ */
+@Composable
+internal fun SegmentLabel(text: String, modifier: Modifier = Modifier) {
+    // The segment's full width, so a centred line is laid out in the space it is drawn in.
+    Text(text, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, modifier = modifier.fillMaxWidth())
+}

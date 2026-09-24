@@ -149,19 +149,21 @@ class SessionCoordinatorTest {
         repository.ratings.setRating(Part(top, will, guitar), RatingKind.PRIORITY, RatingLevel.EXCEPTIONALLY)
 
         val part = ResolvedPart(will, "Will", guitar)
-        val rows = coordinator.rows(unfiltered(guitar), part).associateBy { it.songId }
+        val loaded = SessionState()
+            .switchingTo(unfiltered(guitar).copy(order = SessionOrder.TRIAGE_PRIORITY))
+            .withRows(coordinator.rows(unfiltered(guitar)))
+            .withRatings(part, coordinator.ratings(part))
+        val rows = loaded.rows.associateBy { it.songId }
         assertEquals(RatingLevel.EXCEPTIONALLY, rows.getValue(top).priority, "Will's guitar rating, not Coralie's or his vocal one")
         assertEquals(RatingLevel.SOMEWHAT, rows.getValue(low).priority)
         assertNull(rows.getValue(unrated).priority)
         assertNull(rows.getValue(top).confidence)
+        assertEquals(part, loaded.ratedFor)
 
-        val loaded = SessionState()
-            .switchingTo(unfiltered(guitar).copy(order = SessionOrder.TRIAGE_PRIORITY))
-            .withRows(coordinator.rows(unfiltered(guitar), part), part)
         assertEquals(listOf(top, low, unrated), loaded.pending.map { it.songId })
         assertEquals(listOf(unrated, low, top), loaded.withOrder(SessionOrder.COLDEST_FIRST).pending.map { it.songId })
 
-        assertTrue(coordinator.rows(unfiltered(guitar)).all { it.priority == null && it.confidence == null }, "no part, no ratings")
+        assertTrue(coordinator.rows(unfiltered(guitar)).all { it.priority == null && it.confidence == null }, "rows carry no ratings of their own")
         assertEquals(emptyMap(), coordinator.ratings(null))
     }
 

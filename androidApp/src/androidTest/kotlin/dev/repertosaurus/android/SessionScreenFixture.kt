@@ -91,5 +91,6 @@ internal fun SessionContent(screen: SessionScreenFixture.Screen) {
         onTune = screen.settings::setSuggestTuning,
         onOpenDrawer = {},
         onExport = {},
+        ownerPerformerId = screen.settings.ownerPerformer.collectAsState().value,
     )
 }

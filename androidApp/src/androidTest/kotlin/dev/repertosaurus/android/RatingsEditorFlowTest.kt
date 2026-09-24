@@ -131,7 +131,7 @@ class RatingsEditorFlowTest {
         openSwitcher("ALL SONGS ▾")
         compose.onNodeWithTag(ViewsTags.RATE_THESE).assertIsNotEnabled()
         compose.onNodeWithText(Messages.RATE_NEEDS_PERFORMER).assertIsDisplayed()
-        shot("view-entry-disabled")
+        compose.screenshot("p8", "view-entry-disabled")
 
         compose.onNodeWithTag(ViewsTags.RATE_THESE).performClick()
         compose.waitForIdle()
@@ -211,7 +211,7 @@ class RatingsEditorFlowTest {
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertIsDisplayed()
         compose.onNodeWithTag(RatingsEditorTags.row(chelsea)).assertDoesNotExist()
         compose.onNodeWithTag(RatingsEditorTags.row(dog)).assertExists()
-        shot("editor-letter-page")
+        compose.screenshot("p8", "editor-letter-page")
 
         // T4: across letters, under a Search heading; cleared, back to D.
         compose.onNodeWithTag(PagingTags.search(RatingsEditorTags.PAGING)).performTextInput("zutons")
@@ -219,7 +219,7 @@ class RatingsEditorFlowTest {
         compose.onNodeWithTag(PagingTags.searchHeading(RatingsEditorTags.PAGING)).assertIsDisplayed()
         compose.onNodeWithTag(RatingsEditorTags.row(valerie)).assertIsDisplayed()
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertDoesNotExist()
-        shot("editor-search")
+        compose.screenshot("p8", "editor-search")
         compose.onNodeWithTag(PagingTags.search(RatingsEditorTags.PAGING)).performTextClearance()
         compose.waitForIdle()
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertIsDisplayed()
@@ -231,7 +231,7 @@ class RatingsEditorFlowTest {
         filter(PageFilter.UNSET)
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertDoesNotExist()
         compose.onNodeWithTag(RatingsEditorTags.row(dog)).assertExists()
-        shot("editor-unrated-filter")
+        compose.screenshot("p8", "editor-unrated-filter")
         filter(PageFilter.SET)
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertIsDisplayed()
         compose.onNodeWithTag(RatingsEditorTags.row(dog)).assertDoesNotExist()
@@ -277,7 +277,7 @@ class RatingsEditorFlowTest {
         compose.waitForIdle()
         compose.onNodeWithTag(RepertoireTags.row(dakota)).assertIsDisplayed()
         compose.onNodeWithTag(RepertoireTags.row(dog)).assertIsDisplayed()
-        shot("toggle-list-paging")
+        compose.screenshot("p8", "toggle-list-paging")
 
         compose.onNodeWithTag(PagingTags.search(prefix)).performTextInput("zutons")
         compose.waitForIdle()
@@ -399,19 +399,6 @@ class RatingsEditorFlowTest {
     private fun back() {
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
-    }
-
-    /**
-     * The whole screen, sheets included, into the app's external files (`p8/`), for the P8 report. The
-     * font scale is in the name when it is not 1, so a run at 1.3 does not overwrite the plain shots.
-     */
-    private fun shot(name: String) {
-        compose.waitForIdle()
-        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
-        val scale = context.resources.configuration.fontScale
-        val suffix = if (scale == 1f) "" else "-fs$scale"
-        val dir = File(context.getExternalFilesDir(null), "p8").apply { mkdirs() }
-        File(dir, "$name$suffix.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     private companion object {

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.Segment
+import dev.repertosaurus.android.theme.SegmentLabel
 import dev.repertosaurus.android.theme.SegmentLayout
 import dev.repertosaurus.android.theme.SegmentStrip
 import dev.repertosaurus.session.PageFilter
@@ -58,7 +59,7 @@ internal fun LazyListScope.pagingControls(
                     onClick = { onFilter(filter) },
                     modifier = Modifier.testTag(PagingTags.filter(tagPrefix, filter)),
                 ) {
-                    Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+                    SegmentLabel(label)
                 }
             }
         }

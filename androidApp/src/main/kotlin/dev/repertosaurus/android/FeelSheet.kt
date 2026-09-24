@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.MutedLine
 import dev.repertosaurus.android.theme.PrimaryButton
 import dev.repertosaurus.core.RatingLevel
 import dev.repertosaurus.core.Timestamps
@@ -77,7 +78,6 @@ internal fun FeelSheet(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // F21 B7: a missing artist is omitted, never worded.
             SongTitleArtist(title = row.title, artistName = row.artistName, titleStyle = MaterialTheme.typography.headlineSmall)
 
             Text("Feel", style = MaterialTheme.typography.labelLarge)
@@ -129,12 +129,8 @@ internal fun FeelSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Who plays this", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        // E1 in the one place a user could confuse the two.
-                        "Edit the line-up. Recording it never logs practice.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    // E1 in the one place a user could confuse the two.
+                    MutedLine("Edit the line-up. Recording it never logs practice.")
                 }
                 Text("Edit", style = MaterialTheme.typography.labelLarge)
             }

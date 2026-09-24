@@ -40,6 +40,7 @@ import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.InkHeader
 import dev.repertosaurus.android.theme.SecondaryButton
 import dev.repertosaurus.android.theme.Segment
+import dev.repertosaurus.android.theme.SegmentLabel
 import dev.repertosaurus.android.theme.SegmentStrip
 import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.android.theme.inkBorder
@@ -121,7 +122,7 @@ private fun ScopeStrip(instrumentScoped: Boolean, practiceInstrument: Instrument
             onClick = { onScope(HabitScope.ALL_INSTRUMENTS) },
             modifier = Modifier.testTag(HabitTags.SCOPE_ALL),
         ) {
-            Text(Messages.HABIT_ALL_INSTRUMENTS, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+            SegmentLabel(Messages.HABIT_ALL_INSTRUMENTS)
         }
         Segment(
             selected = instrumentScoped,
@@ -129,11 +130,7 @@ private fun ScopeStrip(instrumentScoped: Boolean, practiceInstrument: Instrument
             enabled = practiceInstrument != null,
             modifier = Modifier.testTag(HabitTags.SCOPE_INSTRUMENT),
         ) {
-            Text(
-                practiceInstrument?.label ?: Messages.HABIT_NO_VIEW_INSTRUMENT,
-                style = MaterialTheme.typography.labelLarge,
-                textAlign = TextAlign.Center,
-            )
+            SegmentLabel(practiceInstrument?.label ?: Messages.HABIT_NO_VIEW_INSTRUMENT)
         }
     }
 }

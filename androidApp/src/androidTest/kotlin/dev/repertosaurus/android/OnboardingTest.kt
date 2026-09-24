@@ -83,7 +83,8 @@ class OnboardingTest {
         compose.onNodeWithTag(OnboardingTags.SCREEN).assertIsDisplayed()
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.WELCOME)).assertIsDisplayed()
         compose.onNodeWithContentDescription(MENU).assertDoesNotExist()
-        shot("welcome", awaitHands = true)
+        Thread.sleep(HAND_RENDER_MS) // the hands are sprayed off the main thread, which the clock does not wait on
+        compose.screenshot("p14", "welcome")
     }
 
     /** OB1, OB3: a file with onboarding marked done opens on the logger. */
@@ -169,14 +170,14 @@ class OnboardingTest {
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.WELCOME)).assertIsDisplayed()
         primary(Messages.ONBOARDING_PICK_COLOURS)
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.RAMP)).assertIsDisplayed()
-        shot("ramp-step")
+        compose.screenshot("p14", "ramp-step")
 
         pickPastel(device)
         assertFalse(device.onboardingDone(), "an answer is not the end of onboarding")
 
         primary(Messages.ONBOARDING_NEXT)
         compose.onNodeWithTag(OnboardingTags.step(OnboardingStep.PERFORMER)).assertIsDisplayed()
-        shot("performer-step")
+        compose.screenshot("p14", "performer-step")
 
         compose.onNodeWithTag(OwnerPerformerTags.owner(coralie)).performScrollTo().performClick()
         compose.awaitUntil("the owner's write") { device.ownerPerformer() == coralie }
@@ -291,7 +292,7 @@ class OnboardingTest {
 
         openWhoYouAre()
         compose.onNodeWithTag(OwnerPerformerTags.owner(coralie)).assertIsSelected()
-        shot("who-you-are-sheet")
+        compose.screenshot("p14", "who-you-are-sheet")
         compose.onNodeWithTag(OwnerPerformerTags.owner(will)).performScrollTo().performClick()
         compose.waitForIdle()
 
@@ -357,21 +358,6 @@ class OnboardingTest {
         compose.setApp(app)
         compose.waitForIdle()
         return app
-    }
-
-    /**
-     * The whole screen, sheets included, into the app's external files (`p14/`), for the P14 report. The
-     * font scale is in the name when it is not 1. The hands are sprayed off the main thread, which the
-     * Compose clock does not wait on, so the welcome is given a moment first.
-     */
-    private fun shot(name: String, awaitHands: Boolean = false) {
-        if (awaitHands) Thread.sleep(HAND_RENDER_MS)
-        compose.waitForIdle()
-        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
-        val scale = context.resources.configuration.fontScale
-        val suffix = if (scale == 1f) "" else "-fs$scale"
-        val dir = File(context.getExternalFilesDir(null), "p14").apply { mkdirs() }
-        File(dir, "$name$suffix.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     private companion object {
