@@ -82,7 +82,7 @@ LEFT JOIN instrument ON instrument.id = practice_event.instrument_id
 LEFT JOIN practice_context ON practice_context.id = practice_event.context_id
 WHERE practice_event.song_id = ?
   AND practice_event_void.id IS NULL
-ORDER BY practice_event.logged_on DESC, practice_event.created_at DESC;
+ORDER BY practice_event.logged_on DESC, practice_event.created_at DESC, practice_event.id;
 
 -- repertoire-editing R32, R33: one song's live events AS STORED — every column a merge copy keeps
 -- (created_at included), plus the instrument's name for the merge preview. Voided events are
@@ -141,11 +141,7 @@ WHERE practice_event.instrument_id = ?
 -- scorecards SC1-SC4, SC13: live events per `logged_on` over all history; "no later than today" is
 -- HabitStats's (F24 B5). SC3: deliberately NO join to `song`, unlike E39 above. A null :instrumentId
 -- is every instrument.
---
--- scorecards SC18: timed_seconds is SUM(duration_seconds) over the same live events. SUM skips NULLs
--- and is NULL when every row that day is untimed: that NULL means "untimed" and is NEVER coerced to 0
--- (no COALESCE, no TOTAL()). GROUP BY and SUM only (SQLite 3.19). The CAST is for SQLDelight, which
--- types a bare SUM as REAL; SQLite's SUM over INTEGERs is already an INTEGER, and CAST(NULL) is NULL.
+-- scorecards SC18: no COALESCE or TOTAL(): a NULL sum means untimed. CAST because SQLDelight types a bare SUM as REAL.
 countLiveByDay:
 SELECT practice_event.logged_on, COUNT(*) AS events,
        CAST(SUM(practice_event.duration_seconds) AS INTEGER) AS timed_seconds

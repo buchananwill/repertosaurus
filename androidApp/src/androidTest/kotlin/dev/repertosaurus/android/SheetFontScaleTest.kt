@@ -120,7 +120,7 @@ class SheetFontScaleTest {
         compose.waitForIdle()
         compose.onNodeWithText(Messages.TIMER_SWITCH, ignoreCase = true).performScrollTo().assertHeightIsAtLeast(48.dp)
         compose.assertNoTextClipped("the feel sheet with a timer running")
-        compose.expandAndShoot("p11", "feel-sheet-switch")
+        compose.settleAndShoot("p11", "feel-sheet-switch")
     }
 
     private companion object {

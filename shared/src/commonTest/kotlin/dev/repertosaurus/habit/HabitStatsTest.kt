@@ -14,7 +14,7 @@ class HabitStatsTest {
 
     private fun date(iso: String): LocalDate = LocalDate.parse(iso)
 
-    /** Untimed days: every tally's timed sum is null, as `countLiveByDay` reads a day with no timed event. */
+    /** Untimed days. */
     private fun build(counts: Map<String, Long>, today: String, instrumentId: String? = null): HabitCard =
         HabitStats.build(counts.mapValues { DayTally(it.value, timedSeconds = null) }, date(today), instrumentId)
 
@@ -97,7 +97,7 @@ class HabitStatsTest {
             listOf(HabitBucket.ONE, HabitBucket.FEW, HabitBucket.FEW, HabitBucket.SEVERAL, HabitBucket.SEVERAL, HabitBucket.MANY),
             counts.keys.map { card.day(it)!!.bucket },
         )
-        assertEquals(HabitDay("2026-09-20", 0L, isToday = false), card.day("2026-09-20"))
+        assertEquals(HabitDay("2026-09-20", 0L, isToday = false, timedSeconds = null), card.day("2026-09-20"))
         assertEquals(HabitBucket.NONE, card.day("2026-09-20")!!.bucket)
     }
 
@@ -110,13 +110,29 @@ class HabitStatsTest {
         assertEquals(0L, card.thisWeek.events)
     }
 
+    /**
+     * F46 N6: no two keys reach one day, so `HabitStats` has no merge. Each key below passes the
+     * `logged_on GLOB '????-??-??'` CHECK but is not the zero-padded ISO form, and the strict parse
+     * refuses it; only "2026-09-24" reaches 24 September.
+     */
+    @Test
+    fun onlyTheCanonicalKeyReachesADay() {
+        val shaped = listOf("+026-09-24", " 026-09-24", "2026-09-+4", "2026-+9-24", "2026-09- 4", "2026-9 -24")
+        for (key in shaped) assertTrue(Regex("^.{4}-.{2}-.{2}$").matches(key), "$key is GLOB-shaped")
+
+        val card = build(shaped.associateWith { 5L } + ("2026-09-24" to 2L), "2026-09-24")
+
+        assertEquals(2L, card.day("2026-09-24")!!.count)
+        assertEquals(PeriodTotal(days = 1, events = 2L, timedSeconds = null), card.thisMonth)
+    }
+
     // ---- SC7 --------------------------------------------------------------------------------
 
     @Test
     fun theDayLineNamesTheDayAndItsCount() {
-        assertEquals("Tue 9 Sep: 5 songs", Messages.habitDay(HabitDay("2025-09-09", 5L, isToday = false)))
-        assertEquals("Tue 9 Sep: 1 song", Messages.habitDay(HabitDay("2025-09-09", 1L, isToday = false)))
-        assertEquals("Tue 9 Sep: nothing logged", Messages.habitDay(HabitDay("2025-09-09", 0L, isToday = false)))
+        assertEquals("Tue 9 Sep: 5 songs", Messages.habitDay(HabitDay("2025-09-09", 5L, isToday = false, timedSeconds = null)))
+        assertEquals("Tue 9 Sep: 1 song", Messages.habitDay(HabitDay("2025-09-09", 1L, isToday = false, timedSeconds = null)))
+        assertEquals("Tue 9 Sep: nothing logged", Messages.habitDay(HabitDay("2025-09-09", 0L, isToday = false, timedSeconds = null)))
     }
 
     // ---- SC8, SC9 ---------------------------------------------------------------------------
@@ -215,11 +231,11 @@ class HabitStatsTest {
         )
         val card = build(counts, "2026-09-24")
 
-        assertEquals(PeriodTotal(days = 3, events = 6L), card.thisWeek)
-        assertEquals(PeriodTotal(days = 5, events = 11L), card.thisMonth)
+        assertEquals(PeriodTotal(days = 3, events = 6L, timedSeconds = null), card.thisWeek)
+        assertEquals(PeriodTotal(days = 5, events = 11L, timedSeconds = null), card.thisMonth)
         assertEquals("This week: 3 days, 6 songs", Messages.habitThisWeek(card.thisWeek))
         assertEquals("This month: 5 days, 11 songs", Messages.habitThisMonth(card.thisMonth))
-        assertEquals("This week: 1 day, 1 song", Messages.habitThisWeek(PeriodTotal(1, 1L)))
+        assertEquals("This week: 1 day, 1 song", Messages.habitThisWeek(PeriodTotal(1, 1L, timedSeconds = null)))
 
         assertEquals(
             listOf(

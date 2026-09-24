@@ -627,24 +627,8 @@ public class RepertosaurusRepository(
         val lastPractised: String,
     )
 
-    /**
-     * R20: times practised and last practised, per instrument the song has live history on — a
-     * pure summary over [practiceHistory], so the two can never disagree. Ordered by instrument
-     * name as a deterministic base; decision 18's chip order is `SessionInstruments.displayOrder`,
-     * which the screen applies.
-     */
-    public fun practiceSummary(songId: String): List<PracticeSummary> =
-        practiceHistory(songId)
-            .groupBy { it.instrumentId }
-            .map { (instrumentId, events) ->
-                PracticeSummary(
-                    instrumentId = instrumentId,
-                    instrumentName = events.first().instrumentName,
-                    timesPractised = events.size.toLong(),
-                    lastPractised = events.maxOf { it.loggedOn },
-                )
-            }
-            .sortedWith(compareBy({ it.instrumentName.orEmpty() }, { it.instrumentId }))
+    /** R20: `summarise` over [practiceHistory], so the two can never disagree. */
+    public fun practiceSummary(songId: String): List<PracticeSummary> = summarise(practiceHistory(songId))
 
     /** Live count for a song, derived and never stored (decision 48). */
     public fun timesPractised(songId: String): Long =

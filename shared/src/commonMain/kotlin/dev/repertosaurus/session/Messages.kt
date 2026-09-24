@@ -414,8 +414,13 @@ public object Messages {
      * 2026-09-10`. An instrument removed since is named as such rather than left blank.
      */
     public fun practiceLine(summary: RepertosaurusRepository.PracticeSummary): String =
-        "${summary.instrumentName?.let(::titleCase) ?: REMOVED_INSTRUMENT}: " +
-            "${summary.timesPractised} logged, last on ${summary.lastPractised}"
+        "${instrumentLabel(summary.instrumentName)}: ${summary.timesPractised} logged, last on ${summary.lastPractised}"
+
+    /** An event's instrument by name, or [REMOVED_INSTRUMENT] (F46 B2). */
+    private fun instrumentLabel(name: String?): String = name?.let(::titleCase) ?: REMOVED_INSTRUMENT
+
+    /** One event by date and instrument: "2026-09-20 · Vocal" (F46 N7). */
+    private fun eventLabel(loggedOn: String, instrumentName: String?): String = "$loggedOn · ${instrumentLabel(instrumentName)}"
 
     // ---- Merging two songs (R31-R39, R38a) ----------------------------------------------------
 
@@ -465,8 +470,7 @@ public object Messages {
     }
 
     /** One event in the preview (R33): its date and instrument. */
-    public fun mergeEvent(event: SongMerge.Event): String =
-        "${event.loggedOn} · ${event.instrumentName?.let(::titleCase) ?: REMOVED_INSTRUMENT}"
+    public fun mergeEvent(event: SongMerge.Event): String = eventLabel(event.loggedOn, event.instrumentName)
 
     /**
      * **R33's carried/dropped sentence, once** (style review F27 N1): "3 practice events carried,
@@ -542,36 +546,27 @@ public object Messages {
     public val habitRecentWeeks: String = "Last ${HabitStats.RECENT_WEEKS} weeks"
     public val habitRecentMonths: String = "Last ${HabitStats.RECENT_MONTHS} months"
 
-    /**
-     * SC7: "Tue 9 Sep: 5 songs". A gap is stated plainly, never as a failure. SC17: a day with a timed
-     * event gains "· 42 min timed"; an untimed day reads exactly as before.
-     */
+    /** SC7: "Tue 9 Sep: 5 songs". A gap is stated plainly, never as a failure. */
     public fun habitDay(day: HabitDay): String {
         val label = DateLabels.day(LocalDate.parse(day.date))
         return if (day.count > 0L) "$label: ${songCount(day.count)}${timedFragment(day.timedSeconds)}" else "$label: nothing logged"
     }
 
-    /** SC10: "This week: 4 days, 23 songs"; SC17: "… · 1 h 10 min timed" when anything was timed. */
+    /** SC10: "This week: 4 days, 23 songs". */
     public fun habitThisWeek(total: PeriodTotal): String = habitPeriod("This week", total)
     public fun habitThisMonth(total: PeriodTotal): String = habitPeriod("This month", total)
 
     private fun habitPeriod(name: String, total: PeriodTotal): String =
         "$name: ${nounCount(total.days.toLong(), "day")}, ${songCount(total.events)}${timedFragment(total.timedSeconds)}"
 
-    /**
-     * **SC17: minutes are supplementary and always say "timed"**, so they never read as the whole of
-     * the practice. Null (untimed, SC18) is no fragment at all. A timed sum is at least 1 s (schema-3
-     * M10's CHECK), so there is deliberately no zero guard here: a NULL wrongly coerced to 0 upstream
-     * shows as "0 s timed" and fails the tests, rather than being hidden.
-     */
+    /** SC17. No zero guard: a real sum is at least 1 s (schema-3 M10), so a sum wrongly coerced to 0 shows up. */
     private fun timedFragment(timedSeconds: Long?): String =
         if (timedSeconds == null) "" else " · ${duration(timedSeconds)} timed"
 
-    /** SC19: one timed event in a song's history: "2026-09-20, Vocal: 24 min". */
-    public fun timedEventLine(event: TimedEvent): String =
-        "${event.loggedOn}, ${event.instrumentName?.let(::titleCase) ?: REMOVED_INSTRUMENT}: ${duration(event.seconds)}"
+    /** SC19: "2026-09-20 · Vocal: 24 min". */
+    public fun timedEventLine(event: TimedEvent): String = "${eventLabel(event.loggedOn, event.instrumentName)}: ${duration(event.seconds)}"
 
-    /** SC19: "Timed total: 1 h 10 min", shown only when the song has any timed event. */
+    /** SC19: "Timed total: 1 h 10 min". */
     public fun timedTotalLine(seconds: Long): String = "Timed total: ${duration(seconds)}"
 
     /** SC8: "19 of 26", or "not yet" for a weekday the clipped window has not reached. */

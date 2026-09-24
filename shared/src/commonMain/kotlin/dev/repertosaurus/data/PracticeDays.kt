@@ -19,14 +19,11 @@ public class PracticeDays internal constructor(
     /** The card for [instrumentId] (null: every instrument), as of the device's local today (decision 45). */
     public fun card(instrumentId: String?): HabitCard {
         val today = LocalDate.parse(Timestamps.today(clock, timeZone))
-        return HabitStats.build(liveCountsByDay(instrumentId), today, instrumentId)
+        return HabitStats.build(liveTalliesByDay(instrumentId), today, instrumentId)
     }
 
-    /**
-     * `countLiveByDay`: live events per `logged_on` over all history, for the days that have any, with
-     * their timed sum. SC18: a NULL sum is carried as null, never as 0.
-     */
-    internal fun liveCountsByDay(instrumentId: String?): Map<String, DayTally> =
+    /** `countLiveByDay`: each day's live events and timed sum, over all history. */
+    internal fun liveTalliesByDay(instrumentId: String?): Map<String, DayTally> =
         database.practice_eventQueries.countLiveByDay(instrumentId)
             .executeAsList()
             .associate { it.logged_on to DayTally(events = it.events, timedSeconds = it.timed_seconds) }

@@ -649,12 +649,7 @@ private fun LineUpSection(detail: SongDetail, enabled: Boolean, onEdit: () -> Un
                 // E46: the heading and each chip's label are the core's.
                 Text(entry.heading, style = MaterialTheme.typography.titleSmall)
                 for (capability in entry.capabilities) {
-                    Text(
-                        capability.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 12.dp),
-                    )
+                    SubLine(capability.label)
                 }
             }
         }
@@ -668,13 +663,9 @@ private fun LineUpSection(detail: SongDetail, enabled: Boolean, onEdit: () -> Un
     }
 }
 
-/**
- * R20: read-only, in decision 18's chip order (the core's read applied it), worded by the core.
- * scorecards SC19: then the timed total and each timed event, newest first, **only when any exist**;
- * a song with no timed event reads exactly as before.
- */
+/** R20: read-only, in decision 18's chip order (the core's read applied it), worded by the core. */
 @Composable
-private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSummary>, timed: TimedHistory) {
+private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSummary>, timed: TimedHistory?) {
     SectionHeading(Messages.SECTION_PRACTICE)
     if (practice.isEmpty()) {
         Text("Never practised.", style = MaterialTheme.typography.bodyMedium)
@@ -682,10 +673,9 @@ private fun PracticeSection(practice: List<RepertosaurusRepository.PracticeSumma
     for (summary in practice) {
         Text(text = Messages.practiceLine(summary), style = MaterialTheme.typography.bodyMedium)
     }
-    if (timed.events.isNotEmpty()) TimedLines(timed)
+    timed?.let { TimedLines(it) }
 }
 
-/** SC19: the song's timed total, then its timed events. */
 @Composable
 private fun TimedLines(timed: TimedHistory) {
     Text(
@@ -695,14 +685,20 @@ private fun TimedLines(timed: TimedHistory) {
     )
     for (event in timed.events) {
         key(event.id) {
-            Text(
-                text = Messages.timedEventLine(event),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 12.dp).testTag(SongDetailTags.timedEvent(event.id)),
-            )
+            SubLine(Messages.timedEventLine(event), Modifier.testTag(SongDetailTags.timedEvent(event.id)))
         }
     }
+}
+
+/** An indented, muted line beneath a heading line. */
+@Composable
+private fun SubLine(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(start = 12.dp),
+    )
 }
 
 /**

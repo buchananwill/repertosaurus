@@ -8,13 +8,12 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.repertosaurus.data.SampleData
 import dev.repertosaurus.session.Messages
-import dev.repertosaurus.session.TimedHistory
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.test.assertEquals
-import kotlin.test.assertSame
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -50,14 +49,14 @@ class SongHistoryMinutesTest {
 
         harness.openDetail(route, valerie)
 
-        val timed = route.songs.state.value.detail!!.timed
+        val timed = route.songs.state.value.detail!!.timed!!
         assertEquals(listOf("2026-09-20" to 1_440L, "2026-09-18" to 3_000L), timed.events.map { it.loggedOn to it.seconds })
         assertEquals(4_440L, timed.totalSeconds)
 
         compose.onNodeWithTag(SongDetailTags.TIMED_TOTAL).performScrollTo().assertTextEquals("Timed total: 1 h 14 min")
         for ((event, minutes) in timed.events.zip(listOf("24 min", "50 min"))) {
             val line = Messages.timedEventLine(event)
-            assertTrue(line.startsWith(event.loggedOn) && line.endsWith(": $minutes"), line)
+            assertTrue(line.startsWith("${event.loggedOn} · ") && line.endsWith(": $minutes"), line)
             compose.onNodeWithTag(SongDetailTags.timedEvent(event.id)).performScrollTo().assertTextEquals(line)
         }
 
@@ -71,7 +70,7 @@ class SongHistoryMinutesTest {
 
         harness.openDetail(route, valerie)
 
-        assertSame(TimedHistory.NONE, route.songs.state.value.detail!!.timed)
+        assertNull(route.songs.state.value.detail!!.timed)
         compose.onNodeWithTag(SongDetailTags.TIMED_TOTAL).assertDoesNotExist()
     }
 

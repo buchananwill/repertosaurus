@@ -202,7 +202,7 @@ internal fun ComposeTestRule.screenshot(dir: String, name: String) {
  * [screenshot] once the display has caught up. A sheet's expansion, a spring and a dialog's window are drawn on
  * real frames, which the test clock does not wait for; the sheets that hold an action open fully expanded.
  */
-internal fun ComposeTestRule.expandAndShoot(dir: String, name: String) {
+internal fun ComposeTestRule.settleAndShoot(dir: String, name: String) {
     waitForIdle()
     Thread.sleep(SETTLE_MS)
     screenshot(dir, name)

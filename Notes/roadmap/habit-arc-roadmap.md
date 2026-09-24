@@ -265,7 +265,9 @@ over what P13b did not restyle.** Collected notes (journal session 11):
   break VI3 (F43 N3);
 - one `Messages.CANCEL` for the 13 literal "Cancel"s (F43 N7);
 - cap the song detail's timed-events list at the latest 10, with "and N more" (D85 #1);
-- dark theme (VI17). A Material theme and tokens, the brand palette and
+- map the song detail's `SubLine` onto `MutedLine` (F46 B5);
+- ~~dark theme (VI17)~~ **taken out of P13 (journal session 11, D90):** a night version is
+  its own design, explored with the user first, in the P13a form. A Material theme and tokens, the brand palette and
 typography, applied across screens that have stopped moving. Depends on: P13a ruled, P8, P9, P11.
 
 ## 6. Status board
@@ -284,8 +286,8 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed** `4631d26` + fix round `2d7836e` |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | **split (journal session 11, D74):** P9a (triage sort plus inherited items) **in flight**; P9b (Suggest v2) next |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
-| P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | **committed `4b874c4`**; reviews done (journal session 11, F42–F44); fix round next, after P12's commit |
-| P12 | Scorecards v2 | impl | P6, P11 | — | **landed, verifying** (journal session 11, D85); reviews follow the commit |
+| P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | **done**: `4b874c4` + fix round `931832c` (journal session 11, D88) |
+| P12 | Scorecards v2 | impl | P6, P11 | — | **done**: `a3a6a98` + fix round (journal session 11, D91) |
 | P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); **committed `2d7836e`**, fix round in flight |
 | P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |
 | P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |

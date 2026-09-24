@@ -1,35 +1,19 @@
 package dev.repertosaurus.habit
 
-/**
- * **One day as `countLiveByDay` reads it** (scorecards SC18): its live [events], and the sum of their
- * `duration_seconds`. [timedSeconds] is **null when no live event that day was timed**: an untimed day
- * is untimed, never zero minutes (journal F23 N5), so it is never coerced to 0.
- */
+/** scorecards SC18: [timedSeconds] is null when no live event that day was timed. */
 public data class DayTally(val events: Long, val timedSeconds: Long?)
 
-/**
- * The sum of two timed sums where null is "untimed": null only when both are (SC18). Timed seconds
- * add; an untimed side adds nothing, and is never read as zero.
- */
-internal fun plusTimed(a: Long?, b: Long?): Long? = if (a == null) b else if (b == null) a else a + b
-
-/**
- * One cell of the scorecards SC5 grid. [date] is `YYYY-MM-DD`. [timedSeconds] is supplementary
- * (SC17) and null on a day with no timed event (SC18); the shading reads [count] only (SC16).
- */
-public data class HabitDay(val date: String, val count: Long, val isToday: Boolean, val timedSeconds: Long? = null) {
-    /** SC6, and SC16: by the count of live events, **never by minutes**. */
+/** SC5, SC17. */
+public data class HabitDay(val date: String, val count: Long, val isToday: Boolean, val timedSeconds: Long?) {
+    /** SC6, SC16. */
     public val bucket: HabitBucket get() = HabitBucket.of(count)
 }
 
 /** One SC5 column, Monday first. The current week stops at today: future cells are not drawn. */
 public data class HabitWeek(val monday: String, val days: List<HabitDay>)
 
-/**
- * SC10: practice days and live events in a period so far. [timedSeconds] (SC17) is the period's timed
- * sum, and null when nothing in it was timed.
- */
-public data class PeriodTotal(val days: Int, val events: Long, val timedSeconds: Long? = null)
+/** SC10: practice days and live events in a period so far; SC17: [timedSeconds] is null when nothing was timed. */
+public data class PeriodTotal(val days: Int, val events: Long, val timedSeconds: Long?)
 
 /** SC11: a completed week or month from [start], practised on [days] of its [of] days. */
 public data class PeriodTally(val start: String, val days: Int, val of: Int) {

@@ -51,7 +51,7 @@ internal class TimerKit(val compose: androidx.compose.ui.test.junit4.ComposeCont
         compose.onNode(inTheList(row.title)).performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).performScrollTo()
-        shot?.let { compose.expandAndShoot("p11", it) }
+        shot?.let { compose.settleAndShoot("p11", it) }
         compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).performClick()
         compose.awaitUntil("${row.title}'s timer") { screen.session.timer.running.value?.timer?.songId == row.songId }
         compose.waitForIdle()
@@ -107,7 +107,7 @@ class TimerFlowTest {
         startFromTheSheet(screen, row, shot = "feel-sheet-start")
         compose.onNodeWithTag(TimerTags.BAR).assertExists()
         compose.onNode(inTheBar(row.title)).assertExists()
-        compose.expandAndShoot("p11", "running-bar")
+        compose.settleAndShoot("p11", "running-bar")
 
         clock.forward(24L * 60L)
         compose.onNodeWithText(Messages.TIMER_STOP, ignoreCase = true).performClick()
@@ -208,7 +208,7 @@ class TimerFlowTest {
         compose.onNode(inTheList(second.title)).performTouchInput { longClick() }
         compose.waitForIdle()
         compose.onNodeWithText(Messages.TIMER_START, ignoreCase = true).assertDoesNotExist()
-        compose.expandAndShoot("p11", "feel-sheet-switch")
+        compose.settleAndShoot("p11", "feel-sheet-switch")
         compose.onNodeWithText(Messages.TIMER_SWITCH, ignoreCase = true).performScrollTo().performClick()
 
         compose.awaitUntil("the first's timed insert") {
@@ -268,7 +268,7 @@ class TimerFlowTest {
         compose.onNodeWithTag(TimerTags.QUESTION).assertExists()
         compose.onNodeWithText("Log 5 h 12 min, or log without a time?").assertExists()
         assertNotNull(screen.session.timer.running.value, "still running while asked")
-        compose.expandAndShoot("p11", "over-three-hours")
+        compose.settleAndShoot("p11", "over-three-hours")
 
         compose.onNodeWithText("Log 5 h 12 min", ignoreCase = true).performClick()
         compose.awaitUntil("the timed insert") {

@@ -25,7 +25,7 @@ class SongDetailTest {
     private val guitar = SongCatalog.SongInstrument("si-guitar", "i-guitar", "guitar", difficulty = null, patch = null, notes = null)
 
     private fun read(vararg instruments: SongCatalog.SongInstrument) =
-        SongDetailRead(record, emptyList(), instruments.toList(), emptyList(), emptyList())
+        SongDetailRead(record, emptyList(), instruments.toList(), emptyList(), emptyList(), timed = null)
 
     private fun opened(): SongDetail = SongDetail(songId = "s-1").saved(read(keys, guitar))
 

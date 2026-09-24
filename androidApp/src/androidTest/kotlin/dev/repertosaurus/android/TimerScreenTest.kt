@@ -95,7 +95,7 @@ class TimerScreenTest {
         compose.onNodeWithTag(TimerTags.CLOCK).performClick()
         compose.awaitUntil("the clock at 12:34") { fullScreenOpen() && shows("12:34") }
         compose.awaitUntil("the screen kept on") { keepsScreenOn() }
-        compose.expandAndShoot("p11", "full-screen-clock")
+        compose.settleAndShoot("p11", "full-screen-clock")
 
         back()
         compose.awaitUntil("the clock closed by back") { !fullScreenOpen() }
@@ -212,7 +212,7 @@ class TimerScreenTest {
         kit.clock.forward(2L * 3_600L + 34L * 60L + 56L)
         compose.awaitUntil("the clock at 2:34:56") { shows("2:34:56") }
         compose.assertNoTextClipped("the bar", hasAnyAncestor(hasTestTag(TimerTags.BAR)))
-        compose.expandAndShoot("p11", "running-bar-fs1.3")
+        compose.settleAndShoot("p11", "running-bar-fs1.3")
     }
 
     /** TM4: the drawer's "Timer running" line wraps a long title at a font scale of 1.3, and is a 56 dp target. */
