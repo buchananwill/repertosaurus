@@ -42,7 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.repertosaurus.data.RepertosaurusRepository.HeldSong
+import dev.repertosaurus.android.theme.RuledItem
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.PageFilter
 import dev.repertosaurus.session.PerformerRoles
@@ -73,17 +73,16 @@ internal object RepertoireTags {
  * the route returns to the logger. The open pair is screen state holding **ids only**, saved
  * across rotation (R27).
  *
- * **Triage T1: the role's "Ratings" entry opens the ratings editor in the toggle list's place**, on
- * the songs the role is enabled on. It is the same role seen a second way, not a level below it, so
- * back from either closes the role (E24: the logger stays two presses away); the editor's "Songs"
- * returns to the toggle list.
+ * **Triage T1: a role's two panes** ([RolePane]): its toggle list, and the ratings editor on the songs
+ * it is enabled on. The editor is the role seen a second way, not a level below it, so back from either
+ * closes the role and the logger stays two presses away (E24, journal session 11 D59 #1).
  */
 @Composable
 public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEditorViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
     var performerId by rememberSaveable { mutableStateOf<String?>(null) }
     var instrumentId by rememberSaveable { mutableStateOf<String?>(null) }
-    var rating by rememberSaveable { mutableStateOf(false) }
+    var pane by rememberSaveable { mutableStateOf(RolePane.SONGS) }
     // Saved across rotation but not across leaving the route, so it tells the two apart.
     var entered by rememberSaveable { mutableStateOf(false) }
 
@@ -107,7 +106,7 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
         }
     }
 
-    // Triage T1: the part the "Ratings" entry rates, named as the toggle list's heading names it.
+    // Triage T1: the part the Ratings pane rates, named as the toggle list's heading names it.
     val performer = openPerformer?.let(state::performer)
     val instrumentLabel = openInstrument?.let { performer?.instrument(it)?.label }.orEmpty()
     val ratingsTarget = if (openPerformer != null && openInstrument != null) {
@@ -115,15 +114,16 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
     } else {
         null
     }
-    // After the toggle queue drains (F18 B1), so a song just switched on is in the editor's list.
-    LaunchedEffect(ratingsTarget, rating) {
-        if (rating && ratingsTarget != null) ratings.open(ratingsTarget, after = viewModel::awaitIdle)
+    // After the toggle queue drains (F18 B1), so a song just switched on is in the editor's list. Keyed
+    // on the target, so after process death the pane re-derives its editor (F20 N3).
+    LaunchedEffect(ratingsTarget, pane) {
+        if (pane == RolePane.RATINGS && ratingsTarget != null) ratings.open(ratingsTarget, after = viewModel::awaitIdle)
     }
 
     val close = {
         performerId = null
         instrumentId = null
-        rating = false
+        pane = RolePane.SONGS
         ratings.close()
         viewModel.closeList()
     }
@@ -132,17 +132,16 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
     BackHandler(enabled = openPerformer != null) { close() }
 
     val list = state.list
-    if (ratingsTarget != null && rating) {
-        RatingsEditorScreen(
+    when {
+        ratingsTarget != null && pane == RolePane.RATINGS -> RatingsEditorScreen(
             viewModel = ratings,
             onDone = close,
             onSongs = {
-                rating = false
+                pane = RolePane.SONGS
                 ratings.close()
             },
         )
-    } else if (openPerformer != null && openInstrument != null && list != null) {
-        ToggleListScreen(
+        ratingsTarget != null && list != null -> ToggleListScreen(
             performerName = performer?.performerName.orEmpty(),
             instrumentLabel = instrumentLabel,
             list = list,
@@ -152,11 +151,10 @@ public fun RepertoireScreen(viewModel: RepertoireViewModel, ratings: RatingsEdit
             onLetter = viewModel::setLetter,
             onFilter = viewModel::setFilter,
             onToggle = viewModel::toggle,
-            onRatings = { rating = true },
+            onRatings = { pane = RolePane.RATINGS },
             onClose = close,
         )
-    } else {
-        PerformerListScreen(
+        else -> PerformerListScreen(
             performers = state.performers,
             loading = state.loadingPerformers,
             message = state.message,
@@ -281,7 +279,7 @@ private fun PerformerRow(
  * **R5 / E1 / E11: a row tap toggles and nothing else on the row is a tap target.** The switch
  * is drawn with no click handler of its own; the whole row is one `toggleable`.
  *
- * Triage T5a: the ratings editor's search, filter and letter strip, over the same state type.
+ * Triage T5a: the ratings editor's search, filter and letter strip.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -298,9 +296,12 @@ private fun ToggleListScreen(
     onRatings: () -> Unit,
     onClose: () -> Unit,
 ) {
-    val visible = remember(list.rows, list.order) { list.visible() }
-    // T3: greyed letters follow the flags as they change; the page itself does not (R7).
-    val letters = remember(list.rows, list.paging.filter) { list.paging.letters(list.paged()) }
+    val paging = list.page.paging
+    val visible = remember(list.rows, list.page.order) { list.visible() }
+    // T3's greyed letters follow the flags, which only matter under a filter (F22 N1).
+    // Under All only the song set matters, which a toggle leaves alone.
+    val rowsKey = if (paging.filter == PageFilter.ALL) list.ticket to list.rows.size else list.rows
+    val letters = remember(rowsKey, paging.filter) { paging.letters(list.paged()) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -345,7 +346,7 @@ private fun ToggleListScreen(
                 contentPadding = PaddingValues(bottom = 48.dp),
             ) {
                 pagingControls(
-                    paging = list.paging,
+                    paging = paging,
                     letters = letters,
                     filters = TOGGLE_FILTERS,
                     onQuery = onQuery,
@@ -355,16 +356,18 @@ private fun ToggleListScreen(
                 )
                 items(visible, key = { it.songId }) { row ->
                     ToggleRow(
-                        row = row,
+                        songId = row.songId,
+                        title = row.title,
+                        artistName = row.artistName,
+                        held = row.held,
                         enabled = row.songId !in list.inFlight,
-                        onToggle = { onToggle(row.songId) },
+                        onToggle = onToggle,
                     )
-                    HorizontalDivider()
                 }
                 if (visible.isEmpty() && !list.loading) {
                     emptyListLine(
-                        list.query,
-                        whenEmpty = if (list.rows.isEmpty()) Messages.NO_SONGS_YET else NOTHING_UNDER_THE_FILTER,
+                        paging.query,
+                        whenEmpty = if (list.rows.isEmpty()) Messages.NO_SONGS_YET else Messages.NOTHING_UNDER_THE_FILTER,
                     )
                 }
             }
@@ -372,34 +375,44 @@ private fun ToggleListScreen(
     }
 }
 
-/** Triage T5a: the toggle list's filter words, in the order the strip shows them. */
+/** Triage T5a: the toggle list's filter words, in strip order. */
 private val TOGGLE_FILTERS = listOf(PageFilter.ALL to "All", PageFilter.SET to "On", PageFilter.UNSET to "Off")
 
-/** One song: its label and whether this pair holds it. The whole row is the one control. */
+/**
+ * One song: its label and whether this pair holds it. The whole row is the one control. Primitives
+ * only, so a keystroke or another row's toggle skips it (Compose review F22 B1).
+ */
 @Composable
 private fun ToggleRow(
-    row: HeldSong,
+    songId: String,
+    title: String,
+    artistName: String?,
+    held: Boolean,
     enabled: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier,
+    onToggle: (songId: String) -> Unit,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
-            .toggleable(
-                value = row.held,
-                enabled = enabled,
-                role = Role.Switch,
-                onValueChange = { onToggle() },
-            )
-            .testTag(RepertoireTags.row(row.songId))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // E46: the one song label, from the core.
-        SongLabelText(title = row.title, artistName = row.artistName, modifier = Modifier.weight(1f))
-        // No handler: the row is the tap target (R5), and a second one would be a second path.
-        Switch(checked = row.held, onCheckedChange = null, enabled = enabled)
+    RuledItem {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 64.dp)
+                .toggleable(
+                    value = held,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = { onToggle(songId) },
+                )
+                .testTag(RepertoireTags.row(songId))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // E46: the one song label, from the core.
+            SongLabelText(title = title, artistName = artistName, modifier = Modifier.weight(1f))
+            // No handler: the row is the tap target (R5), and a second one would be a second path.
+            Switch(checked = held, onCheckedChange = null, enabled = enabled)
+        }
     }
 }
+
+/** Triage T1: a role's two panes (journal session 11, D59 #1). */
+private enum class RolePane { SONGS, RATINGS }

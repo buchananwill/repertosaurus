@@ -138,6 +138,19 @@ WHERE practice_event.instrument_id = ?
   AND practice_event_void.id IS NULL
   AND song.deleted_at IS NULL;
 
+-- scorecards SC1-SC4, SC13: live events per `logged_on` over all history; "no later than today" is
+-- HabitStats's (F24 B5). SC3: deliberately NO join to `song`, unlike E39 above. A null :instrumentId
+-- is every instrument.
+countLiveByDay:
+SELECT practice_event.logged_on, COUNT(*) AS events
+FROM practice_event
+LEFT JOIN practice_event_void
+       ON practice_event_void.practice_event_id = practice_event.id
+WHERE practice_event_void.id IS NULL
+  AND (:instrumentId IS NULL OR practice_event.instrument_id = :instrumentId)
+GROUP BY practice_event.logged_on
+ORDER BY practice_event.logged_on;
+
 -- Append-only tables merge by union on id (decision 11); this is the export side.
 selectCreatedSince:
 SELECT *

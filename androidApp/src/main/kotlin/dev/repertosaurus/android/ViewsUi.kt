@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import dev.repertosaurus.core.NearMatches
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
+import dev.repertosaurus.session.Messages
+import dev.repertosaurus.session.PartResolution
 import dev.repertosaurus.session.PerformerSuggestions
 import dev.repertosaurus.session.RatingsPerformer
 import dev.repertosaurus.session.RatingsSong
@@ -120,32 +122,35 @@ internal sealed interface RateThese {
 }
 
 /**
- * Triage T1, T9: the active View's pool, rated on `(the resolved performer, the View's practice
- * instrument)`. The rule is [RatingsPerformer.resolve]; what is here is the lookup against the lists
- * this screen holds. Null when there is no View at all.
+ * Triage T1, T9: the active View's pool, rated on the part [RatingsPerformer.resolve] names. What is
+ * here is the lookup against the lists this screen holds.
+ *
+ * Null — the entry is not shown — when there is no View, or while [performers] is still null, not yet
+ * read (safety review F20 N2): "not known yet" must not read as "nobody". The session screen passes
+ * its list as read today; telling the two apart there is P9's, in the hot file.
  */
 internal fun rateThese(
     view: SessionView?,
     pool: List<SessionRow>,
     ownerPerformerId: String?,
     instruments: List<InstrumentChip>,
-    performers: List<RepertosaurusRepository.Performer>,
+    performers: List<RepertosaurusRepository.Performer>?,
 ): RateThese? {
     if (view == null) return null
-    val performerId = RatingsPerformer.resolve(
-        filterPerformerId = view.filter.performerId,
-        ownerPerformerId = ownerPerformerId,
-        livePerformerIds = performers.mapTo(HashSet()) { it.id },
-    ) ?: return RateThese.Unavailable(RatingsPerformer.NONE_REASON)
-    return RateThese.Ready(
-        RatingsTarget(
-            performerId = performerId,
-            instrumentId = view.practiceInstrumentId,
-            performerName = performers.first { it.id == performerId }.name,
-            instrumentLabel = instrumentLabel(view.practiceInstrumentId, instruments),
-            source = RatingsSource.ViewPool(pool.map { RatingsSong(it.songId, it.title, it.artistName) }),
-        ),
-    )
+    val resolution = RatingsPerformer.resolve(view.filter.performerId, ownerPerformerId, view.practiceInstrumentId, performers)
+    return when (resolution) {
+        PartResolution.Pending -> null
+        PartResolution.None -> RateThese.Unavailable(Messages.RATE_NEEDS_PERFORMER)
+        is PartResolution.Resolved -> RateThese.Ready(
+            RatingsTarget(
+                performerId = resolution.part.performerId,
+                instrumentId = resolution.part.instrumentId,
+                performerName = resolution.part.name,
+                instrumentLabel = instrumentLabel(resolution.part.instrumentId, instruments),
+                source = RatingsSource.ViewPool(pool.map { RatingsSong(it.songId, it.title, it.artistName) }),
+            ),
+        )
+    }
 }
 
 /** What the switcher shows under a View's name: the two halves it pairs, in that order. */
@@ -177,8 +182,8 @@ internal fun ViewSwitcherSheet(
     onEdit: (SessionView) -> Unit,
     onCreate: () -> Unit,
     onDismiss: () -> Unit,
-    rateThese: RateThese? = null,
-    onRate: (RatingsTarget) -> Unit = {},
+    rateThese: RateThese?,
+    onRate: (RatingsTarget) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
 
@@ -315,7 +320,7 @@ private fun RateTheseRow(entry: RateThese, onRate: (RatingsTarget) -> Unit, modi
         )
         Text(
             text = when (entry) {
-                is RateThese.Ready -> "Priority and confidence for ${entry.target.title}"
+                is RateThese.Ready -> Messages.rateThesePart(entry.target.title)
                 is RateThese.Unavailable -> entry.reason
             },
             style = MaterialTheme.typography.bodySmall,

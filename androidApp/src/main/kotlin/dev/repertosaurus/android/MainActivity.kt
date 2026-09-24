@@ -34,7 +34,9 @@ public class MainActivity : ComponentActivity() {
                 val settings: DeviceSettings = viewModel(factory = DeviceSettings.factory(graph))
                 // Triage T1: one ratings editor, shared by the Repertoire route and the View menu.
                 val ratings: RatingsEditorViewModel = viewModel(factory = RatingsEditorViewModel.factory(graph))
-                RepertosaurusApp(model, repertoire, songs, artists, settings, ratings)
+                // Scorecards: reads nothing until its route is entered.
+                val habit: HabitViewModel = viewModel(factory = HabitViewModel.factory(graph))
+                RepertosaurusApp(model, repertoire, songs, artists, settings, ratings, habit)
             }
         }
     }

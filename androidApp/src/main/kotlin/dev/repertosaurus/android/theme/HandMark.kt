@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.exp
@@ -22,18 +24,34 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * visual-identity VI11: the stencilled hand in `Madder`, at the session header's size, upright (the
- * rotation carve-out is the onboarding cluster's alone). Decorative, so it has no semantics.
+ * visual-identity VI11: the stencilled hand. By default it is the session header's mark: `Madder`, about
+ * 30 × 38 dp, upright. Decorative, so it has no semantics.
+ *
+ * - [colour] is `Madder`, `Indigo` or `Ochre` (VI11).
+ * - [size] is the hand's box; the stencil keeps its proportions inside it.
+ * - [rotation], in degrees, is **the onboarding cluster's alone** (VI11's carve-out from VI3). It turns
+ *   the cached bitmap as it is drawn, so the cache stays keyed on size and colour only.
  */
 @Composable
-internal fun HandMark(modifier: Modifier = Modifier) {
+internal fun HandMark(
+    modifier: Modifier = Modifier,
+    colour: Color = Tokens.Madder,
+    size: DpSize = HeaderHandSize,
+    rotation: Float = 0f,
+) {
     Spacer(
-        modifier = modifier.size(30.dp, 38.dp).drawWithCache {
-            val bitmap = HandStencil.render(size.width.toInt(), size.height.toInt(), Tokens.Madder)
-            onDrawBehind { drawImage(bitmap) }
-        },
+        modifier = modifier
+            .size(size)
+            .then(if (rotation != 0f) Modifier.rotate(rotation) else Modifier)
+            .drawWithCache {
+                val bitmap = HandStencil.render(this.size.width.toInt(), this.size.height.toInt(), colour)
+                onDrawBehind { drawImage(bitmap) }
+            },
     )
 }
+
+/** VI11: the session header's mark. */
+private val HeaderHandSize = DpSize(30.dp, 38.dp)
 
 /**
  * VI11's stencil: seeded-random dots sprayed around a masked hand, dense at its slightly wobbling edge

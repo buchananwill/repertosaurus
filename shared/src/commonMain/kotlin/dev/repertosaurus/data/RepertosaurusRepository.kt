@@ -120,6 +120,9 @@ public class RepertosaurusRepository(
     /** Merging two songs (repertoire-editing R31-R39): composes [catalog], [children] and [ratings]. */
     public val merge: SongMerge = SongMerge(database, deviceId, clock, newId, catalog, children, ratings)
 
+    /** The scorecards' read (scorecards SC13, SC15). */
+    public val habit: PracticeDays = PracticeDays(database, clock, timeZone)
+
     /**
      * E38: run several statements as one unit, so a caller that reads and then writes cannot
      * be interleaved with another writer, and a failure part-way leaves nothing behind.

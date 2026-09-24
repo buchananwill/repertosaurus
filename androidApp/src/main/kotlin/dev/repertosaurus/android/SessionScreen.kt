@@ -30,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,8 +52,10 @@ import dev.repertosaurus.session.SessionOrder
 import dev.repertosaurus.session.SessionRow
 import dev.repertosaurus.session.SessionState
 import dev.repertosaurus.session.SessionView
+import dev.repertosaurus.session.SuggestTuning
 import dev.repertosaurus.session.ViewFilter
 import dev.repertosaurus.session.identity
+import dev.repertosaurus.session.suggestionCard
 
 /** Stable handles for the instrumented tests and for on-device inspection. */
 internal object SessionTags {
@@ -79,6 +82,9 @@ internal object SessionTags {
 @Composable
 public fun SessionScreen(
     viewModel: SessionViewModel,
+    // Suggest SG15: the radar's tuning, a device preference, and where a change to it goes.
+    suggestTuning: SuggestTuning,
+    onTune: (SuggestTuning) -> Unit,
     onOpenDrawer: () -> Unit,
     onExport: () -> Unit,
     // Triage T1, T9, T10: the View menu's "Rate these songs". Off the tap path: it opens a route.
@@ -111,6 +117,8 @@ public fun SessionScreen(
     // composable's because the line-up is a database read and the edits are database writes;
     // what is local here is only which sheet is open.
     val capabilities by viewModel.capabilities.collectAsState()
+    val suggestions = viewModel.suggestions
+    val suggestion by suggestions.deck.collectAsState()
 
     val undo = state.undo
     LaunchedEffect(undo?.tapId) {
@@ -166,6 +174,8 @@ public fun SessionScreen(
                 onOpenDrawer = onOpenDrawer,
                 onExport = onExport,
                 onSwitchView = { switching = true },
+                onSuggest = { suggestions.open(suggestTuning) },
+                suggestEnabled = !state.loading,
             )
         },
     ) { padding ->
@@ -290,6 +300,23 @@ public fun SessionScreen(
                 feelFor = null
                 viewModel.openCapabilities(row.identity())
             },
+        )
+    }
+
+    // Suggest SG2-SG4. "Log it" is the plain tap's log through the same departure, so a visible row
+    // leaves the list as it does for a tap; dismissing writes nothing (SG3).
+    // SG11: "Tune" is collapsed on every opening, and kept across a rotation while open.
+    var tuneOpen by rememberSaveable(suggestion != null) { mutableStateOf(false) }
+    suggestion?.let { deck ->
+        SuggestSheet(
+            card = state.suggestionCard(deck),
+            tuning = suggestTuning,
+            tuneOpen = tuneOpen,
+            onTuneOpen = { tuneOpen = it },
+            onLog = { row -> logAndDepart(row) { if (suggestions.take(row.songId)) viewModel.log(row.songId) } },
+            onAnother = { suggestions.another(suggestTuning) },
+            onTune = onTune,
+            onDismiss = suggestions::close,
         )
     }
 

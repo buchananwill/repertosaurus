@@ -3,6 +3,7 @@ package dev.repertosaurus.android
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import dev.repertosaurus.android.theme.DieGlyph
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.HandMark
@@ -10,8 +11,10 @@ import dev.repertosaurus.android.theme.InkHeader
 import dev.repertosaurus.android.theme.InkIconButton
 import dev.repertosaurus.android.theme.MenuGlyph
 import dev.repertosaurus.android.theme.SecondaryButton
+import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.data.RepertosaurusRepository
 import dev.repertosaurus.session.InstrumentChip
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.SessionView
 import dev.repertosaurus.session.ViewFilter
 
@@ -35,6 +38,8 @@ internal fun SessionHeader(
     onOpenDrawer: () -> Unit,
     onExport: () -> Unit,
     onSwitchView: () -> Unit,
+    onSuggest: () -> Unit,
+    suggestEnabled: Boolean,
 ) {
     val filter = view?.filter ?: ViewFilter.NONE
     InkHeader(
@@ -42,8 +47,18 @@ internal fun SessionHeader(
             InkIconButton(onClick = onOpenDrawer, contentDescription = "Menu") { MenuGlyph() }
             HandMark()
         },
-        // VI15's Suggest slot: P5 puts its Ochre icon button here, before Export.
-        actions = { SecondaryButton(text = "Export", onClick = onExport) },
+        actions = {
+            // VI15's Suggest slot, suggest SG1. Disabled while the rows load (F26 B1).
+            InkIconButton(
+                onClick = onSuggest,
+                contentDescription = Messages.SUGGEST,
+                containerColour = Tokens.Ochre,
+                enabled = suggestEnabled,
+            ) {
+                DieGlyph()
+            }
+            SecondaryButton(text = "Export", onClick = onExport)
+        },
         title = {
             DisplayText(
                 text = when {

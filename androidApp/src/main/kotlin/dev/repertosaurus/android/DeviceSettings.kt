@@ -7,7 +7,9 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.NoteSpelling
+import dev.repertosaurus.habit.HabitScope
 import dev.repertosaurus.session.DevicePreferences
+import dev.repertosaurus.session.SuggestTuning
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,10 +38,26 @@ public class DeviceSettings(
     public val colourRamp: StateFlow<ColourRamp> = ramp.flow
     public fun setColourRamp(value: ColourRamp): Unit = ramp.set(value)
 
-    // Triage T10. Nothing sets it yet but tests; onboarding (P14) is its first writer.
-    private val owner = Remembered(preferences.ownerPerformerId(), preferences::rememberOwnerPerformer)
-    public val ownerPerformerId: StateFlow<String?> = owner.flow
-    public fun setOwnerPerformerId(value: String?): Unit = owner.set(value)
+    // Triage T10: set by onboarding's performer step (OB2) and by the drawer's "Who you are" (OB6).
+    private val owner = Remembered(preferences.ownerPerformer(), preferences::rememberOwnerPerformer)
+    public val ownerPerformer: StateFlow<String?> = owner.flow
+    public fun setOwnerPerformer(value: String?): Unit = owner.set(value)
+
+    // Suggest SG11, SG15: the radar sets it on a handle's release and on "Shuffle".
+    private val tuning = Remembered(preferences.suggestTuning(), preferences::rememberSuggestTuning)
+    public val suggestTuning: StateFlow<SuggestTuning> = tuning.flow
+    public fun setSuggestTuning(value: SuggestTuning): Unit = tuning.set(value)
+
+    // Scorecards SC4: the scorecards' scope toggle sets it.
+    private val scope = Remembered(preferences.habitScope(), preferences::rememberHabitScope)
+    public val habitScope: StateFlow<HabitScope> = scope.flow
+    public fun setHabitScope(value: HabitScope): Unit = scope.set(value)
+
+    // Onboarding OB1, OB3: only ever set true, so the write ignores anything else. OB4: onboarding
+    // marks it after every answer has been set.
+    private val onboarded = Remembered(preferences.onboardingDone()) { done -> if (done) preferences.markOnboardingDone() }
+    public val onboardingDone: StateFlow<Boolean> = onboarded.flow
+    public fun markOnboardingDone(): Unit = onboarded.set(true)
 
     /**
      * One preference: read once at construction, shown at once on a set, and written on [io] behind

@@ -44,8 +44,7 @@ android {
         freeCompilerArgs += listOf(
             "-P",
             "plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=" +
-                project.file("compose-stability.conf").absolutePath,
-        )
+                project.file("compose-stability.conf").absolutePath,        )
     }
 
     buildTypes {
@@ -79,6 +78,8 @@ dependencies {
 
     // Pure JVM checks of the theme's values, such as VI2's contrast, with no device.
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    // Safety review F20 B2: the ratings editor's ViewModel on the JVM, on a dispatcher the test drives.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
 
     // S10, S12, S13. `ui-test-manifest` is what supplies the bare ComponentActivity the
     // Compose rule hosts, so the recovery screen can be booted without MainActivity.

@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
+import kotlin.random.Random
 
 /**
  * State holder for the Session screen.
@@ -66,6 +67,8 @@ public class SessionViewModel(
     private val preferences: SessionPreferences,
     private val deviceId: String,
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** Suggest SG7: the draw's random source. */
+    private val random: Random = Random.Default,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SessionState())
@@ -116,6 +119,14 @@ public class SessionViewModel(
      */
     private val _databaseState = MutableStateFlow<DatabaseState>(DatabaseState.Ready)
     public val databaseState: StateFlow<DatabaseState> = _databaseState.asStateFlow()
+
+    /**
+     * Journal F30: true once the first load has completed, whatever its result, and never before.
+     * [databaseState] starts at `Ready` before anything has been read, so it alone cannot say the
+     * database is known to be readable; this, set where the load confirms it, can.
+     */
+    private val _firstLoadDone = MutableStateFlow(false)
+    public val firstLoadDone: StateFlow<Boolean> = _firstLoadDone.asStateFlow()
 
     /** What one successful load produced. Null when the database could not be opened. */
     private class Loaded(val start: SessionStart, val rows: List<SessionRow>)
@@ -178,6 +189,7 @@ public class SessionViewModel(
                     _state.update { it.copy(loading = false) }
                 },
             )
+            _firstLoadDone.value = true
             if (_databaseState.value is DatabaseState.Ready) loadPerformers()
         }
     }
@@ -424,6 +436,9 @@ public class SessionViewModel(
         _state.update { it.withoutUndo() }
     }
 
+    /** suggest SG2-SG7: the suggestion sheet's deck. It writes nothing; "Log it" is [log]. */
+    public val suggestions: SuggestionHolder = SuggestionHolder(state, viewModelScope, random)
+
     public fun clearMessage() {
         _state.update { it.withMessage(null) }
     }
@@ -529,8 +544,16 @@ public class SessionViewModel(
                     }
                 },
             )
+            _performersLoaded.value = true
         }
     }
+
+    /**
+     * Journal F30: true once a performer read has completed, whatever its result, so a caller deciding
+     * on "no performers" waits for [performers] to have been read rather than taking its empty start.
+     */
+    private val _performersLoaded = MutableStateFlow(false)
+    public val performersLoaded: StateFlow<Boolean> = _performersLoaded.asStateFlow()
 
     /**
      * Save the View the editor produced. A View with no row behind it yet — id

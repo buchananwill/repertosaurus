@@ -1,25 +1,27 @@
 package dev.repertosaurus.android
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.InkTextField
+import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.songLabel
 
 /**
  * **The song lists' shared parts** (style review F17 N1, F27 B3): the search box, the one-line
- * label, the tappable song row and the empty-list line. The Songs list, the Repertoire toggle list,
+ * label, the title over the artist, the tappable song row and the empty-list line. The Songs list, the Repertoire toggle list,
  * the Artists list and the merge picker draw these rather than copies of them.
  */
 
@@ -34,11 +36,11 @@ internal fun SongSearchField(
     modifier: Modifier = Modifier,
     placeholder: String = "Search title or artist",
 ) {
-    OutlinedTextField(
+    // VI1, VI4: the house input (style review F21 B5).
+    InkTextField(
         value = query,
         onValueChange = onQuery,
-        placeholder = { Text(placeholder) },
-        singleLine = true,
+        placeholder = placeholder,
         trailingIcon = {
             if (query.isNotEmpty()) {
                 TextButton(onClick = { onQuery("") }) { Text("Clear") }
@@ -48,6 +50,27 @@ internal fun SongSearchField(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp),
     )
+}
+
+/**
+ * **A song's title over its artist** (style review F21 B7): the title in the song-title role, the
+ * artist muted beneath, and **a missing artist omitted**, never worded (journal session 11, F21 B7
+ * ruling). The ratings editor draws it; the logger's row adopts it in P9.
+ */
+@Composable
+internal fun SongTitleArtist(title: String, artistName: String?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (!artistName.isNullOrBlank()) {
+            Text(
+                artistName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Tokens.InkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 /** One song in one line, `Title — Artist` — the core's label (E46), two lines at most. */

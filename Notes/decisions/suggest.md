@@ -33,14 +33,18 @@ local convention):
   current suggestion and the pending skip.
 
 **Kotlin core, changed**
-- `SessionPreferences` gains `suggestTuning()` / `rememberSuggestTuning(...)`.
+- ~~`SessionPreferences`~~ **`DevicePreferences`** (AMENDED 2026-09-23, journal session 11,
+  F9 B1 and F26 N1) gains `suggestTuning()` / `rememberSuggestTuning(...)`.
 
 **Android, new**
-- `SuggestUi.kt`: the suggestion sheet, the card and the radar control.
+- `SuggestUi.kt`: the suggestion sheet and the card. **AMENDED 2026-09-23 (journal session
+  11, F27):** the radar moves to its own `SuggestRadar.kt`, and the deck state lives in its own
+  `SuggestionHolder`.
 
 **Android, changed**
 - `SessionScreen.kt`: one top-bar action that opens the sheet.
-- `SessionViewModel.kt`: it exposes the deck, and "Log it" delegates to the existing log path.
+- ~~`SessionViewModel.kt`: it exposes the deck~~ **(AMENDED, F27: the holder exposes the
+  deck. `SessionViewModel` is not grown.)** "Log it" delegates to the existing log path.
 - `AppGraph.kt` persists the tuning.
 
 ## 2. Decisions
@@ -151,7 +155,7 @@ practice instrument)`. The performer is resolved by roadmap gate G12: the View's
 performer, otherwise the owner performer. **When there is no performer to resolve, the rating
 and skip spokes stay locked**, with the reason shown, and skips are not recorded.
 
-**SG15. [v1]** **The tuning is a per-device preference**, stored in `SessionPreferences` like the
+**SG15. [v1]** **The tuning is a per-device preference**, stored in ~~`SessionPreferences`~~ **`DevicePreferences`** (amended as in §1) like the
 home View (views.md V19; journal session 11, D24). An unreadable stored tuning reads as the
 default. It never throws (schema-compatibility S8).
 

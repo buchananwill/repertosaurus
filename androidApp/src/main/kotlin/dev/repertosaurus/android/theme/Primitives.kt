@@ -25,11 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -76,17 +78,21 @@ internal fun Modifier.sinkOnPress(interaction: MutableInteractionSource, x: Dp, 
     return offset { IntOffset((x.toPx() * travel.value).roundToInt(), (y.toPx() * travel.value).roundToInt()) }
 }
 
+/** A control that cannot be used right now is drawn at [Tokens.DisabledAlpha]. */
+internal fun Modifier.enabledLook(enabled: Boolean): Modifier = if (enabled) this else alpha(Tokens.DisabledAlpha)
+
 /** VI12: the primary button, at most one a screen. */
 @Composable
-internal fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
+            .enabledLook(enabled)
             .hardShadow(Tokens.ShadowLarge)
             .sinkOnPress(interaction, Tokens.ShadowLarge, Tokens.ShadowLarge)
             .background(Tokens.Ochre)
             .inkBorder()
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, enabled = enabled, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 20.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
@@ -100,14 +106,15 @@ internal fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier
  * fill of a selected segment (VI13).
  */
 @Composable
-internal fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(
         modifier = modifier
+            .enabledLook(enabled)
             .background(if (pressed) Tokens.Ink else Tokens.Ground)
             .inkBorder()
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, enabled = enabled, onClick = onClick)
             .heightIn(min = Tokens.TouchMin)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
@@ -128,17 +135,19 @@ internal fun InkIconButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
     containerColour: Color = Tokens.Ground,
+    enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
+            .enabledLook(enabled)
             .hardShadow(Tokens.ShadowSmall)
             .sinkOnPress(interaction, Tokens.ShadowSmall, Tokens.ShadowSmall)
             .size(Tokens.IconButtonSize)
             .background(containerColour)
             .inkBorder()
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Button, enabled = enabled, onClick = onClick)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
@@ -155,6 +164,24 @@ internal fun MenuGlyph(modifier: Modifier = Modifier) {
             val gap = (size.height - 3 * bar) / 2
             for (i in 0..2) {
                 drawRect(Tokens.Ink, topLeft = Offset(0f, i * (bar + gap)), size = Size(size.width, bar))
+            }
+        },
+    )
+}
+
+/** suggest SG1: a die face, five square pips, drawn as [MenuGlyph] is (VI3). */
+@Composable
+internal fun DieGlyph(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.size(22.dp).drawBehind {
+            val border = Tokens.StrokeRule.toPx()
+            drawRect(Tokens.Ink, style = Stroke(width = border))
+            val pip = 4.dp.toPx()
+            val near = border + 2.dp.toPx()
+            val far = size.width - near - pip
+            val mid = (size.width - pip) / 2f
+            for ((x, y) in listOf(near to near, far to near, mid to mid, near to far, far to far)) {
+                drawRect(Tokens.Ink, topLeft = Offset(x, y), size = Size(pip, pip))
             }
         },
     )

@@ -26,7 +26,9 @@ Numbers are `SC<n>`, grouped by topic. They are **not** an execution order. **No
 
 **SQLDelight, changed**
 - `practice_event.sq` gains one read, `countLiveByDay`: the live (not voided) events per
-  `logged_on` in a date range, optionally filtered to one instrument.
+  `logged_on` ~~in a date range~~ **over all history** (AMENDED 2026-09-23, journal session
+  11, F24 B5: SC8 needs the first event wherever it lies, and "no later than today" is enforced
+  once, in `HabitStats`), optionally filtered to one instrument.
 
 **Kotlin core, new** (`dev.repertosaurus.session` or a sibling `habit` package):
 - `HabitStats`: pure. From per-day counts, a window and today, it builds:
@@ -60,8 +62,9 @@ states what removing the instrument would *hide*, which is a different question.
 
 **SC4.** **Scope is a toggle with two states:** **all instruments** (the default, because the
 habit is the musician's, not the guitar's) and **this View's practice instrument**. The screen
-opens on all instruments. The choice is remembered in `SessionPreferences` as a display
-preference, never synced.
+opens on all instruments. The choice is remembered ~~in `SessionPreferences`~~ **in
+`DevicePreferences`** (AMENDED 2026-09-23: device preferences moved there, journal session 11,
+F9 B1) as a display preference, never synced.
 
 ### The calendar grid
 
@@ -91,7 +94,10 @@ before they began.
 
 **SC9.** **Reliability is shown as seven horizontal bars, Monday to Sunday, each with its
 fraction written out.** No bar is red. The strongest day may be named ("You show up most on
-Tuesdays"). **The weakest day is shown, never called out.** The user asked which days are
+Tuesdays"), ~~but only once the clipped window holds at least four of that weekday~~ **but only
+once that weekday has at least four *practised* days in the window, and it strictly leads**
+(AMENDED 2026-09-23, journal session 11, F23 N3, then tightened by F29. A leader on three
+Tuesdays out of 26 still read as a strong claim on thin data). **The weakest day is shown, never called out.** The user asked which days are
 unreliable, and the bars answer that plainly without the app saying it in words.
 
 ### Summaries

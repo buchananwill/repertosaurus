@@ -45,6 +45,11 @@ Numbers are `OB<n>`, grouped by topic. They are **not** an execution order.
 installs with data already on them, such as the user's phone** (journal session 11, D39). It is
 shown after the database has loaded (`DatabaseState.Ready`), never in place of `RecoveryScreen`.
 
+**AMENDED 2026-09-23 (journal session 11, D66): a welcome step comes first.** It is the
+user-approved design: the stencilled-hand cluster (visual-identity VI11), "EVERY SONG WAS HANDED
+ON.", and the *tradere* copy. Its footer has "Skip setup" and "Pick your colours". The two
+questions below follow it.
+
 **OB2. Two steps, in this order:**
 1. **"How should cold songs look?"** The three ramps are rendered as tappable cards, each showing
    its four labelled steps. `ColourRamp.DEFAULT` (Danger → safe) is preselected. One tap selects,
@@ -64,7 +69,9 @@ done.** It never reappears on its own.
 
 **OB4. Every answer is written as it is chosen, not at the end,** through `DeviceSettings`. So a
 process death partway through loses nothing already chosen. Because `markOnboardingDone` is
-written last, onboarding shows again from the start, which is harmless.
+written last, onboarding shows again. ~~from the start~~ **AMENDED 2026-09-23 (journal session
+11, F30 N1):** it resumes at the saved step, and the performer step re-evaluates once performers
+have loaded, which is harmless.
 
 **OB5. Onboarding is composed inside the `LocalColourRamp` provider** (journal session 11, F8
 N7), so step 1's cards show the live selection.

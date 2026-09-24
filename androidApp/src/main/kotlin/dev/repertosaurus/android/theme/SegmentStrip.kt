@@ -125,6 +125,9 @@ private fun rowHeight(cells: List<Pair<Measurable, Int>>): Int = cells.maxOf { (
  *
  * VI21: the fill springs in from the centre, clipped to the segment so it never covers a divider. The
  * text changes colour as the fill passes half, so it is never `Paper` on `Paper`.
+ *
+ * Not [enabled] (style review F21 B4: triage T3's empty letters, P9's disabled triage modes), it is
+ * `Ground` with faded content, and not tappable.
  */
 @Composable
 internal fun Segment(
@@ -132,16 +135,21 @@ internal fun Segment(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selectedFill: Color = Tokens.Ink,
+    enabled: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val grown = animateFloatAsState(if (selected) 1f else 0f, Motion.spring(), label = "segment fill")
     val filled by remember { derivedStateOf { grown.value > 0.5f } }
-    val contentColour = if (filled && selectedFill.luminance() < 0.5f) Tokens.Paper else Tokens.Ink
+    val contentColour = when {
+        !enabled -> Tokens.InkMuted.copy(alpha = DISABLED_ALPHA)
+        filled && selectedFill.luminance() < 0.5f -> Tokens.Paper
+        else -> Tokens.Ink
+    }
     Box(
         modifier = modifier
             .clipToBounds()
             .drawBehind {
-                drawRect(Tokens.Paper)
+                drawRect(if (enabled) Tokens.Paper else Tokens.Ground)
                 val scale = grown.value
                 if (scale > 0f) {
                     val grownSize = Size(size.width * scale, size.height * scale)
@@ -156,6 +164,7 @@ internal fun Segment(
                 selected = selected,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
+                enabled = enabled,
                 role = Role.Tab,
                 onClick = onClick,
             )
@@ -168,3 +177,6 @@ internal fun Segment(
         CompositionLocalProvider(LocalContentColor provides contentColour) { content() }
     }
 }
+
+/** A disabled segment's content. */
+private const val DISABLED_ALPHA = 0.35f

@@ -182,7 +182,20 @@ Depends on: P1 (P7 may be written while P2 is in flight).
 **P8. Ratings editor** (impl) 📱. Depends on: P2, P3, P7. It does not touch the hot files.
 
 **P9. Triage sort + Suggest v2** (impl) 📱. It also fixes journal session 11's F7: a sort change
-scrolls the list to the top. This adds:
+scrolls the list to the top. **It also inherits these hot-file items deferred from P8's review
+(journal session 11, F20–F22):**
+- the session search uses `SongSearchField` (F21 B5);
+- `SongRowContent` and `FeelSheet` adopt `SongTitleArtist`, omitting a missing artist (F21 B7);
+- the session screen passes `performers = null` to `rateThese` until performers load (F20 N2's
+  seam);
+- session state exposes the resolved part once, for the View menu and the triage sort
+  (F21 B11, F20 N2's wiring);
+- `rateThese` is memoised at its call site (F22 N2);
+- remove RS9's `lowest` if it is still unused (F16);
+- ~~a "performers loaded" signal from `SessionViewModel`~~ **moved to the P5 fix round**
+  (journal session 11, F30), because onboarding's first-load gate needs it sooner.
+
+This adds:
 - the triage `SessionOrder` entries and their comparator (shared core, with null-handling
   tests per V14);
 - the priority, confidence and skips spokes;
@@ -200,6 +213,8 @@ running" without a nagging notification. Depends on: P1.
 and merged by the lead. Depends on: P2, P10.
 
 **P12. Scorecards v2** (impl). Shades by minutes where timed data exists, falling back to count.
+**Brief note (journal session 11, F23 N5):** it needs a per-day value (the timed sum plus the
+untimed count). A NULL `SUM(duration_seconds)` means untimed and must never be coerced to 0.
 A per-song history shows minutes accumulating. Depends on: P6, P11.
 
 ### Onboarding
@@ -239,7 +254,13 @@ contract is [visual-identity.md](../decisions/visual-identity.md). **It owns the
 it runs before P5.** Every later UI package builds on its primitives. Depends on: P3.
 
 **P13. Theme implementation** (impl) 📱. **AMENDED 2026-09-23: it is now the closing polish pass
-over what P13b did not restyle.** A Material theme and tokens, the brand palette and
+over what P13b did not restyle.** Collected notes (journal session 11):
+- the grain-layer profiling A/B (F18 N4);
+- the scorecards' empty band under the grid (F29);
+- the stock Material leftovers (D56 #7, plus the Views sheet's rounded "Make the first view"
+  button);
+- the Songs, Artists, Repertoire toggle and lookup screens;
+- dark theme (VI17). A Material theme and tokens, the brand palette and
 typography, applied across screens that have stopped moving. Depends on: P13a ruled, P8, P9, P11.
 
 ## 6. Status board
@@ -252,10 +273,10 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P2 | Schema-3 impl | impl | P1, P3 (for `RatingLevel` and the emulator; journal session 11, D31) | — | **complete, green, awaiting commit** (journal session 11, D48) |
 | P3 | Rating vocabulary + ramp primitive | spec+impl | — | — | **complete, green, awaiting commit**: spec [rating-scale.md](../decisions/rating-scale.md) (journal session 11, D48) |
 | P4 | Suggest spec | spec | — | G4, G5 soft | **done**: [suggest.md](../decisions/suggest.md) (defaults adopted) |
-| P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | blocked on P13b |
-| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); impl blocked on P3 |
+| P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | **in flight** |
+| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); **impl in flight** |
 | P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
-| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **in flight** (it also adds T10's owner preference) |
+| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed `4631d26`**; review fixes pending |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |

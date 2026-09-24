@@ -25,7 +25,9 @@ import dev.repertosaurus.session.CapabilityCoordinator
 import dev.repertosaurus.session.InMemoryDevicePreferences
 import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.PageFilter
-import dev.repertosaurus.session.RatingsPerformer
+import dev.repertosaurus.session.LookupKind
+import dev.repertosaurus.session.LookupStores
+import dev.repertosaurus.session.Messages
 import dev.repertosaurus.session.RatingsSource
 import dev.repertosaurus.session.ViewCoordinator
 import dev.repertosaurus.session.ViewFilter
@@ -67,12 +69,7 @@ class RatingsEditorFlowTest {
     fun theRepertoireEntryOpensTheEditorOnTheRole() {
         val fixture = fixture("repertoire-entry", holds = listOf("Dakota", "Valerie"))
 
-        openRoute("Repertoire")
-        compose.awaitUntil("the performers") { fixture.app.repertoire.state.value.performers.isNotEmpty() }
-        compose.waitForIdle()
-        compose.onNodeWithText("Vocal").performClick()
-        compose.awaitUntil("the toggle list") { fixture.app.repertoire.state.value.list?.loading == false }
-        compose.waitForIdle()
+        openToggleList(fixture)
         compose.onNodeWithTag(RepertoireTags.RATINGS).performClick()
         awaitEditor(fixture)
 
@@ -133,12 +130,35 @@ class RatingsEditorFlowTest {
 
         openSwitcher("ALL SONGS ▾")
         compose.onNodeWithTag(ViewsTags.RATE_THESE).assertIsNotEnabled()
-        compose.onNodeWithText(RatingsPerformer.NONE_REASON).assertIsDisplayed()
+        compose.onNodeWithText(Messages.RATE_NEEDS_PERFORMER).assertIsDisplayed()
         shot("view-entry-disabled")
 
         compose.onNodeWithTag(ViewsTags.RATE_THESE).performClick()
         compose.waitForIdle()
         assertNull(fixture.app.ratings.state.value, "a disabled entry opened the editor")
+    }
+
+    /** T9, F20 N6: the View's filter performer wins over the owner, who is someone else. */
+    @Test
+    fun theFilterPerformerIsRatedEvenWhenAnOwnerIsSet() {
+        val fixture = fixture("filter-over-owner", holds = listOf("Dakota"), coralieView = true, ownerName = "Will")
+
+        openSwitcher("CORALIE SINGS ▾")
+        compose.onNodeWithTag(ViewsTags.RATE_THESE).performClick()
+        awaitEditor(fixture)
+        assertEquals(fixture.coralie, fixture.app.ratings.state.value!!.target.performerId, "the filter performer, not the owner")
+        compose.onNodeWithTag(RatingsEditorTags.TITLE).assertTextEquals("CORALIE · VOCAL")
+    }
+
+    /** T10, F20 N6: a soft-deleted owner resolves to nobody, so the entry is disabled with its reason. */
+    @Test
+    fun aRemovedOwnerLeavesTheEntryDisabled() {
+        val fixture = fixture("removed-owner", owner = true, removeCoralie = true)
+
+        openSwitcher("ALL SONGS ▾")
+        compose.onNodeWithTag(ViewsTags.RATE_THESE).assertIsNotEnabled()
+        compose.onNodeWithText(Messages.RATE_NEEDS_PERFORMER).assertIsDisplayed()
+        assertNull(fixture.app.ratings.state.value)
     }
 
     // ---- RS9, T2: one tap sets, a tap on the selected level clears ---------------------------
@@ -215,7 +235,7 @@ class RatingsEditorFlowTest {
         filter(PageFilter.SET)
         compose.onNodeWithTag(RatingsEditorTags.row(dakota)).assertIsDisplayed()
         compose.onNodeWithTag(RatingsEditorTags.row(dog)).assertDoesNotExist()
-        assertEquals(listOf(dakota), fixture.app.ratings.state.value!!.order)
+        assertEquals(listOf(dakota), fixture.app.ratings.state.value!!.page.order)
     }
 
     /** R7's rule on the editor: under Unrated, a rated row stays until the page is next fixed. */
@@ -246,12 +266,7 @@ class RatingsEditorFlowTest {
         val valerie = fixture.id("Valerie")
         val prefix = RepertoireTags.PAGING
 
-        openRoute("Repertoire")
-        compose.awaitUntil("the performers") { fixture.app.repertoire.state.value.performers.isNotEmpty() }
-        compose.waitForIdle()
-        compose.onNodeWithText("Vocal").performClick()
-        compose.awaitUntil("the toggle list") { fixture.app.repertoire.state.value.list?.loading == false }
-        compose.waitForIdle()
+        openToggleList(fixture)
 
         compose.onNodeWithTag(PagingTags.letter(prefix, 'C')).assertIsSelected()
         compose.onNodeWithTag(PagingTags.letter(prefix, 'A')).assertIsNotEnabled()
@@ -297,13 +312,16 @@ class RatingsEditorFlowTest {
 
     /**
      * The eight sample songs and Coralie, holding [holds] on vocal. [coralieView] saves a View
-     * filtered on her vocal; [owner] makes her the device's owner (T10).
+     * filtered on her vocal; [owner] makes her the device's owner (T10), and [ownerName] makes a
+     * performer of that name the owner instead. [removeCoralie] soft-deletes her before the app starts.
      */
     private fun fixture(
         suffix: String,
         holds: List<String> = emptyList(),
         coralieView: Boolean = false,
         owner: Boolean = false,
+        ownerName: String? = null,
+        removeCoralie: Boolean = false,
     ): Fixture {
         val name = "ratings-editor-test-$suffix.db".also { names += it }
         val holder = EditingFixtures.holder(context, name)
@@ -318,15 +336,27 @@ class RatingsEditorFlowTest {
                 practiceInstrumentId = SampleData.VOCAL,
             )
         }
-        val device = InMemoryDevicePreferences(ownerPerformerId = if (owner) coralie else null)
+        val someoneElse = ownerName?.let { EditingFixtures.performer(holder, it) }
+        if (removeCoralie) LookupStores.of(LookupKind.PERFORMER, holder.repository).remove(coralie)
+        val device = InMemoryDevicePreferences(ownerPerformer = someoneElse ?: if (owner) coralie else null)
         val app = EditingFixtures.app(holder, preferences, device)
         compose.awaitUntil("the logger") {
             val state = app.session.state.value
-            !state.loading && state.view != null && app.session.performers.value.isNotEmpty()
+            !state.loading && state.view != null && (removeCoralie || app.session.performers.value.isNotEmpty())
         }
         compose.setApp(app)
         compose.waitForIdle()
         return Fixture(holder, app, coralie)
+    }
+
+    /** The Repertoire route, then Coralie's vocal role (style review F21 B15). */
+    private fun openToggleList(fixture: Fixture) {
+        openRoute("Repertoire")
+        compose.awaitUntil("the performers") { fixture.app.repertoire.state.value.performers.isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Vocal").performClick()
+        compose.awaitUntil("the toggle list") { fixture.app.repertoire.state.value.list?.loading == false }
+        compose.waitForIdle()
     }
 
     private fun openRoute(label: String) {

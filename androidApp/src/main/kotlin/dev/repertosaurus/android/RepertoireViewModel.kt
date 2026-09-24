@@ -209,9 +209,9 @@ public class RepertoireViewModel(
     }
 
     public companion object {
-        /** F18 N2's dropped write says so in its own words; every other failure is R8's sentence. */
+        /** R8's sentence, or F18 N2's for a dropped write. */
         private fun describeToggleFailure(label: String, failure: Throwable): String =
-            if (failure is DatabaseReplaced) Messages.DATABASE_REPLACED else Messages.toggleFailed(label, failure)
+            describeWriteFailure(failure) { Messages.toggleFailed(label, it) }
 
         public fun factory(graph: AppGraph): androidx.lifecycle.ViewModelProvider.Factory = viewModelFactory {
             initializer { RepertoireViewModel(graph.holder) }

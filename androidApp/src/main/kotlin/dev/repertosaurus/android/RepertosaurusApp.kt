@@ -21,11 +21,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.LookupKind
+import dev.repertosaurus.session.Messages
 import kotlinx.coroutines.launch
 
 /**
@@ -69,6 +72,9 @@ internal enum class Route(private val title: String? = null, val lookup: LookupK
     REPERTOIRE("Repertoire"),
     SONGS("Songs"),
     ARTISTS("Artists"),
+
+    // Scorecards: among the editing routes, above "Advanced". It reads only (SC15).
+    HABIT(Messages.HABIT_TITLE),
 
     /**
      * Triage T1: the ratings editor, from the View menu. No label, so not in the drawer; what it
@@ -122,6 +128,9 @@ internal object DrawerTags {
 
     /** Rating-scale RS16: opens the colour ramp picker. */
     const val COLOUR_RAMP: String = "drawer-colour-ramp"
+
+    /** Onboarding OB6: opens the owner performer picker. */
+    const val WHO_YOU_ARE: String = "drawer-who-you-are"
 }
 
 /**
@@ -149,6 +158,11 @@ internal object DrawerTags {
  * appearing inside it. The Session screen is the thing that cannot load, so routing through it
  * to reach recovery would be routing through the fault; the launchers stay hoisted above the
  * branch so the import picker is reachable from either side of it.
+ *
+ * **First-run onboarding comes after that gate and inside the ramp provider** (onboarding OB1, OB5):
+ * it is never shown in place of [RecoveryScreen], and its ramp step shows the live ramp. Until it is
+ * finished or skipped it stands in front of the drawer and the routes; "Skip setup" ends it in one tap
+ * (OB3).
  */
 @Composable
 public fun RepertosaurusApp(
@@ -158,16 +172,21 @@ public fun RepertosaurusApp(
     artists: ArtistsViewModel,
     settings: DeviceSettings,
     ratings: RatingsEditorViewModel,
+    habit: HabitViewModel,
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    var route by remember { mutableStateOf(Route.SESSION) }
+    // F19: saved, so a rotation stays on the route it was on. An enum is saveable as it is.
+    var route by rememberSaveable { mutableStateOf(Route.SESSION) }
     val databaseState by viewModel.databaseState.collectAsState()
     val noteSpelling by settings.noteSpelling.collectAsState()
     val colourRamp by settings.colourRamp.collectAsState()
-    val ownerPerformerId by settings.ownerPerformerId.collectAsState()
+    val ownerPerformer by settings.ownerPerformer.collectAsState()
+    val onboarded by settings.onboardingDone.collectAsState()
+    val performers by viewModel.performers.collectAsState()
     var pickingRamp by remember { mutableStateOf(false) }
+    var pickingOwner by remember { mutableStateOf(false) }
 
     val close = { scope.launch { drawerState.close() } }
 
@@ -184,7 +203,14 @@ public fun RepertosaurusApp(
         if (leaving != Route.SESSION) {
             route = Route.SESSION
             when (leaving) {
-                Route.REPERTOIRE -> viewModel.reloadAfter(repertoire::awaitIdle)
+                // F20 N1: the route holds the ratings editor too; its taps land before the reload.
+                Route.REPERTOIRE -> {
+                    ratings.close()
+                    viewModel.reloadAfter {
+                        repertoire.awaitIdle()
+                        ratings.awaitIdle()
+                    }
+                }
                 Route.SONGS -> viewModel.reloadAfter(songs::awaitIdle)
                 Route.ARTISTS -> viewModel.reloadAfter(artists::awaitIdle)
                 Route.RATINGS -> {
@@ -229,6 +255,19 @@ public fun RepertosaurusApp(
     BackHandler(enabled = !drawerState.isOpen && route != Route.SESSION) { toLogger() }
 
     CompositionLocalProvider(LocalColourRamp provides colourRamp) {
+        // Onboarding OB1, OB5: after the database gate, inside the ramp provider. OB4: each answer is
+        // written as it is chosen, and "done" last.
+        if (!onboarded) {
+            OnboardingScreen(
+                performers = performers,
+                ownerPerformerId = ownerPerformer,
+                onColourRamp = settings::setColourRamp,
+                onOwnerPerformer = settings::setOwnerPerformer,
+                onFinish = settings::markOnboardingDone,
+            )
+            return@CompositionLocalProvider
+        }
+
         ModalNavigationDrawer(
             drawerState = drawerState,
             gesturesEnabled = drawerState.isOpen,
@@ -253,6 +292,10 @@ public fun RepertosaurusApp(
                         close()
                         pickingRamp = true
                     },
+                    onWhoYouAre = {
+                        close()
+                        pickingOwner = true
+                    },
                 )
             },
         ) {
@@ -262,16 +305,18 @@ public fun RepertosaurusApp(
             when (route) {
                 Route.SESSION -> SessionScreen(
                     viewModel = viewModel,
+                    suggestTuning = settings.suggestTuning.collectAsState().value,
+                    onTune = settings::setSuggestTuning,
                     onOpenDrawer = { scope.launch { drawerState.open() } },
                     onExport = { export() },
-                    ownerPerformerId = ownerPerformerId,
+                    ownerPerformerId = ownerPerformer,
                     onRateSongs = { target ->
-                        ratings.open(target)
+                        ratings.open(target, after = {})
                         route = Route.RATINGS
                     },
                 )
                 Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, ratings = ratings, onBack = toLogger)
-                Route.RATINGS -> RatingsEditorScreen(viewModel = ratings, onDone = toLogger)
+                Route.RATINGS -> RatingsRoute(ratings, onDone = { toLogger() })
                 Route.SONGS -> SongsScreen(
                     viewModel = songs,
                     session = viewModel,
@@ -279,6 +324,18 @@ public fun RepertosaurusApp(
                     onBack = toLogger,
                 )
                 Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
+                Route.HABIT -> {
+                    // Scorecards SC4: the second scope is the current View's practice instrument.
+                    val session by viewModel.state.collectAsState()
+                    val habitScope by settings.habitScope.collectAsState()
+                    HabitScreen(
+                        viewModel = habit,
+                        scope = habitScope,
+                        onScope = settings::setHabitScope,
+                        practiceInstrument = session.instruments.firstOrNull { it.id == session.selectedInstrumentId },
+                        onBack = toLogger,
+                    )
+                }
                 // One screen serves every lookup kind (E13, E18); the route only says which.
                 Route.INSTRUMENTS,
                 Route.PERFORMERS,
@@ -303,6 +360,19 @@ public fun RepertosaurusApp(
                     pickingRamp = false
                 },
                 onDismiss = { pickingRamp = false },
+            )
+        }
+
+        // Onboarding OB6, triage T10.
+        if (pickingOwner) {
+            OwnerPerformerPicker(
+                performers = performers,
+                ownerPerformerId = ownerPerformer,
+                onChoose = { performerId ->
+                    settings.setOwnerPerformer(performerId)
+                    pickingOwner = false
+                },
+                onDismiss = { pickingOwner = false },
             )
         }
     }
@@ -331,6 +401,7 @@ private fun AppDrawerContent(
     onImport: () -> Unit,
     onNoteSpelling: (NoteSpelling) -> Unit,
     onColourRamp: () -> Unit,
+    onWhoYouAre: () -> Unit,
 ) {
     ModalDrawerSheet {
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -377,6 +448,9 @@ private fun AppDrawerContent(
             // Rating-scale RS16. Three ramps with swatches need more room than a switch, so this
             // opens a sheet.
             DrawerItem("Colour ramp", onClick = onColourRamp, modifier = Modifier.testTag(DrawerTags.COLOUR_RAMP))
+
+            // Onboarding OB6: beside "Colour ramp", and a sheet for the same reason.
+            DrawerItem(Messages.WHO_YOU_ARE, onClick = onWhoYouAre, modifier = Modifier.testTag(DrawerTags.WHO_YOU_ARE))
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
@@ -425,4 +499,19 @@ private fun DrawerItem(
         shape = RectangleShape,
         modifier = modifier.padding(horizontal = 12.dp),
     )
+}
+
+/**
+ * The View menu's editor as a route. **F20 N3, F19: with no editor open it goes back to the logger**
+ * rather than showing nothing: the route is saved across process death, but the View's pool it was
+ * opened on is not, so there is nothing honest to re-derive.
+ */
+@Composable
+private fun RatingsRoute(ratings: RatingsEditorViewModel, onDone: () -> Unit) {
+    val editor by ratings.state.collectAsState()
+    if (editor == null) {
+        LaunchedEffect(Unit) { onDone() }
+    } else {
+        RatingsEditorScreen(viewModel = ratings, onDone = onDone, onSongs = null)
+    }
 }

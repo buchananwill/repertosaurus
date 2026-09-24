@@ -21,11 +21,26 @@ internal object Tokens {
     val Paper: Color = Color(0xFFF2EFE6)
     val Field: Color = Color(0xFFFFFFFF)
 
+    /**
+     * scorecards SC6: the four non-zero day buckets, one hue at rising intensity: `Indigo` laid over
+     * `Paper` at 35%, 55%, 78% and 100%, precomputed opaque. **Not the rating ramp.** No text sits on them.
+     */
+    val IndigoStep1: Color = Color(0xFFAAADC6)
+    val IndigoStep2: Color = Color(0xFF8188B3)
+    val IndigoStep3: Color = Color(0xFF525C9E)
+    val IndigoStep4: Color = Indigo
+
     /** VI4: containers, buttons, bars and field outlines. */
     val StrokeHeavy: Dp = 3.dp
 
     /** VI4: list-row rules and segment dividers. */
     val StrokeRule: Dp = 2.dp
+
+    /**
+     * scorecards SC6: a zero day's outline. Thinner than [StrokeRule] on purpose: on a 12 dp cell a
+     * 2 dp outline matches today's 2 dp `Ink` outline in weight, so a gap would read as loud as today.
+     */
+    val StrokeHairline: Dp = 1.dp
 
     /** VI5: icon buttons and badges. */
     val ShadowSmall: Dp = 3.dp
@@ -41,4 +56,7 @@ internal object Tokens {
 
     /** VI12, amended to the touch minimum (journal session 11, D56 #12). */
     val IconButtonSize: Dp = TouchMin
+
+    /** A control that cannot be used right now, and a locked radar spoke (suggest SG11). */
+    const val DisabledAlpha: Float = 0.4f
 }

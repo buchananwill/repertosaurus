@@ -5,8 +5,10 @@ import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.Ids
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseHolder
+import dev.repertosaurus.habit.HabitScope
 import dev.repertosaurus.session.DevicePreferences
 import dev.repertosaurus.session.SessionPreferences
+import dev.repertosaurus.session.SuggestTuning
 
 /**
  * The process-wide wiring. Small enough to be a hand-rolled object; a dependency-injection
@@ -87,7 +89,7 @@ internal class AndroidSessionPreferences(
 
     // R40-R42: stored by name; unset or unknown reads as the R41 default.
     override fun noteSpelling(): NoteSpelling =
-        NoteSpelling.fromStored(preferences.getString(KEY_NOTE_SPELLING, null))
+        NoteSpelling.fromStored(storedString(KEY_NOTE_SPELLING))
 
     override fun rememberNoteSpelling(spelling: NoteSpelling) {
         preferences.edit().putString(KEY_NOTE_SPELLING, spelling.name).apply()
@@ -95,20 +97,49 @@ internal class AndroidSessionPreferences(
 
     // Rating-scale RS7: stored by name, as the note spelling is.
     override fun colourRamp(): ColourRamp =
-        ColourRamp.fromStored(preferences.getString(KEY_COLOUR_RAMP, null))
+        ColourRamp.fromStored(storedString(KEY_COLOUR_RAMP))
 
     override fun rememberColourRamp(ramp: ColourRamp) {
         preferences.edit().putString(KEY_COLOUR_RAMP, ramp.name).apply()
     }
 
     // Triage T10: an id, as the home View's is (V19); null removes the key.
-    override fun ownerPerformerId(): String? = preferences.getString(KEY_OWNER_PERFORMER, null)
+    override fun ownerPerformer(): String? = preferences.getString(KEY_OWNER_PERFORMER, null)
 
     override fun rememberOwnerPerformer(performerId: String?) {
         val edit = preferences.edit()
         if (performerId == null) edit.remove(KEY_OWNER_PERFORMER) else edit.putString(KEY_OWNER_PERFORMER, performerId)
         edit.apply()
     }
+
+    // Suggest SG15: the core's encoding; anything unreadable reads as the default.
+    override fun suggestTuning(): SuggestTuning = SuggestTuning.fromStored(storedString(KEY_SUGGEST_TUNING))
+
+    override fun rememberSuggestTuning(tuning: SuggestTuning) {
+        preferences.edit().putString(KEY_SUGGEST_TUNING, tuning.encode()).apply()
+    }
+
+    // Scorecards SC4: stored by name; anything unreadable reads as all instruments and never throws.
+    override fun habitScope(): HabitScope = HabitScope.fromStored(storedString(KEY_HABIT_SCOPE))
+
+    override fun rememberHabitScope(scope: HabitScope) {
+        preferences.edit().putString(KEY_HABIT_SCOPE, scope.name).apply()
+    }
+
+    // Onboarding OB1: unset reads as not done, so an install with data on it sees onboarding once
+    // (journal D39). Anything unreadable reads as not done too: showing it again is harmless (OB4).
+    override fun onboardingDone(): Boolean =
+        runCatching { preferences.getBoolean(KEY_ONBOARDING_DONE, false) }.getOrDefault(false)
+
+    override fun markOnboardingDone() {
+        preferences.edit().putBoolean(KEY_ONBOARDING_DONE, true).apply()
+    }
+
+    /**
+     * A stored string for a `fromStored` reader, or null. **Never throws** (schema-compatibility S8):
+     * a value of another type under the key reads as unset.
+     */
+    private fun storedString(key: String): String? = runCatching { preferences.getString(key, null) }.getOrNull()
 
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"
@@ -117,5 +148,8 @@ internal class AndroidSessionPreferences(
         const val KEY_NOTE_SPELLING = "note_spelling"
         const val KEY_COLOUR_RAMP = "colour_ramp"
         const val KEY_OWNER_PERFORMER = "owner_performer_id"
+        const val KEY_SUGGEST_TUNING = "suggest_tuning"
+        const val KEY_HABIT_SCOPE = "habit_scope"
+        const val KEY_ONBOARDING_DONE = "onboarding_done"
     }
 }

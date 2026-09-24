@@ -35,10 +35,12 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.Departure
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
 import dev.repertosaurus.android.theme.Motion
 import dev.repertosaurus.android.theme.Tokens
+import dev.repertosaurus.android.theme.departing
 import dev.repertosaurus.android.theme.hardShadow
 import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.android.theme.sinkOnPress
@@ -92,20 +94,15 @@ internal fun SongRow(
  */
 @Composable
 internal fun LeavingRow(leaving: Leaving, onLeft: (String) -> Unit, modifier: Modifier = Modifier) {
-    val anticipation = remember { Animatable(0f) }
-    val travel = remember { Animatable(0f) }
+    val departure = remember { Departure(Motion.STAMP_HOLD_MS) }
     LaunchedEffect(leaving) {
-        anticipation.animateTo(1f, Motion.anticipation())
-        travel.animateTo(1f, Motion.leaving())
+        departure.leave()
         onLeft(leaving.row.songId)
     }
     SongRowFrame(
         outer = modifier
             .clearAndSetSemantics { testTag = SessionTags.leaving(leaving.row.songId) }
-            .graphicsLayer {
-                val back = Motion.Anticipation.toPx() * anticipation.value
-                translationX = -back + travel.value * (size.width + back)
-            },
+            .departing(departure),
     ) {
         SongRowContent(row = leaving.row, loggedCount = 1, stampOnEnter = true)
     }
@@ -161,7 +158,7 @@ private fun RowScope.SongRowContent(row: SessionRow, loggedCount: Int, stampOnEn
  * row, and when a second pass counts up. The same stamp every time (VI19).
  */
 @Composable
-private fun StalenessBadge(row: SessionRow, loggedCount: Int, stampOnEnter: Boolean) {
+internal fun StalenessBadge(row: SessionRow, loggedCount: Int, stampOnEnter: Boolean = false) {
     val logged = loggedCount > 0
     val container = if (logged) Tokens.Ink else heatColour(row.daysSince)
     val stamp = remember { Animatable(if (stampOnEnter) 1f else 0f) }

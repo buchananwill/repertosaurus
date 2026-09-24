@@ -82,7 +82,7 @@ internal data class WriteOutcome(val message: String? = null, val error: String?
 
         /** A write that threw (S8), caught and said. F18 N2's dropped write says so in its own words. */
         fun failed(failure: Throwable): WriteOutcome =
-            WriteOutcome(error = if (failure is DatabaseReplaced) failure.message else Messages.failed(failure))
+            WriteOutcome(error = describeWriteFailure(failure, Messages::failed))
     }
 }
 
@@ -114,6 +114,13 @@ internal suspend fun <T> serialised(
  * dropped — nothing is written to the imported file — and it lands as a failure that says so.
  */
 internal class DatabaseReplaced : IllegalStateException(Messages.DATABASE_REPLACED)
+
+/**
+ * **A failed write in words, once** (style review F21 B12): F18 N2's dropped write says so in its own
+ * words; any other failure is [otherwise]'s sentence.
+ */
+internal fun describeWriteFailure(failure: Throwable, otherwise: (Throwable) -> String): String =
+    if (failure is DatabaseReplaced) Messages.DATABASE_REPLACED else otherwise(failure)
 
 /**
  * **A write bound to the database that was current when it was tapped** (repertoire-editing

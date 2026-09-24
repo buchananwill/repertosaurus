@@ -36,8 +36,9 @@ Numbers are `T<n>`, grouped by topic. They are **not** an execution order. The d
 **Kotlin core, new**
 - `SortMode` (`STALENESS`, `TRIAGE_PRIORITY`, `TRIAGE_CONFIDENCE`), plus a direction: the
   two-control model of T6. `SessionOrder` is derived from them.
-- `RatingsEditorState`, holding the page, search and filter state of T3–T5. It is pure, and
-  shared by both entry points (T1).
+- ~~`RatingsEditorState`~~ **`SongPaging`** (renamed 2026-09-23, journal session 11, F21 N1:
+  the toggle list uses it too, so it is not the editor's state), holding the page, search and
+  filter state of T3–T5. It is pure, and shared by both lists.
 
 **Android, new**
 - `RatingsEditorScreen.kt`.
@@ -94,6 +95,9 @@ search. There is one search implementation, not a second.
 **T5a. The same paging, search and filter apply to the Repertoire route's toggle list**
 (`ToggleListScreen`), because it has the same 400-row problem. The filter labels there are
 **All / On / Off**. `RatingsEditorState`'s paging and search are written once and used by both.
+**AMENDED 2026-09-23 (journal session 11, D59 #9):** the toggle list keeps repertoire-editing
+R7's held-first order within a page and within search results. T4's "title order" governs the
+ratings editor.
 
 ### The sort
 

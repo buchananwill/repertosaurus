@@ -1,5 +1,6 @@
 package dev.repertosaurus.session
 
+import dev.repertosaurus.core.DateLabels
 import dev.repertosaurus.core.Keys
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.core.RatingLevel
@@ -9,6 +10,11 @@ import dev.repertosaurus.data.Resolution
 import dev.repertosaurus.data.SongCatalog
 import dev.repertosaurus.data.SongChildKey
 import dev.repertosaurus.data.SongMerge
+import dev.repertosaurus.habit.HabitDay
+import dev.repertosaurus.habit.HabitStats
+import dev.repertosaurus.habit.PeriodTotal
+import dev.repertosaurus.habit.WeekdayReliability
+import kotlinx.datetime.LocalDate
 
 /**
  * A sentence for the user **and the channel it belongs on** (E43, R29): a confirmation on the
@@ -194,6 +200,32 @@ public object Messages {
 
     /** The merge picker with no search typed and no song but the one the merge started from. */
     public const val MERGE_NO_OTHER_SONGS: String = "There is no other song to merge with."
+
+    // ---- Paging and the ratings editor (triage T1-T9) -----------------------------------------
+
+    /** triage T5: a page the filter has emptied, on either paged list. */
+    public const val NOTHING_UNDER_THE_FILTER: String = "No songs here under this filter."
+
+    /** triage T1: a Repertoire role's editor with no song enabled on the role. */
+    public const val RATINGS_NO_ENABLED_PARTS: String = "This part is on for no songs yet. Turn some on under Songs."
+
+    /** triage T1: the View entry's editor on an empty pool. */
+    public const val RATINGS_EMPTY_VIEW: String = "This view has no songs."
+
+    /** triage T9: the View menu's "Rate these songs" when no performer resolves. */
+    public const val RATE_NEEDS_PERFORMER: String = "Set who you are from the menu (Who you are) to rate these songs"
+
+    /** triage T9: the disabled Priority and Confidence sort modes (P9). */
+    public const val SORT_NEEDS_PERFORMER: String = "Set who you are from the menu (Who you are) to sort by ratings"
+
+    /** triage T1: what "Rate these songs" will open. [part] is `RatingsTarget.title`. */
+    public fun rateThesePart(part: String): String = "Priority and confidence for $part"
+
+    /** triage T1: the editor's read failed. */
+    public fun ratingsReadFailed(failure: Throwable): String = couldNot("read the ratings", failure)
+
+    /** RS9: one rating's write failed; the control shows the level last stored. */
+    public fun ratingWriteFailed(failure: Throwable): String = couldNot("save that rating", failure)
 
     // ---- The song detail's sections, shared with the merge preview (F27 N2) --------------------
 
@@ -396,6 +428,118 @@ public object Messages {
 
     public const val MERGE_NOT_WRITTEN: String =
         "Something changed under the merge, so nothing was merged. Open the preview again."
+
+    // ---- The scorecards (scorecards SC4-SC14) ----------------------------------------------------
+
+    public const val HABIT_TITLE: String = "Scorecards"
+    public const val HABIT_KICKER: String = "Your practice"
+    public const val HABIT_ALL_INSTRUMENTS: String = "All instruments"
+
+    /** SC4's second scope with no View to name an instrument: shown disabled. */
+    public const val HABIT_NO_VIEW_INSTRUMENT: String = "This View's instrument"
+
+    /** SC14. */
+    public const val HABIT_EMPTY: String = "Your practice will fill this in"
+
+    /** SC9's section. */
+    public const val HABIT_WHICH_DAYS: String = "Which days"
+
+    /** SC5, for accessibility: "Practice days, last 26 weeks". */
+    public val habitGridDescription: String = "Practice days, last ${HabitStats.GRID_WEEKS} weeks"
+
+    /** SC11's two headings. */
+    public val habitRecentWeeks: String = "Last ${HabitStats.RECENT_WEEKS} weeks"
+    public val habitRecentMonths: String = "Last ${HabitStats.RECENT_MONTHS} months"
+
+    /** SC7: "Tue 9 Sep: 5 songs". A gap is stated plainly, never as a failure. */
+    public fun habitDay(day: HabitDay): String {
+        val label = DateLabels.day(LocalDate.parse(day.date))
+        return if (day.count > 0L) "$label: ${songCount(day.count)}" else "$label: nothing logged"
+    }
+
+    /** SC10: "This week: 4 days, 23 songs". */
+    public fun habitThisWeek(total: PeriodTotal): String = habitPeriod("This week", total)
+    public fun habitThisMonth(total: PeriodTotal): String = habitPeriod("This month", total)
+
+    private fun habitPeriod(name: String, total: PeriodTotal): String =
+        "$name: ${nounCount(total.days.toLong(), "day")}, ${songCount(total.events)}"
+
+    /** SC8: "19 of 26", or "not yet" for a weekday the clipped window has not reached. */
+    public fun habitFraction(weekday: WeekdayReliability): String =
+        if (weekday.of == 0) "not yet" else "${weekday.practised} of ${weekday.of}"
+
+    /** SC8, whole: "Tuesdays: 19 of 26". */
+    public fun habitReliability(weekday: WeekdayReliability): String =
+        "${DateLabels.weekdayPlural(weekday.isoDay)}: ${habitFraction(weekday)}"
+
+    /** SC9: the strongest day may be named; the weakest never is. */
+    public fun habitStrongest(isoDay: Int): String = "You show up most on ${DateLabels.weekdayPlural(isoDay)}"
+
+    /** The card's read failed. */
+    public fun habitReadFailed(failure: Throwable): String = couldNot("load your practice days", failure)
+
+    // ---- Suggest (suggest SG1-SG11) ---------------------------------------------------------------
+
+    /** SG1: the top-bar action's content description. */
+    public const val SUGGEST: String = "Suggest a song"
+    public const val SUGGEST_TITLE: String = "Suggestion"
+    public const val SUGGEST_LOG: String = "Log it"
+    public const val SUGGEST_ANOTHER: String = "Another"
+    public const val SUGGEST_TUNE: String = "Tune"
+    public const val SUGGEST_SHUFFLE: String = "Shuffle"
+
+    /** SG4. */
+    public const val SUGGEST_EMPTY_POOL: String = "Everything here is logged today"
+    public const val SUGGEST_EXHAUSTED: String = "That is every song here, once each. Another starts a fresh deck."
+
+    /** SG11: under the open radar, at pure shuffle and otherwise. */
+    public const val SUGGEST_SHUFFLE_HINT: String =
+        "Pure shuffle: every song is equally likely. Drag a handle out to give that input more say."
+    public const val SUGGEST_TUNED_HINT: String =
+        "Drag a handle out to give that input more say. Shuffle puts every one back to zero."
+
+    /** SG11: why a spoke is locked in v1 (journal session 11, D67 #8). */
+    public const val SUGGEST_LOCKED_RATINGS: String = "Ratings not read yet"
+    public const val SUGGEST_LOCKED_SKIPS: String = "Skips not counted"
+
+    // ---- First-run onboarding (onboarding OB1-OB7) -----------------------------------------------
+
+    /** OB1's welcome step, as the user approved it (journal session 11, D66). Set in display type. */
+    public const val ONBOARDING_WELCOME_TITLE: String = "Every song was handed on."
+
+    /** The welcome's copy, verbatim. [ONBOARDING_WELCOME_LATIN] is set in italic wherever it appears. */
+    public const val ONBOARDING_WELCOME_BODY: String =
+        "Birds sang first. People sang before they could write. “Tradition” comes from the Latin tradere: " +
+            "to hand over. When you practise, you keep a song alive long enough to pass it on."
+
+    public const val ONBOARDING_WELCOME_LATIN: String = "tradere"
+
+    /** OB3: on every step. */
+    public const val ONBOARDING_SKIP: String = "Skip setup"
+
+    public const val ONBOARDING_PICK_COLOURS: String = "Pick your colours →"
+
+    /** OB2 step 1. */
+    public const val ONBOARDING_RAMP_QUESTION: String = "How should cold songs look?"
+
+    /** OB2 step 2. */
+    public const val ONBOARDING_WHO_QUESTION: String = "Which of these is you?"
+
+    /** OB2 step 2's way out of the list: it clears the owner, as the drawer's [WHO_YOU_ARE_NONE] does. */
+    public const val ONBOARDING_NONE_OF_THESE: String = "None of these"
+
+    /** OB7: the one line under each question. */
+    public const val ONBOARDING_CHANGE_LATER: String = "You can change this any time from the menu."
+
+    public const val ONBOARDING_NEXT: String = "Next"
+    public const val ONBOARDING_DONE: String = "Done"
+
+    /** OB6: the drawer item and its sheet's heading (triage T10). */
+    public const val WHO_YOU_ARE: String = "Who you are"
+    public const val WHO_YOU_ARE_NONE: String = "None"
+
+    /** OB6 with no live performers: adding one is the Performers route's (OB2). */
+    public const val WHO_YOU_ARE_NO_PERFORMERS: String = "No performers yet. Add them under Performers."
 
     // ---- Failures -----------------------------------------------------------------------------
 

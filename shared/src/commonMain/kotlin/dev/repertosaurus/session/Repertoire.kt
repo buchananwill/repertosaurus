@@ -50,7 +50,7 @@ public class RepertoireCoordinator(
      * with whether this `(performer, instrument)` holds it, in R7's [ORDER].
      *
      * R7 fixes the order *when the list loads and when the search changes*; a toggle must not
-     * re-sort. So this and [ToggleList.reordered] apply [ORDER] and nothing else does — the screen
+     * re-sort. So this and [ToggleList.paged] apply [ORDER] and nothing else does — the screen
      * updates a toggled row's flag in place.
      */
     public fun songs(performerId: String, instrumentId: String): List<HeldSong> =
@@ -91,8 +91,8 @@ public class RepertoireCoordinator(
         /**
          * **R7's one comparator: held first**, then N2's base order —
          * [SongSearch.byTitle]: title case-insensitively, then artist, then id. Applied once,
-         * in [songs] and [ToggleList.reordered] (E35's precedent); the SQL deliberately has no
-         * `ORDER BY`. R3's search is triage T4's, in [RatingsEditorState].
+         * in [songs] and [ToggleList.paged] (E35's precedent); the SQL deliberately has no
+         * `ORDER BY`. R3's search is triage T4's, in [SongPaging].
          */
         public val ORDER: Comparator<HeldSong> =
             compareBy<HeldSong> { if (it.held) 0 else 1 }
@@ -191,10 +191,8 @@ public data class RepertoireState(
 /**
  * One `(performer, instrument)`'s toggle list (R3).
  *
- * [rows] is every live song with its current flag, optimistic ones included; [order] is the
- * displayed page as song ids — fixed at load and at a search, letter or filter change (R7, triage
- * T5a), never by a toggle. [paging] is T5a's letter, search and filter, shared with the ratings
- * editor.
+ * [rows] is every live song with its current flag, optimistic ones included; [page] is triage T5a's
+ * paging over R7's held-first order, fixed as [Page] says, so a toggle never moves a row (R7).
  */
 public data class ToggleList(
     val performerId: String,
@@ -202,43 +200,35 @@ public data class ToggleList(
     /** Which open list a result belongs to, so a result for a closed list never lands. */
     val ticket: Long,
     val rows: List<HeldSong> = emptyList(),
-    val order: List<String> = emptyList(),
-    val paging: RatingsEditorState = RatingsEditorState(),
+    val page: Page = Page(),
     val loading: Boolean = false,
     /** R8: rows whose write has not landed. Each is disabled until it does. */
     val inFlight: Set<String> = emptySet(),
 ) {
-    /** R3's search. */
-    val query: String get() = paging.query
-
-    /** R3's held count, over every song — not only the ones the search is showing. */
+    /** R3's held count, over every song — not only the ones the page is showing. */
     val heldCount: Int get() = RepertoireCoordinator.heldCount(rows)
 
     /** T5a: every row as the paging sees it, in R7's order; `set` is held. */
     public fun paged(): List<PagedSong> =
         rows.sortedWith(RepertoireCoordinator.ORDER).map { PagedSong(it.songId, it.title, it.artistName, set = it.held) }
 
-    /** The rows as displayed: [order], with each row's current flag. */
+    /** The rows as displayed: the page's order, with each row's current flag. */
     public fun visible(): List<HeldSong> {
         val byId = rows.associateBy { it.songId }
-        return order.mapNotNull { byId[it] }
+        return page.order.mapNotNull { byId[it] }
     }
 
     /** One row's flag, changed in place — **R7: the order is not touched**. */
     public fun withHeld(songId: String, held: Boolean): ToggleList =
         copy(rows = rows.map { if (it.songId == songId) it.copy(held = held) else it })
 
-    /**
-     * R8: the optimistic half of a toggle. The row shows [held] at once and is marked in flight,
-     * which disables it until its write lands.
-     */
+    /** R8: the optimistic half of a toggle; the row is disabled until its write lands. */
     public fun toggling(songId: String, held: Boolean): ToggleList =
         withHeld(songId, held).copy(inFlight = inFlight + songId)
 
     /**
      * R8: the write for [songId] landed. [rollBackTo] is the flag to restore when it was refused
-     * or failed; null when it wrote (or found the row already as asked), so the optimistic flag
-     * stands.
+     * or failed; null when the optimistic flag stands.
      */
     public fun landed(songId: String, rollBackTo: Boolean?): ToggleList {
         val settled = copy(inFlight = inFlight - songId)
@@ -246,31 +236,18 @@ public data class ToggleList(
     }
 
     /**
-     * A fresh read of the list's rows. Rows still in flight keep their optimistic flag — their
-     * writes have not run yet and the read cannot know what they will write — and the order is
-     * fixed again (R7's load moment).
+     * A fresh read. Rows still in flight keep their optimistic flag, since the read cannot know what
+     * their writes will do, and the page is fixed again (R7's load moment).
      */
     public fun reread(fresh: List<HeldSong>): ToggleList {
         val pending = rows.filter { it.songId in inFlight }.associateBy { it.songId }
-        return copy(rows = fresh.map { pending[it.songId] ?: it }, loading = false).reordered()
+        val read = copy(rows = fresh.map { pending[it.songId] ?: it }, loading = false)
+        return read.copy(page = page.fixed(read.paged()))
     }
 
-    /** R3's search and R7's second moment: the query changed, so the order is fixed again. */
-    public fun withQuery(query: String): ToggleList = copy(paging = paging.withQuery(query)).reordered()
+    public fun withQuery(query: String): ToggleList = copy(page = page.withQuery(query, paged()))
 
-    /** triage T3, T5a: another letter's page, fixed as a search change fixes it. */
-    public fun withLetter(letter: Char): ToggleList = copy(paging = paging.withLetter(letter)).reordered()
+    public fun withLetter(letter: Char): ToggleList = copy(page = page.withLetter(letter, paged()))
 
-    /** triage T5, T5a: All / On / Off, fixed as a search change fixes it. */
-    public fun withFilter(filter: PageFilter): ToggleList = copy(paging = paging.withFilter(filter)).reordered()
-
-    /**
-     * R7: the only place the order is computed — on load and on a search, letter or filter change.
-     * The page is T5a's, over R7's held-first order; the letter is pinned (T3).
-     */
-    public fun reordered(): ToggleList {
-        val all = paged()
-        val pinned = paging.pinned(all)
-        return copy(paging = pinned, order = pinned.visible(all).map { it.songId })
-    }
+    public fun withFilter(filter: PageFilter): ToggleList = copy(page = page.withFilter(filter, paged()))
 }

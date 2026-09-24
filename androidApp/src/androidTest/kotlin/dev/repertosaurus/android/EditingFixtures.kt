@@ -87,12 +87,18 @@ internal object EditingFixtures {
      * **Every ViewModel [RepertosaurusApp] takes, over [holder]** (style review F9 N4), built on the
      * main thread. Not waited on: a boot against a broken database never settles into a loaded
      * logger, so each test waits for what it expects.
+     *
+     * **[onboarded] marks first-run onboarding done on [device] before anything reads it**, so the
+     * whole-app tests land on the logger as they did before onboarding existed (onboarding OB1). Only
+     * the onboarding tests pass false.
      */
     fun app(
         holder: DatabaseHolder,
         preferences: SessionPreferences = InMemorySessionPreferences(),
         device: DevicePreferences = InMemoryDevicePreferences(),
+        onboarded: Boolean = true,
     ): AppModels {
+        if (onboarded) device.markOnboardingDone()
         lateinit var app: AppModels
         onMain {
             app = AppModels(
@@ -103,6 +109,7 @@ internal object EditingFixtures {
                 artists = ArtistsViewModel(holder),
                 settings = DeviceSettings(device),
                 ratings = RatingsEditorViewModel(holder),
+                habit = HabitViewModel(holder),
             )
         }
         return app
@@ -117,6 +124,7 @@ internal class AppModels(
     val artists: ArtistsViewModel,
     val settings: DeviceSettings,
     val ratings: RatingsEditorViewModel,
+    val habit: HabitViewModel,
 )
 
 /**
@@ -126,7 +134,7 @@ internal class AppModels(
 internal fun ComposeContentTestRule.setApp(app: AppModels) {
     setContent {
         RepertosaurusWindow {
-            RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings, app.ratings)
+            RepertosaurusApp(app.session, app.repertoire, app.songs, app.artists, app.settings, app.ratings, app.habit)
         }
     }
 }
