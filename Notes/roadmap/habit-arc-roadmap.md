@@ -273,15 +273,15 @@ Amended in place by the lead. Order is the critical path first, then the paralle
 | P2 | Schema-3 impl | impl | P1, P3 (for `RatingLevel` and the emulator; journal session 11, D31) | — | **complete, green, awaiting commit** (journal session 11, D48) |
 | P3 | Rating vocabulary + ramp primitive | spec+impl | — | — | **complete, green, awaiting commit**: spec [rating-scale.md](../decisions/rating-scale.md) (journal session 11, D48) |
 | P4 | Suggest spec | spec | — | G4, G5 soft | **done**: [suggest.md](../decisions/suggest.md) (defaults adopted) |
-| P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | **in flight** |
-| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); **impl in flight** |
+| P5 | Suggest v1 📱 | impl | P3, P4, **P13b** (hot files, and it builds in the new look) | — | **committed `2d7836e`** (with its fix round) |
+| P6 | Scorecards v1 📱 | spec+impl | P3 | G7 soft | spec **done**: [scorecards.md](../decisions/scorecards.md); **committed `2d7836e`** |
 | P7 | Triage spec | spec | P1 | G9 soft | **done**: [triage.md](../decisions/triage.md) (G9 and G12 defaults adopted) |
-| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed `4631d26`**; review fixes pending |
+| P8 | Ratings editor 📱 | impl | P2, P3, P7 | — | **committed** `4631d26` + fix round `2d7836e` |
 | P9 | Triage sort + Suggest v2 📱 | impl | P2, P5, P7 | — | blocked |
 | P10 | Timer spec | spec | P1 | G8 soft | **done**: [timer.md](../decisions/timer.md) (G8 default adopted) |
 | P11 | Timer 📱 | impl | P2, P10; after P9 (hot files) | — | blocked |
 | P12 | Scorecards v2 | impl | P6, P11 | — | blocked |
-| P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); impl ready once P3 is committed |
+| P14 | First-run onboarding 📱 (ramp; owner performer) | spec+impl | P3 | G12 soft | spec **done**: [onboarding.md](../decisions/onboarding.md); **committed `2d7836e`**, fix round in flight |
 | P13b | Theme foundation 📱 | impl | P3 | G10 closed for the look (D49) | **committed** (journal session 11, D56); the review fix round follows |
 | P13a | Beauty exploration | with the user | — | — | **done**: three rounds on [Repertosaurus colour ramps](https://claude.ai/artifact/4Hq2yaxYmEdqeczZwacf5e); round 3 ("handed on") approved (journal session 11, D49) |
 | P13 | Theme implementation 📱 | impl | P13a, P8, P9, P11 | G10 hard | blocked |

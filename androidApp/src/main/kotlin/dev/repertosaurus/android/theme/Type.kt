@@ -4,8 +4,12 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -91,6 +95,19 @@ internal fun DisplayText(
         overflow = TextOverflow.Ellipsis,
         modifier = modifier,
     )
+}
+
+/**
+ * VI9: [style] over a hard 3 dp `Madder` offset, the risograph misregistration. A zero blur is a hard
+ * shadow: Compose substitutes the smallest radius the platform keeps.
+ */
+@Composable
+internal fun misregistered(style: TextStyle): TextStyle {
+    val density = LocalDensity.current
+    return remember(density, style) {
+        val shift = with(density) { Tokens.Misregistration.toPx() }
+        style.copy(shadow = Shadow(Tokens.Madder, Offset(shift, shift), blurRadius = 0f))
+    }
 }
 
 /**

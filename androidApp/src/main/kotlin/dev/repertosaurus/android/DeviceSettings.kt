@@ -38,7 +38,7 @@ public class DeviceSettings(
     public val colourRamp: StateFlow<ColourRamp> = ramp.flow
     public fun setColourRamp(value: ColourRamp): Unit = ramp.set(value)
 
-    // Triage T10: set by onboarding's performer step (OB2) and by the drawer's "Who you are" (OB6).
+    // Triage T10.
     private val owner = Remembered(preferences.ownerPerformer(), preferences::rememberOwnerPerformer)
     public val ownerPerformer: StateFlow<String?> = owner.flow
     public fun setOwnerPerformer(value: String?): Unit = owner.set(value)
@@ -53,9 +53,7 @@ public class DeviceSettings(
     public val habitScope: StateFlow<HabitScope> = scope.flow
     public fun setHabitScope(value: HabitScope): Unit = scope.set(value)
 
-    // Onboarding OB1, OB3: only ever set true, so the write ignores anything else. OB4: onboarding
-    // marks it after every answer has been set.
-    private val onboarded = Remembered(preferences.onboardingDone()) { done -> if (done) preferences.markOnboardingDone() }
+    private val onboarded = Remembered(preferences.onboardingDone()) { preferences.markOnboardingDone() }
     public val onboardingDone: StateFlow<Boolean> = onboarded.flow
     public fun markOnboardingDone(): Unit = onboarded.set(true)
 

@@ -126,10 +126,8 @@ internal class AndroidSessionPreferences(
         preferences.edit().putString(KEY_HABIT_SCOPE, scope.name).apply()
     }
 
-    // Onboarding OB1: unset reads as not done, so an install with data on it sees onboarding once
-    // (journal D39). Anything unreadable reads as not done too: showing it again is harmless (OB4).
-    override fun onboardingDone(): Boolean =
-        runCatching { preferences.getBoolean(KEY_ONBOARDING_DONE, false) }.getOrDefault(false)
+    // Onboarding OB1: anything unreadable reads as not done.
+    override fun onboardingDone(): Boolean = storedBoolean(KEY_ONBOARDING_DONE)
 
     override fun markOnboardingDone() {
         preferences.edit().putBoolean(KEY_ONBOARDING_DONE, true).apply()
@@ -140,6 +138,9 @@ internal class AndroidSessionPreferences(
      * a value of another type under the key reads as unset.
      */
     private fun storedString(key: String): String? = runCatching { preferences.getString(key, null) }.getOrNull()
+
+    /** [storedString]'s Boolean sibling: unset, or a value of another type, reads as false. */
+    private fun storedBoolean(key: String): Boolean = runCatching { preferences.getBoolean(key, false) }.getOrDefault(false)
 
     private companion object {
         const val KEY_INSTRUMENT = "last_instrument_id"

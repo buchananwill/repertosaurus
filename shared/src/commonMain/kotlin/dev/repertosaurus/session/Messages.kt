@@ -507,7 +507,6 @@ public object Messages {
     /** OB1's welcome step, as the user approved it (journal session 11, D66). Set in display type. */
     public const val ONBOARDING_WELCOME_TITLE: String = "Every song was handed on."
 
-    /** The welcome's copy, verbatim. [ONBOARDING_WELCOME_LATIN] is set in italic wherever it appears. */
     public const val ONBOARDING_WELCOME_BODY: String =
         "Birds sang first. People sang before they could write. “Tradition” comes from the Latin tradere: " +
             "to hand over. When you practise, you keep a song alive long enough to pass it on."
@@ -525,7 +524,6 @@ public object Messages {
     /** OB2 step 2. */
     public const val ONBOARDING_WHO_QUESTION: String = "Which of these is you?"
 
-    /** OB2 step 2's way out of the list: it clears the owner, as the drawer's [WHO_YOU_ARE_NONE] does. */
     public const val ONBOARDING_NONE_OF_THESE: String = "None of these"
 
     /** OB7: the one line under each question. */
@@ -540,6 +538,24 @@ public object Messages {
 
     /** OB6 with no live performers: adding one is the Performers route's (OB2). */
     public const val WHO_YOU_ARE_NO_PERFORMERS: String = "No performers yet. Add them under Performers."
+
+    // ---- The drawer and its sheets (E26, R27, R40-R42, RS16, OB6) -------------------------------
+
+    public const val DRAWER_APP_NAME: String = "Repertosaurus"
+    public const val DRAWER_OFFLINE: String = "Offline. This phone holds the only copy."
+    public const val DRAWER_EXPORT: String = "Export database"
+    public const val DRAWER_REPERTOIRE: String = "Repertoire"
+    public const val DRAWER_SONGS: String = "Songs"
+    public const val DRAWER_ARTISTS: String = "Artists"
+    public const val DRAWER_SIMPLIFY_SPELLING: String = "Simplify F♯♯ to G"
+    public const val DRAWER_ADVANCED: String = "Advanced"
+    public const val DRAWER_IMPORT: String = "Replace database from file"
+
+    /** RS16: the drawer item and its sheet's heading. */
+    public const val COLOUR_RAMP: String = "Colour ramp"
+
+    /** RS16: said after the tick on the current ramp. */
+    public const val CHOICE_CURRENT: String = "current"
 
     // ---- Failures -----------------------------------------------------------------------------
 

@@ -1,19 +1,16 @@
 package dev.repertosaurus.android
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.remember
@@ -26,15 +23,17 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.ChoiceHeader
 import dev.repertosaurus.android.theme.DisplayText
 import dev.repertosaurus.android.theme.DisplayType
+import dev.repertosaurus.android.theme.InkSheet
 import dev.repertosaurus.android.theme.Segment
 import dev.repertosaurus.android.theme.SegmentStrip
 import dev.repertosaurus.android.theme.Tokens
@@ -42,6 +41,7 @@ import dev.repertosaurus.android.theme.inkBorder
 import dev.repertosaurus.core.ColourRamp
 import dev.repertosaurus.core.Heat
 import dev.repertosaurus.core.RatingLevel
+import dev.repertosaurus.session.Messages
 
 /**
  * rating-scale RS8: provided once, at the app root, and **no composable takes a ramp parameter**,
@@ -179,22 +179,10 @@ private fun LevelText(level: RatingLevel, labelFits: Boolean, modifier: Modifier
 }
 
 /** rating-scale RS16: one tap on a ramp is the whole interaction; [onSelect] persists and closes. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ColourRampPicker(onSelect: (ColourRamp) -> Unit, onDismiss: () -> Unit) {
-    // Fully expanded: at half height the third ramp's swatches sit under the screen's edge.
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        modifier = Modifier.testTag(RatingTags.RAMP_PICKER),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(RampRowGap),
-        ) {
-            DisplayText("Colour ramp", style = DisplayType.Heading)
-            ColourRampChoices(onSelect = onSelect)
-        }
+    InkSheet(title = Messages.COLOUR_RAMP, onDismiss = onDismiss, modifier = Modifier.testTag(RatingTags.RAMP_PICKER)) {
+        ColourRampChoices(onSelect = onSelect)
     }
 }
 
@@ -220,7 +208,7 @@ private val RampRowGap = 12.dp
 
 /**
  * One ramp: its label over its four steps, joined as a [SegmentStrip] shows them. The current ramp
- * is marked in words and by an `Ink` fill behind its label, not by colour alone.
+ * is marked by [ChoiceHeader]. The whole card is one radio choice, with no ripple (F17 B15).
  */
 @Composable
 private fun RampRow(ramp: ColourRamp, current: Boolean, labelsFit: Boolean, onClick: () -> Unit) {
@@ -229,23 +217,16 @@ private fun RampRow(ramp: ColourRamp, current: Boolean, labelsFit: Boolean, onCl
             .fillMaxWidth()
             .background(Tokens.Ground)
             .inkBorder()
-            .clickable(onClick = onClick)
-            .testTag(RatingTags.ramp(ramp))
-            .semantics { selected = current },
+            .selectable(
+                selected = current,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.RadioButton,
+                onClick = onClick,
+            )
+            .testTag(RatingTags.ramp(ramp)),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(if (current) Tokens.Ink else Color.Transparent)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val text = if (current) Tokens.Paper else Tokens.Ink
-            Text(ramp.label, style = MaterialTheme.typography.titleMedium, color = text, modifier = Modifier.weight(1f))
-            if (current) {
-                Text("✓ current", style = MaterialTheme.typography.labelLarge, color = Tokens.Ochre)
-            }
-        }
+        ChoiceHeader(label = ramp.label, selected = current, selectedNote = Messages.CHOICE_CURRENT)
         SegmentStrip(modifier = Modifier.padding(start = RampStripMargin, end = RampStripMargin, bottom = 12.dp)) {
             for (level in RatingLevel.entries) {
                 Box(

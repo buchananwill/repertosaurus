@@ -14,6 +14,8 @@ import dev.repertosaurus.session.InMemorySessionPreferences
 import dev.repertosaurus.session.LookupKind
 import dev.repertosaurus.session.LookupStores
 import dev.repertosaurus.session.SessionPreferences
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlin.test.assertEquals
 
 /**
@@ -90,19 +92,20 @@ internal object EditingFixtures {
      *
      * **[onboarded] marks first-run onboarding done on [device] before anything reads it**, so the
      * whole-app tests land on the logger as they did before onboarding existed (onboarding OB1). Only
-     * the onboarding tests pass false.
+     * the onboarding tests pass false. [io] is the logger's, so a test can hold its first load (a [Gate]).
      */
     fun app(
         holder: DatabaseHolder,
         preferences: SessionPreferences = InMemorySessionPreferences(),
         device: DevicePreferences = InMemoryDevicePreferences(),
         onboarded: Boolean = true,
+        io: CoroutineDispatcher = Dispatchers.IO,
     ): AppModels {
         if (onboarded) device.markOnboardingDone()
         lateinit var app: AppModels
         onMain {
             app = AppModels(
-                session = SessionViewModel(holder, preferences, TEST_DEVICE),
+                session = SessionViewModel(holder, preferences, TEST_DEVICE, io),
                 // The editing routes' ViewModels read nothing until their screen is entered.
                 repertoire = RepertoireViewModel(holder),
                 songs = SongsViewModel(holder),

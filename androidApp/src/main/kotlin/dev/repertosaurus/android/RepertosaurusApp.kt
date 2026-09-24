@@ -3,8 +3,11 @@ package dev.repertosaurus.android
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import dev.repertosaurus.android.theme.Tokens
 import dev.repertosaurus.core.NoteSpelling
 import dev.repertosaurus.data.DatabaseState
 import dev.repertosaurus.session.LookupKind
@@ -69,9 +73,9 @@ internal enum class Route(private val title: String? = null, val lookup: LookupK
     SESSION,
 
     // Repertoire-editing R27, in the drawer above the lookup kinds.
-    REPERTOIRE("Repertoire"),
-    SONGS("Songs"),
-    ARTISTS("Artists"),
+    REPERTOIRE(Messages.DRAWER_REPERTOIRE),
+    SONGS(Messages.DRAWER_SONGS),
+    ARTISTS(Messages.DRAWER_ARTISTS),
 
     // Scorecards: among the editing routes, above "Advanced". It reads only (SC15).
     HABIT(Messages.HABIT_TITLE),
@@ -159,10 +163,7 @@ internal object DrawerTags {
  * to reach recovery would be routing through the fault; the launchers stay hoisted above the
  * branch so the import picker is reachable from either side of it.
  *
- * **First-run onboarding comes after that gate and inside the ramp provider** (onboarding OB1, OB5):
- * it is never shown in place of [RecoveryScreen], and its ramp step shows the live ramp. Until it is
- * finished or skipped it stands in front of the drawer and the routes; "Skip setup" ends it in one tap
- * (OB3).
+ * **First-run onboarding comes after that gate and inside the ramp provider** (onboarding OB1, OB5).
  */
 @Composable
 public fun RepertosaurusApp(
@@ -174,19 +175,98 @@ public fun RepertosaurusApp(
     ratings: RatingsEditorViewModel,
     habit: HabitViewModel,
 ) {
+    val context = LocalContext.current
+    val databaseState by viewModel.databaseState.collectAsState()
+    val colourRamp by settings.colourRamp.collectAsState()
+    val onboarded by settings.onboardingDone.collectAsState()
+
+    // The system save and open sheets. They live here because both the top bar and the
+    // drawer reach them, and an ActivityResultLauncher must be remembered above both.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        if (uri != null) viewModel.export { context.contentResolver.openOutputStream(uri) }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        // Anything: a `.db` file has no registered MIME type on most providers, and
+        // filtering by one is the fastest way to make the user's own backup unpickable.
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) viewModel.stageImport { context.contentResolver.openInputStream(uri) }
+    }
+    val export = { exportLauncher.launch(viewModel.exportFileName()) }
+    val import = { importLauncher.launch(arrayOf("*/*")) }
+
+    // An exhaustive `when` over the sealed interface rather than an `as?` cast: a third state —
+    // whatever sync or a long migration needs — must be a compile error here, not a silent fall
+    // through into the Session screen, which is the exact failure shape this gate exists to
+    // delete.
+    when (val state = databaseState) {
+        is DatabaseState.Unloadable -> {
+            RecoveryScreen(state = state, viewModel = viewModel, onImport = { import() })
+            return
+        }
+        DatabaseState.Ready -> Unit
+    }
+
+    CompositionLocalProvider(LocalColourRamp provides colourRamp) {
+        if (!onboarded) {
+            FirstRun(viewModel, settings)
+        } else {
+            AppShell(viewModel, repertoire, songs, artists, settings, ratings, habit, export = export, import = import)
+        }
+    }
+}
+
+/**
+ * Onboarding, once the database is known to be readable (journal F30 B1): `Ready` is the flow's
+ * starting value, not a completed load, so until the first load is done this is bare ground, neither
+ * the logger nor onboarding.
+ */
+@Composable
+private fun FirstRun(viewModel: SessionViewModel, settings: DeviceSettings) {
+    val firstLoadDone by viewModel.firstLoadDone.collectAsState()
+    if (!firstLoadDone) {
+        Box(modifier = Modifier.fillMaxSize().background(Tokens.Ground))
+        return
+    }
+    val performers by viewModel.performers.collectAsState()
+    val performersLoaded by viewModel.performersLoaded.collectAsState()
+    val ownerPerformer by settings.ownerPerformer.collectAsState()
+    OnboardingScreen(
+        performers = performers,
+        performersLoaded = performersLoaded,
+        ownerPerformerId = ownerPerformer,
+        onColourRamp = settings::setColourRamp,
+        onOwnerPerformer = settings::setOwnerPerformer,
+        onFinish = settings::markOnboardingDone,
+    )
+}
+
+/** The drawer's two settings sheets; at most one is open. */
+private enum class DrawerSheet { RAMP, OWNER }
+
+/** The drawer, the routes and the drawer's sheets, below the database gate and onboarding. */
+@Composable
+private fun AppShell(
+    viewModel: SessionViewModel,
+    repertoire: RepertoireViewModel,
+    songs: SongsViewModel,
+    artists: ArtistsViewModel,
+    settings: DeviceSettings,
+    ratings: RatingsEditorViewModel,
+    habit: HabitViewModel,
+    export: () -> Unit,
+    import: () -> Unit,
+) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     // F19: saved, so a rotation stays on the route it was on. An enum is saveable as it is.
     var route by rememberSaveable { mutableStateOf(Route.SESSION) }
-    val databaseState by viewModel.databaseState.collectAsState()
     val noteSpelling by settings.noteSpelling.collectAsState()
-    val colourRamp by settings.colourRamp.collectAsState()
     val ownerPerformer by settings.ownerPerformer.collectAsState()
-    val onboarded by settings.onboardingDone.collectAsState()
     val performers by viewModel.performers.collectAsState()
-    var pickingRamp by remember { mutableStateOf(false) }
-    var pickingOwner by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf<DrawerSheet?>(null) }
 
     val close = { scope.launch { drawerState.close() } }
 
@@ -222,159 +302,109 @@ public fun RepertosaurusApp(
         }
     }
 
-    // The system save and open sheets. They live here because both the top bar and the
-    // drawer reach them, and an ActivityResultLauncher must be remembered above both.
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { uri ->
-        if (uri != null) viewModel.export { context.contentResolver.openOutputStream(uri) }
-    }
-    val importLauncher = rememberLauncherForActivityResult(
-        // Anything: a `.db` file has no registered MIME type on most providers, and
-        // filtering by one is the fastest way to make the user's own backup unpickable.
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) viewModel.stageImport { context.contentResolver.openInputStream(uri) }
-    }
-    val export = { exportLauncher.launch(viewModel.exportFileName()) }
-    val import = { importLauncher.launch(arrayOf("*/*")) }
-
-    // An exhaustive `when` over the sealed interface rather than an `as?` cast: a third state —
-    // whatever sync or a long migration needs — must be a compile error here, not a silent fall
-    // through into the Session screen, which is the exact failure shape this gate exists to
-    // delete.
-    when (val state = databaseState) {
-        is DatabaseState.Unloadable -> {
-            RecoveryScreen(state = state, viewModel = viewModel, onImport = { import() })
-            return
-        }
-        DatabaseState.Ready -> Unit
-    }
-
     BackHandler(enabled = drawerState.isOpen) { close() }
     BackHandler(enabled = !drawerState.isOpen && route != Route.SESSION) { toLogger() }
 
-    CompositionLocalProvider(LocalColourRamp provides colourRamp) {
-        // Onboarding OB1, OB5: after the database gate, inside the ramp provider. OB4: each answer is
-        // written as it is chosen, and "done" last.
-        if (!onboarded) {
-            OnboardingScreen(
-                performers = performers,
-                ownerPerformerId = ownerPerformer,
-                onColourRamp = settings::setColourRamp,
-                onOwnerPerformer = settings::setOwnerPerformer,
-                onFinish = settings::markOnboardingDone,
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
+        drawerContent = {
+            AppDrawerContent(
+                route = route,
+                noteSpelling = noteSpelling,
+                onNavigate = { target ->
+                    close()
+                    route = target
+                },
+                onExport = {
+                    close()
+                    export()
+                },
+                onImport = {
+                    close()
+                    import()
+                },
+                onNoteSpelling = settings::setNoteSpelling,
+                onSheet = { target ->
+                    close()
+                    sheet = target
+                },
             )
-            return@CompositionLocalProvider
-        }
-
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            gesturesEnabled = drawerState.isOpen,
-            drawerContent = {
-                AppDrawerContent(
-                    route = route,
-                    noteSpelling = noteSpelling,
-                    onNavigate = { target ->
-                        close()
-                        route = target
-                    },
-                    onExport = {
-                        close()
-                        export()
-                    },
-                    onImport = {
-                        close()
-                        import()
-                    },
-                    onNoteSpelling = settings::setNoteSpelling,
-                    onColourRamp = {
-                        close()
-                        pickingRamp = true
-                    },
-                    onWhoYouAre = {
-                        close()
-                        pickingOwner = true
-                    },
-                )
-            },
-        ) {
-            // E24: every `onBack` and the back handler above land on `Route.SESSION`, never on
-            // another route, and R26 reloads the logger on the way. A drill-down inside a route has
-            // its own back handler, composed below this one's and so consulted first.
-            when (route) {
-                Route.SESSION -> SessionScreen(
-                    viewModel = viewModel,
-                    suggestTuning = settings.suggestTuning.collectAsState().value,
-                    onTune = settings::setSuggestTuning,
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onExport = { export() },
-                    ownerPerformerId = ownerPerformer,
-                    onRateSongs = { target ->
-                        ratings.open(target, after = {})
-                        route = Route.RATINGS
-                    },
-                )
-                Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, ratings = ratings, onBack = toLogger)
-                Route.RATINGS -> RatingsRoute(ratings, onDone = { toLogger() })
-                Route.SONGS -> SongsScreen(
-                    viewModel = songs,
-                    session = viewModel,
-                    settings = settings,
-                    onBack = toLogger,
-                )
-                Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
-                Route.HABIT -> {
-                    // Scorecards SC4: the second scope is the current View's practice instrument.
-                    val session by viewModel.state.collectAsState()
-                    val habitScope by settings.habitScope.collectAsState()
-                    HabitScreen(
-                        viewModel = habit,
-                        scope = habitScope,
-                        onScope = settings::setHabitScope,
-                        practiceInstrument = session.instruments.firstOrNull { it.id == session.selectedInstrumentId },
-                        onBack = toLogger,
-                    )
-                }
-                // One screen serves every lookup kind (E13, E18); the route only says which.
-                Route.INSTRUMENTS,
-                Route.PERFORMERS,
-                Route.TAGS,
-                Route.GROOVES,
-                Route.VENUES,
-                Route.BANDS,
-                Route.PRACTICE_CONTEXTS,
-                -> ManageLookupScreen(
-                    viewModel = viewModel,
-                    kind = checkNotNull(route.lookup) { "$route is a lookup route with no kind" },
+        },
+    ) {
+        // E24: every `onBack` and the back handler above land on `Route.SESSION`, never on
+        // another route, and R26 reloads the logger on the way. A drill-down inside a route has
+        // its own back handler, composed below this one's and so consulted first.
+        when (route) {
+            Route.SESSION -> SessionScreen(
+                viewModel = viewModel,
+                suggestTuning = settings.suggestTuning.collectAsState().value,
+                onTune = settings::setSuggestTuning,
+                onOpenDrawer = { scope.launch { drawerState.open() } },
+                onExport = { export() },
+                ownerPerformerId = ownerPerformer,
+                onRateSongs = { target ->
+                    ratings.open(target, after = {})
+                    route = Route.RATINGS
+                },
+            )
+            Route.REPERTOIRE -> RepertoireScreen(viewModel = repertoire, ratings = ratings, onBack = toLogger)
+            Route.RATINGS -> RatingsRoute(ratings, onDone = { toLogger() })
+            Route.SONGS -> SongsScreen(
+                viewModel = songs,
+                session = viewModel,
+                settings = settings,
+                onBack = toLogger,
+            )
+            Route.ARTISTS -> ArtistsScreen(viewModel = artists, onBack = toLogger)
+            Route.HABIT -> {
+                // Scorecards SC4: the second scope is the current View's practice instrument.
+                val session by viewModel.state.collectAsState()
+                val habitScope by settings.habitScope.collectAsState()
+                HabitScreen(
+                    viewModel = habit,
+                    scope = habitScope,
+                    onScope = settings::setHabitScope,
+                    practiceInstrument = session.instruments.firstOrNull { it.id == session.selectedInstrumentId },
                     onBack = toLogger,
                 )
             }
+            // One screen serves every lookup kind (E13, E18); the route only says which.
+            Route.INSTRUMENTS,
+            Route.PERFORMERS,
+            Route.TAGS,
+            Route.GROOVES,
+            Route.VENUES,
+            Route.BANDS,
+            Route.PRACTICE_CONTEXTS,
+            -> ManageLookupScreen(
+                viewModel = viewModel,
+                kind = checkNotNull(route.lookup) { "$route is a lookup route with no kind" },
+                onBack = toLogger,
+            )
         }
+    }
 
+    when (sheet) {
         // RS16.
-        if (pickingRamp) {
-            ColourRampPicker(
-                onSelect = { ramp ->
-                    settings.setColourRamp(ramp)
-                    pickingRamp = false
-                },
-                onDismiss = { pickingRamp = false },
-            )
-        }
-
+        DrawerSheet.RAMP -> ColourRampPicker(
+            onSelect = { ramp ->
+                settings.setColourRamp(ramp)
+                sheet = null
+            },
+            onDismiss = { sheet = null },
+        )
         // Onboarding OB6, triage T10.
-        if (pickingOwner) {
-            OwnerPerformerPicker(
-                performers = performers,
-                ownerPerformerId = ownerPerformer,
-                onChoose = { performerId ->
-                    settings.setOwnerPerformer(performerId)
-                    pickingOwner = false
-                },
-                onDismiss = { pickingOwner = false },
-            )
-        }
+        DrawerSheet.OWNER -> OwnerPerformerPicker(
+            performers = performers,
+            ownerPerformerId = ownerPerformer,
+            onChoose = { performerId ->
+                settings.setOwnerPerformer(performerId)
+                sheet = null
+            },
+            onDismiss = { sheet = null },
+        )
+        null -> Unit
     }
 }
 
@@ -400,15 +430,14 @@ private fun AppDrawerContent(
     onExport: () -> Unit,
     onImport: () -> Unit,
     onNoteSpelling: (NoteSpelling) -> Unit,
-    onColourRamp: () -> Unit,
-    onWhoYouAre: () -> Unit,
+    onSheet: (DrawerSheet) -> Unit,
 ) {
     ModalDrawerSheet {
         Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Repertosaurus", style = MaterialTheme.typography.headlineSmall)
+                Text(Messages.DRAWER_APP_NAME, style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Offline. This phone holds the only copy.",
+                    Messages.DRAWER_OFFLINE,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -416,7 +445,7 @@ private fun AppDrawerContent(
 
             // First item, and still in the top bar: until sync exists, the exported file is the
             // only backup that exists anywhere.
-            DrawerItem("Export database", onClick = onExport)
+            DrawerItem(Messages.DRAWER_EXPORT, onClick = onExport)
 
             // Repertoire-editing R27: the three routes that reach the database outside a logger
             // View. "Better too many routes than anything inaccessible" — which of them is
@@ -433,7 +462,7 @@ private fun AppDrawerContent(
             }
             DrawerItem(
                 // One line: the drawer item is a fixed 56dp, and a second line is clipped.
-                "Simplify F♯♯ to G",
+                Messages.DRAWER_SIMPLIFY_SPELLING,
                 onClick = flipSpelling,
                 modifier = Modifier.testTag(DrawerTags.NOTE_SPELLING),
                 badge = {
@@ -447,15 +476,23 @@ private fun AppDrawerContent(
 
             // Rating-scale RS16. Three ramps with swatches need more room than a switch, so this
             // opens a sheet.
-            DrawerItem("Colour ramp", onClick = onColourRamp, modifier = Modifier.testTag(DrawerTags.COLOUR_RAMP))
+            DrawerItem(
+                Messages.COLOUR_RAMP,
+                onClick = { onSheet(DrawerSheet.RAMP) },
+                modifier = Modifier.testTag(DrawerTags.COLOUR_RAMP),
+            )
 
             // Onboarding OB6: beside "Colour ramp", and a sheet for the same reason.
-            DrawerItem(Messages.WHO_YOU_ARE, onClick = onWhoYouAre, modifier = Modifier.testTag(DrawerTags.WHO_YOU_ARE))
+            DrawerItem(
+                Messages.WHO_YOU_ARE,
+                onClick = { onSheet(DrawerSheet.OWNER) },
+                modifier = Modifier.testTag(DrawerTags.WHO_YOU_ARE),
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider()
             Text(
-                "Advanced",
+                Messages.DRAWER_ADVANCED,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 16.dp),
@@ -474,7 +511,7 @@ private fun AppDrawerContent(
                 DrawerItem(target.label.orEmpty(), onClick = { onNavigate(target) }, selected = route == target)
             }
 
-            DrawerItem("Replace database from file", onClick = onImport)
+            DrawerItem(Messages.DRAWER_IMPORT, onClick = onImport)
         }
     }
 }

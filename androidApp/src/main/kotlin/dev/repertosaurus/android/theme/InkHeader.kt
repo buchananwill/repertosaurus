@@ -20,8 +20,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.cos
@@ -44,7 +42,6 @@ internal fun InkHeader(
     subline: (@Composable () -> Unit)? = null,
     onTitleClick: (() -> Unit)? = null,
 ) {
-    val shift = with(LocalDensity.current) { Tokens.Misregistration.toPx() }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -64,12 +61,7 @@ internal fun InkHeader(
                 Spacer(modifier = Modifier.weight(1f))
                 actions()
             }
-            CompositionLocalProvider(
-                // A zero blur is a hard shadow: Compose substitutes the smallest radius the platform keeps.
-                LocalTextStyle provides LocalTextStyle.current.copy(
-                    shadow = Shadow(Tokens.Madder, Offset(shift, shift), blurRadius = 0f),
-                ),
-            ) {
+            CompositionLocalProvider(LocalTextStyle provides misregistered(LocalTextStyle.current)) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
